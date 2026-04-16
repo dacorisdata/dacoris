@@ -46,7 +46,7 @@ DACORIS (Data Conveyance Research Information System) is a modular enterprise pl
 - **Research Management** – CRIS/RIMS-style research governance, ethics workflows, outputs tracking
 - **Data Management Part A** – Research data capture, QA pipeline, repository, and analysis
 - **Data Management Part B** – Cloud-native big-data platform: ETL, data lake, warehouse, ML, BI
-- **Performance Contracting** – Kenyan public university performance management, cascading targets, quarterly monitoring, annual evaluation
+- **Performance Contracting** – Institutional performance management, hierarchical target cascading, periodic monitoring, annual evaluation
 - **Training & Capacity Building with AI** – LMS with AI-powered content generation, personalized learning paths, teaching assistants, automated assessment, and research writing support
 
 The platform is built on a FastAPI (Python) backend with PostgreSQL and a Next.js frontend. The Identity & Access Management (IAM) layer — including ORCID OAuth, multi-tenancy, and RBAC — is already implemented on GitHub and serves as the foundation for all subsequent modules.
@@ -1774,77 +1774,79 @@ These capabilities are required regardless of which option is chosen.
 
 ### 9.1 Overview
 
-The **Performance Contracting Module** implements the Kenyan public university performance management framework, enabling institutions to manage the complete annual performance contracting cycle from national priorities through to evaluation. The module supports:
+The **Performance Contracting Module** provides a comprehensive institutional performance management system, enabling organizations to manage the complete performance contracting cycle from strategic planning through to evaluation. The module supports:
 
-- **Government Performance Contracting** (GPCIS-aligned for Kenyan public universities)
-- **Institutional Effectiveness** tracking and reporting
-- **Cascading targets** from corporate to individual staff level
-- **Quarterly monitoring** and mid-year reviews
+- **Institutional Performance Management** with configurable frameworks and indicators
+- **Organizational Effectiveness** tracking and reporting
+- **Hierarchical target cascading** from institutional to individual staff level
+- **Periodic monitoring** and mid-cycle reviews
 - **Annual evaluation** with evidence management
 - **Integration with grants, research outputs, and financial data**
 
 This module bridges strategic planning, operational execution, and accountability reporting, ensuring alignment with:
-- National development priorities (Vision 2030, Big Four Agenda, etc.)
-- Ministry of Education requirements
-- University strategic plans and approved budgets
+- Institutional strategic priorities and objectives
+- External stakeholder requirements (government, regulatory bodies, accreditation agencies)
+- Approved budgets and resource allocation
 - Individual staff performance appraisals
 
 ---
 
 ### 9.2 Performance Contracting Lifecycle
 
-The module follows the **11-stage annual cycle** mandated by Kenyan public service regulations:
+The module supports a **configurable multi-stage performance management cycle** that can be adapted to institutional requirements:
 
 ```
-National Priorities → Strategic Plan → Annual Targets → Draft PC → 
-Negotiation → Signing → Cascading → Implementation → Quarterly Reports → 
-Mid-Year Review → Annual Evaluation → External Moderation → Next Cycle
+Strategic Planning → Target Definition → Draft Contract → 
+Review & Approval → Signing → Target Cascading → Implementation → 
+Periodic Monitoring → Mid-Cycle Review → Self-Evaluation → 
+External Assessment → Feedback & Next Cycle
 ```
 
-**Timeline:**
-- **July-August:** Target setting and draft preparation
-- **September:** Negotiation with Ministry of Education / PSPMU
-- **October:** Corporate PC signing
-- **October-November:** Cascading to units and staff
-- **December-September:** Implementation with quarterly reporting (Q1, Q2, Q3, Q4)
-- **March:** Mid-year review
-- **October:** Annual self-evaluation
-- **November:** External evaluation and rating
-- **December-January:** Feedback and next cycle planning
+**Configurable Phases:**
+- **Planning Period:** Strategic alignment, target setting, and draft preparation
+- **Approval Period:** Internal and external stakeholder review and negotiation
+- **Contract Finalization:** Formal signing and documentation
+- **Cascading Period:** Distribution of targets across organizational hierarchy
+- **Implementation Period:** Active execution with periodic progress reporting
+- **Mid-Cycle Review:** Interim assessment and corrective action planning
+- **Evaluation Period:** Comprehensive self-assessment and evidence compilation
+- **External Assessment:** Independent evaluation and rating (if applicable)
+- **Feedback & Planning:** Results communication and next cycle preparation
 
 ---
 
 ### 9.3 Sub-Modules & Features
 
-#### 9.3.1 Corporate Performance Contract Management
+#### 9.3.1 Institutional Performance Contract Management
 
 **Features:**
 - **Target Identification:** Define institutional annual targets aligned to strategic plan
-- **Indicator Library:** Pre-configured indicators per thematic area (Teaching, Research, Finance, HR, Infrastructure, etc.)
+- **Indicator Library:** Configurable indicators organized by performance areas
 - **Evidence Repository:** Upload and link supporting documents per indicator
-- **GPCIS Integration:** Export/import data to Government Performance Contracting Information System
-- **Multi-Stakeholder Review:** Internal review workflow before submission
+- **External System Integration:** Export/import data to external performance management systems
+- **Multi-Stakeholder Review:** Internal review workflow before finalization
 - **Version Control:** Track draft versions, amendments, and final signed contract
-- **Signatory Management:** Digital signatures from VC, Council Chair, Ministry officials
+- **Signatory Management:** Digital signatures from executive leadership and governing bodies
 - **Compliance Checklist:** Ensure all mandatory indicators and evidence are included
 
-**Thematic Areas (Kenyan University PC Standard):**
-1. Teaching & Learning (student enrollment, graduation rates, quality assurance)
-2. Research & Innovation (publications, patents, grants, collaborations)
-3. Financial Management (budget execution, revenue generation, audit compliance)
-4. Human Resource Management (staff development, performance appraisals, welfare)
-5. Infrastructure & ICT (facilities, digitalization, connectivity)
-6. Student Welfare & Services (accommodation, health, sports, counseling)
-7. Community Engagement & Outreach (partnerships, extension services, public lectures)
-8. Governance & Compliance (policies, risk management, legal compliance)
+**Configurable Performance Areas:**
+Organizations can define custom performance categories based on their strategic priorities. Common examples include:
+1. **Academic Excellence** (teaching quality, student outcomes, program accreditation)
+2. **Research & Innovation** (publications, grants, patents, collaborations)
+3. **Financial Sustainability** (budget execution, revenue generation, cost efficiency)
+4. **Human Capital** (staff development, recruitment, retention, performance management)
+5. **Infrastructure & Technology** (facilities, digital transformation, systems modernization)
+6. **Stakeholder Engagement** (student services, community partnerships, industry collaboration)
+7. **Governance & Compliance** (policies, risk management, regulatory adherence)
+8. **Institutional Reputation** (rankings, accreditation, public perception)
 
 **Data Model:**
 ```
 PerformanceContract
-  id, institution_id, contract_year, contract_type (CORPORATE/UNIT/INDIVIDUAL),
-  status (DRAFT/SUBMITTED/NEGOTIATION/SIGNED/ACTIVE/EVALUATED),
+  id, institution_id, contract_year, contract_type (INSTITUTIONAL/UNIT/INDIVIDUAL),
+  status (DRAFT/SUBMITTED/REVIEW/SIGNED/ACTIVE/EVALUATED),
   strategic_plan_id, budget_id, parent_contract_id (for cascading),
-  signed_date, signed_by[], ministry_signatory, council_signatory,
+  signed_date, signed_by[], external_signatories[], governing_body_signatory,
   final_rating, evaluation_date, created_at, updated_at
 
 PerformanceIndicator
@@ -1854,7 +1856,7 @@ PerformanceIndicator
   verification_method, reporting_frequency
 
 IndicatorTarget
-  id, indicator_id, quarter (Q1/Q2/Q3/Q4/ANNUAL), target_value,
+  id, indicator_id, reporting_period (PERIOD_1/PERIOD_2/PERIOD_3/PERIOD_4/ANNUAL), target_value,
   actual_value, achievement_percentage, status, evidence_ids[]
 
 EvidenceDocument
@@ -1867,20 +1869,21 @@ EvidenceDocument
 #### 9.3.2 Cascading & Unit Performance Contracts
 
 **Features:**
-- **Hierarchical Cascading:** Corporate → DVC/Director → Dean/HOD → Unit Head → Individual Staff
-- **Target Allocation:** Distribute corporate targets to units based on mandate and capacity
-- **Unit Work Plans:** Each unit creates annual work plan aligned to corporate PC
+- **Hierarchical Cascading:** Institutional → Division → Department → Unit → Individual
+- **Target Allocation:** Distribute institutional targets to units based on mandate and capacity
+- **Unit Work Plans:** Each unit creates annual work plan aligned to institutional contract
 - **Responsibility Assignment:** Assign specific indicators to units and officers
 - **Approval Workflow:** Unit contracts reviewed and approved by supervisors
-- **Consolidation:** Roll-up unit performance to corporate level
-- **Alignment Validation:** Ensure unit targets sum to corporate targets
+- **Consolidation:** Roll-up unit performance to institutional level
+- **Alignment Validation:** Ensure unit targets sum to institutional targets
 
-**Cascading Levels:**
-1. **Corporate Level:** University-wide contract with Ministry
-2. **Division Level:** DVCs, Registrars, Directors (Academic Affairs, Finance, HR, etc.)
-3. **Faculty/School Level:** Deans and Faculty Boards
-4. **Department Level:** Heads of Department
-5. **Unit/Center Level:** Research centers, institutes, service units
+**Configurable Cascading Levels:**
+Organizations can define their own hierarchical structure. Common patterns include:
+1. **Institutional Level:** Organization-wide contract with external stakeholders
+2. **Division Level:** Major organizational divisions (Academic Affairs, Finance, Operations, etc.)
+3. **Faculty/School Level:** Academic or functional units
+4. **Department Level:** Departmental units
+5. **Unit/Center Level:** Specialized centers, institutes, or service units
 6. **Individual Level:** Staff performance appraisals
 
 **Data Model:**
@@ -1900,43 +1903,45 @@ TargetAllocation
 
 ---
 
-#### 9.3.3 Academic Staff Performance Indicators
+#### 9.3.3 Staff Performance Indicators
 
 **Features:**
 - **Research Output Tracking:** Auto-link publications from Research Module
 - **Grant Performance:** Auto-pull grant data (proposals submitted, awards won, grant value)
-- **Supervision Metrics:** Track Masters/PhD students supervised (from Research Module)
-- **MoU & Partnerships:** Record collaborations and partnership agreements
+- **Supervision Metrics:** Track student supervision (from Research Module)
+- **Partnerships:** Record collaborations and partnership agreements
 - **Outreach Activities:** Log community engagement, extension services, consultancies
-- **Teaching Load:** Credit hours taught, student evaluations, curriculum development
+- **Teaching Load:** Teaching hours, student evaluations, curriculum development
 - **Professional Development:** Trainings attended, certifications earned
 - **Service & Governance:** Committee memberships, administrative roles
 
-**Academic Staff Indicator Categories:**
-1. **Research & Scholarship (40%)**
+**Configurable Staff Indicator Categories:**
+Organizations can define custom indicator categories with configurable weights. Common examples include:
+
+1. **Research & Scholarship**
    - Peer-reviewed publications (journal articles, books, chapters)
    - Conference presentations
    - Research grants (applications submitted, awards won, total value)
    - Patents, innovations, commercialization
-   - Research collaborations (MoUs, joint projects)
+   - Research collaborations and partnerships
 
-2. **Teaching & Mentorship (30%)**
-   - Teaching load (credit hours, courses taught)
-   - Student supervision (Masters, PhD completions)
-   - Curriculum development
+2. **Teaching & Mentorship**
+   - Teaching load and course delivery
+   - Student supervision and mentoring
+   - Curriculum development and innovation
    - Student evaluation scores
-   - Teaching innovations (e-learning, new methods)
+   - Teaching methodology innovations
 
-3. **Community Engagement & Outreach (15%)**
-   - Extension services
-   - Consultancy projects
+3. **Community Engagement & Outreach**
+   - Extension services and community projects
+   - Consultancy and advisory work
    - Public lectures and media engagement
    - Industry partnerships
-   - Policy briefs and advisory roles
+   - Policy briefs and thought leadership
 
-4. **Professional Development & Service (15%)**
+4. **Professional Development & Service**
    - Trainings and certifications
-   - Committee service (departmental, faculty, university)
+   - Committee service and administrative roles
    - Peer review and editorial work
    - Professional association leadership
 
@@ -1967,32 +1972,34 @@ StaffSupervision
 
 ---
 
-#### 9.3.4 Quarterly Monitoring & Reporting
+#### 9.3.4 Periodic Monitoring & Reporting
 
 **Features:**
-- **Quarterly Data Collection:** Units submit progress updates and evidence each quarter
+- **Periodic Data Collection:** Units submit progress updates and evidence at regular intervals
 - **Progress Dashboard:** Real-time visualization of achievement vs. targets
 - **Variance Analysis:** Identify underperforming indicators and bottlenecks
 - **Automated Reminders:** Email alerts for upcoming reporting deadlines
-- **Consolidation Workflow:** Unit reports roll up to corporate report
-- **Ministry Submission:** Generate quarterly report in GPCIS format
-- **Trend Analysis:** Compare quarterly performance across years
+- **Consolidation Workflow:** Unit reports roll up to institutional report
+- **External Reporting:** Generate reports in configurable formats for external stakeholders
+- **Trend Analysis:** Compare performance across reporting periods and years
 
-**Reporting Cycle:**
-- **Q1 Report:** October-December (due mid-January)
-- **Q2 Report:** January-March (due mid-April) + **Mid-Year Review**
-- **Q3 Report:** April-June (due mid-July)
-- **Q4 Report:** July-September (due mid-October) + **Annual Evaluation**
+**Configurable Reporting Cycle:**
+Organizations can define their own reporting frequency and periods:
+- **Period 1 Report:** First reporting period
+- **Period 2 Report:** Second reporting period + optional **Mid-Cycle Review**
+- **Period 3 Report:** Third reporting period
+- **Period 4 Report:** Fourth reporting period + **Annual Evaluation**
+- Supports quarterly, semi-annual, or custom reporting frequencies
 
 **Data Model:**
 ```
-QuarterlyReport
-  id, contract_id, quarter, report_year, submission_date,
+PeriodicReport
+  id, contract_id, reporting_period, report_year, submission_date,
   submitted_by, status (DRAFT/SUBMITTED/APPROVED/RETURNED),
   overall_achievement_percentage, approved_by, approved_date
 
-QuarterlyIndicatorProgress
-  id, quarterly_report_id, indicator_id, target_value,
+PeriodicIndicatorProgress
+  id, periodic_report_id, indicator_id, target_value,
   actual_value, achievement_percentage, variance,
   challenges, corrective_actions, evidence_ids[]
 
@@ -2003,31 +2010,31 @@ ProgressAlert
 
 ---
 
-#### 9.3.5 Mid-Year Review & Corrective Actions
+#### 9.3.5 Mid-Cycle Review & Corrective Actions
 
 **Features:**
-- **Mid-Year Assessment:** Comprehensive review at Q2 (March)
+- **Mid-Cycle Assessment:** Comprehensive review at the midpoint of the performance cycle
 - **Performance Analysis:** Identify indicators at risk of not meeting annual targets
 - **Bottleneck Identification:** Document challenges and constraints
 - **Corrective Action Plans:** Define interventions and resource reallocation
 - **Target Adjustment:** Revise targets if justified (with approval)
-- **Stakeholder Meeting:** Facilitate mid-year review meetings with units
+- **Stakeholder Meeting:** Facilitate mid-cycle review meetings with units
 - **Action Tracking:** Monitor implementation of corrective actions
 
 **Data Model:**
 ```
-MidYearReview
+MidCycleReview
   id, contract_id, review_date, conducted_by, participants[],
   overall_status, at_risk_indicators[], bottlenecks[],
   corrective_actions[], target_adjustments[], approved_by
 
 CorrectiveAction
-  id, mid_year_review_id, indicator_id, issue_description,
+  id, mid_cycle_review_id, indicator_id, issue_description,
   proposed_action, responsible_officer_id, deadline,
   resources_required, status, completion_date
 
 TargetAdjustment
-  id, mid_year_review_id, indicator_id, original_target,
+  id, mid_cycle_review_id, indicator_id, original_target,
   revised_target, justification, approved_by, approved_date
 ```
 
@@ -2039,17 +2046,18 @@ TargetAdjustment
 - **Self-Evaluation Report:** Comprehensive annual performance report
 - **Evidence Compilation:** Organize all supporting documents per indicator
 - **Achievement Calculation:** Auto-calculate achievement percentages
-- **Scoring Matrix:** Apply scoring rubric per indicator
+- **Scoring Matrix:** Apply configurable scoring rubric per indicator
 - **Narrative Reporting:** Capture qualitative achievements and challenges
 - **Internal Rating:** Preliminary self-assessment rating
 - **Evidence Verification:** Internal audit of evidence completeness and authenticity
-- **Report Export:** Generate PDF report for submission to Ministry
+- **Report Export:** Generate reports in multiple formats for external stakeholders
 
-**Scoring Rubric (Standard Kenyan PC):**
-- **Excellent:** ≥ 90% achievement
-- **Very Good:** 80-89% achievement
-- **Good:** 70-79% achievement
-- **Fair:** 60-69% achievement
+**Configurable Scoring Rubric:**
+Organizations can define custom performance rating scales. Common example:
+- **Exceptional:** ≥ 90% achievement
+- **Exceeds Expectations:** 80-89% achievement
+- **Meets Expectations:** 70-79% achievement
+- **Needs Improvement:** 60-69% achievement
 - **Unsatisfactory:** < 60% achievement
 
 **Data Model:**
@@ -2166,51 +2174,50 @@ Finance System → Performance Contracting
 
 ### 9.5 Workflows & Flowcharts
 
-#### 9.5.1 Annual Performance Contracting Cycle
+#### 9.5.1 Performance Contracting Cycle Workflow
 
 ```mermaid
 flowchart TD
-    A[July: National Priorities\nGovernment Guidelines\nMOE Requirements] --> B[August: University Strategic Plan\nApproved Budget\nAnnual Work Plan]
+    A[Strategic Planning\nInstitutional Priorities\nExternal Requirements] --> B[Target Setting\nStrategic Alignment\nBudget Allocation]
     
-    B --> C1[Step 1: TARGET IDENTIFICATION\nInstitutional targets defined\nAligned to mandate & strategy]
+    B --> C1[Step 1: TARGET DEFINITION\nDefine performance indicators\nSet baseline and targets\nAlign to strategic objectives]
     
-    C1 --> C2[Step 2: DRAFT CORPORATE PC\nPrepared in GPCIS system\nEvidence documents assembled\nIndicators configured]
+    C1 --> C2[Step 2: DRAFT CONTRACT\nPrepare performance contract\nAssemble evidence framework\nConfigure indicators and weights]
     
-    C2 --> C3[Step 3: NEGOTIATION & VETTING\nMinistry of Education review\nPSPMU review\nSpecialized agencies input]
+    C2 --> C3[Step 3: REVIEW & APPROVAL\nInternal stakeholder review\nExternal stakeholder review\nCompliance verification]
     
-    C3 --> C4{Vetting\noutcome?}
-    C4 -- Revisions required --> C5[Revise targets\nUpdate evidence\nResubmit]
+    C3 --> C4{Review\noutcome?}
+    C4 -- Revisions required --> C5[Revise targets\nUpdate documentation\nResubmit for review]
     C5 --> C3
-    C4 -- Approved --> D1[Step 4: CORPORATE PC SIGNING\nVC signature\nCouncil Chair signature\nMinistry signatory\nWitnesses]
+    C4 -- Approved --> D1[Step 4: CONTRACT SIGNING\nExecutive approval\nGoverning body endorsement\nStakeholder signatures]
     
-    D1 --> E1[Step 5: CASCADING WITHIN UNIVERSITY\nCouncil/Chair → VC\nVC → DVCs/Directors\nDVCs → Deans/HODs\nHODs → Staff]
+    D1 --> E1[Step 5: TARGET CASCADING\nInstitutional → Division\nDivision → Department\nDepartment → Unit\nUnit → Individual]
     
     E1 --> E2[Unit contracts created\nTargets allocated\nResponsibilities assigned]
     
-    E2 --> E3[Individual staff work plans\nPerformance appraisals linked]
+    E2 --> E3[Individual work plans\nPerformance appraisals linked]
     
-    E3 --> F1[Step 6: IMPLEMENTATION\nOct-Sep: Execute targets\nTeaching • Research • Innovation\nFinance • HR • Infrastructure]
+    E3 --> F1[Step 6: IMPLEMENTATION\nExecute performance targets\nTeaching • Research • Innovation\nOperations • Finance • Infrastructure]
     
-    F1 --> G1[Step 7: QUARTERLY MONITORING\nQ1: Oct-Dec\nQ2: Jan-Mar\nQ3: Apr-Jun\nQ4: Jul-Sep]
+    F1 --> G1[Step 7: PERIODIC MONITORING\nRegular progress reporting\nEvidence collection\nPerformance tracking]
     
-    G1 --> G2[Units submit evidence\nProgress updates\nQuarterly reports]
+    G1 --> G2[Units submit evidence\nProgress updates\nPeriodic reports]
     
-    G2 --> G3[University consolidates\nSubmits to Ministry]
+    G2 --> G3[Institutional consolidation\nSubmit to stakeholders]
     
-    G3 --> H1{Quarter?}
-    H1 -- Q1 --> G1
-    H1 -- Q2 --> I1[Step 8: MID-YEAR REVIEW\nMarch: Progress checked\nBottlenecks identified\nCorrectiveactions agreed]
+    G3 --> H1{Reporting\nperiod?}
+    H1 -- Period 1-3 --> G1
+    H1 -- Mid-cycle --> I1[Step 8: MID-CYCLE REVIEW\nProgress assessment\nBottleneck identification\nCorrective actions agreed]
     I1 --> G1
-    H1 -- Q3 --> G1
-    H1 -- Q4 --> J1[Step 9: ANNUAL SELF-EVALUATION\nOct: Compile internal report\nOrganize evidence\nCalculate achievement %]
+    H1 -- Final period --> J1[Step 9: SELF-EVALUATION\nCompile performance report\nOrganize evidence\nCalculate achievement]
     
     J1 --> J2[Evidence verification\nInternal audit\nSelf-rating assigned]
     
-    J2 --> K1[Step 10: EXTERNAL EVALUATION\nNov: Ministry evaluates\nSite visit conducted\nEvidence moderated]
+    J2 --> K1[Step 10: EXTERNAL EVALUATION\nStakeholder assessment\nSite verification\nEvidence moderation]
     
-    K1 --> K2[Final rating assigned:\nExcellent ≥90%\nVery Good 80-89%\nGood 70-79%\nFair 60-69%\nUnsatisfactory <60%]
+    K1 --> K2[Final rating assigned\nPerformance classification\nAchievement scoring]
     
-    K2 --> L1[Step 11: FEEDBACK & NEXT CYCLE\nDec-Jan: Results communicated\nRecommendations reviewed\nNext year targets informed]
+    K2 --> L1[Step 11: FEEDBACK & PLANNING\nResults communication\nRecommendations review\nNext cycle planning]
     
     L1 --> A
     
@@ -2226,32 +2233,32 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[Corporate PC Signed\nInstitutional targets approved] --> B[CASCADING INITIATED\nby VC Office]
+    A[Institutional Contract Signed\nInstitutional targets approved] --> B[CASCADING INITIATED\nby Executive Leadership]
     
-    B --> C1[Level 1: DIVISION LEVEL\nDVCs, Registrars, Directors]
-    C1 --> C2[Corporate targets allocated\nto divisions]
+    B --> C1[Level 1: DIVISION LEVEL\nMajor organizational divisions]
+    C1 --> C2[Institutional targets allocated\nto divisions]
     C2 --> C3{Division Head\napproves?}
     C3 -- Revise --> C4[Negotiate allocation\nAdjust targets]
     C4 --> C2
     C3 -- Approve --> D1[Division contract created\nStatus: APPROVED]
     
-    D1 --> E1[Level 2: FACULTY/SCHOOL LEVEL\nDeans, Faculty Boards]
-    E1 --> E2[Division targets allocated\nto faculties]
-    E2 --> E3{Dean\napproves?}
+    D1 --> E1[Level 2: DEPARTMENT LEVEL\nDepartmental units]
+    E1 --> E2[Division targets allocated\nto departments]
+    E2 --> E3{Department Head\napproves?}
     E3 -- Revise --> E4[Negotiate allocation\nAdjust targets]
     E4 --> E2
-    E3 -- Approve --> F1[Faculty contract created\nStatus: APPROVED]
+    E3 -- Approve --> F1[Department contract created\nStatus: APPROVED]
     
-    F1 --> G1[Level 3: DEPARTMENT LEVEL\nHeads of Department]
-    G1 --> G2[Faculty targets allocated\nto departments]
-    G2 --> G3{HOD\napproves?}
+    F1 --> G1[Level 3: UNIT LEVEL\nFunctional units]
+    G1 --> G2[Department targets allocated\nto units]
+    G2 --> G3{Unit Head\napproves?}
     G3 -- Revise --> G4[Negotiate allocation\nAdjust targets]
     G4 --> G2
-    G3 -- Approve --> H1[Department contract created\nStatus: APPROVED]
+    G3 -- Approve --> H1[Unit contract created\nStatus: APPROVED]
     
-    H1 --> I1[Level 4: INDIVIDUAL STAFF\nAcademic & Admin staff]
-    I1 --> I2[Department targets allocated\nto individual staff]
-    I2 --> I3[Staff work plan created:\nResearch targets\nTeaching load\nService commitments]
+    H1 --> I1[Level 4: INDIVIDUAL STAFF\nAll staff members]
+    I1 --> I2[Unit targets allocated\nto individual staff]
+    I2 --> I3[Staff work plan created\nPerformance targets\nKey responsibilities]
     
     I3 --> I4{Staff\nacknowledges?}
     I4 -- Dispute --> I5[Supervisor review\nMediation]
@@ -2260,7 +2267,7 @@ flowchart TD
     
     J1 --> K1[CASCADING COMPLETE\nAll levels aligned\nImplementation begins]
     
-    K1 --> L1[Validation check:\nUnit targets sum to\ncorporate targets]
+    K1 --> L1[Validation check:\nUnit targets sum to\ninstitutional targets]
     
     L1 --> L2{Alignment\nvalid?}
     L2 -- Gaps identified --> L3[Reallocate targets\nResolve discrepancies]
@@ -2276,27 +2283,27 @@ flowchart TD
 
 ---
 
-#### 9.5.3 Academic Staff Performance Tracking
+#### 9.5.3 Staff Performance Tracking Workflow
 
 ```mermaid
 flowchart TD
-    A[Staff Performance Contract\nAnnual targets set] --> B[RESEARCH & SCHOLARSHIP 40%]
+    A[Staff Performance Contract\nAnnual targets set] --> B[RESEARCH & SCHOLARSHIP\nConfigurable weight]
     
-    B --> B1[Publications target:\ne.g., 3 peer-reviewed articles]
+    B --> B1[Publications target\nPeer-reviewed articles]
     B1 --> B2{Publication\nregistered in\nResearch Module?}
-    B2 -- Yes --> B3[Auto-populate:\nIncrement publication count\nCalculate impact factor points]
+    B2 -- Yes --> B3[Auto-populate:\nIncrement publication count\nCalculate impact points]
     B2 -- No --> B4[Manual entry:\nStaff uploads evidence\nVerification required]
     B3 --> B5
     B4 --> B5[Publication count updated]
     
-    B --> B6[Grants target:\ne.g., 2 proposals, 1 award, KES 5M]
+    B --> B6[Grants target\nProposals and awards]
     B6 --> B7{Grant activity\nin Grant Module?}
     B7 -- Yes --> B8[Auto-populate:\nProposals submitted\nAwards won\nGrant value]
     B7 -- No --> B9[Manual entry:\nStaff uploads evidence]
     B8 --> B10
     B9 --> B10[Grant metrics updated]
     
-    B --> B11[Supervision target:\ne.g., 2 Masters, 1 PhD]
+    B --> B11[Supervision target\nStudent mentoring]
     B11 --> B12{Students\nregistered in\nResearch Module?}
     B12 -- Yes --> B13[Auto-populate:\nOngoing supervisions\nCompletions]
     B12 -- No --> B14[Manual entry:\nStaff uploads evidence]
@@ -2305,31 +2312,31 @@ flowchart TD
     
     B5 --> C1
     B10 --> C1
-    B15 --> C1[Research score calculated\n40% weight applied]
+    B15 --> C1[Research score calculated\nConfigurable weight applied]
     
-    C1 --> D1[TEACHING & MENTORSHIP 30%]
+    C1 --> D1[TEACHING & MENTORSHIP\nConfigurable weight]
     D1 --> D2[Teaching load\nStudent evaluations\nCurriculum development]
-    D2 --> D3[Manual entry from\nAcademic Registry]
-    D3 --> D4[Teaching score calculated\n30% weight applied]
+    D2 --> D3[Data from institutional\nsystems or manual entry]
+    D3 --> D4[Teaching score calculated\nConfigurable weight applied]
     
-    D4 --> E1[COMMUNITY ENGAGEMENT 15%]
-    E1 --> E2[Outreach activities\nConsultancies\nPublic lectures]
+    D4 --> E1[COMMUNITY ENGAGEMENT\nConfigurable weight]
+    E1 --> E2[Outreach activities\nConsultancies\nPublic engagement]
     E2 --> E3[Manual entry:\nStaff logs activities\nEvidence uploaded]
-    E3 --> E4[Engagement score calculated\n15% weight applied]
+    E3 --> E4[Engagement score calculated\nConfigurable weight applied]
     
-    E4 --> F1[PROFESSIONAL DEVELOPMENT 15%]
+    E4 --> F1[PROFESSIONAL DEVELOPMENT\nConfigurable weight]
     F1 --> F2[Trainings attended\nCommittee service\nProfessional roles]
     F2 --> F3[Manual entry:\nStaff logs activities]
-    F3 --> F4[Development score calculated\n15% weight applied]
+    F3 --> F4[Development score calculated\nConfigurable weight applied]
     
-    F4 --> G1[TOTAL SCORE CALCULATION\nWeighted average:\n40% + 30% + 15% + 15%]
+    F4 --> G1[TOTAL SCORE CALCULATION\nWeighted average\nof all categories]
     
     G1 --> G2{Total score?}
-    G2 -- ≥90% --> G3[Rating: EXCELLENT]
-    G2 -- 80-89% --> G4[Rating: VERY GOOD]
-    G2 -- 70-79% --> G5[Rating: GOOD]
-    G2 -- 60-69% --> G6[Rating: FAIR]
-    G2 -- <60% --> G7[Rating: UNSATISFACTORY]
+    G2 -- Threshold 1 --> G3[Rating: EXCEPTIONAL]
+    G2 -- Threshold 2 --> G4[Rating: EXCEEDS EXPECTATIONS]
+    G2 -- Threshold 3 --> G5[Rating: MEETS EXPECTATIONS]
+    G2 -- Threshold 4 --> G6[Rating: NEEDS IMPROVEMENT]
+    G2 -- Below threshold --> G7[Rating: UNSATISFACTORY]
     
     G3 --> H1
     G4 --> H1
