@@ -1,0 +1,30 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.8",
+    "@mui/material": "^7.3.8",
+    "axios": "^1.6.0",
+    "next": "16.1.6",
+    "next-auth": "^4.24.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "zustand": "^4.5.0",
+    "dayjs": "^1.11.10",
+    "recharts": "^2.10.0",
+    "react-dropzone": "^14.2.3"
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6"
+  }
+}
