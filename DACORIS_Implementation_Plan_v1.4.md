@@ -2189,7 +2189,7 @@ flowchart TD
     
     E2 --> E3[Individual staff work plans\nPerformance appraisals linked]
     
-    E3 --> F1[Step 6: IMPLEMENTATION\nOct-Sep: Execute targets\nTeaching | Research | Innovation\nFinance | HR | Infrastructure]
+    E3 --> F1[Step 6: IMPLEMENTATION\nOct-Sep: Execute targets\nTeaching • Research • Innovation\nFinance • HR • Infrastructure]
     
     F1 --> G1[Step 7: QUARTERLY MONITORING\nQ1: Oct-Dec\nQ2: Jan-Mar\nQ3: Apr-Jun\nQ4: Jul-Sep]
     
