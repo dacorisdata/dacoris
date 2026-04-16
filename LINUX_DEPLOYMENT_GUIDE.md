@@ -48,8 +48,8 @@ graph TB
     D -->|API| H
     D -->|Email| I
     
-    style B fill:#f9f,stroke:#333,stroke-width:2px
-    style E fill:#bbf,stroke:#333,stroke-width:2px
+    style B fill:#9f9,stroke:#333,stroke-width:2px
+    style E fill:#fa9,stroke:#333,stroke-width:2px
 ```
 
 ### Technology Stack
@@ -141,8 +141,8 @@ graph LR
     B --> D[Single Command<br/>Easy Management<br/>Isolated Environment]
     C --> E[Full Control<br/>Custom Configuration<br/>More Complex]
     
-    style B fill:#9f9,stroke:#333,stroke-width:2px
-    style D fill:#9f9,stroke:#333,stroke-width:2px
+    style B fill:#adf,stroke:#333,stroke-width:2px
+    style D fill:#adf,stroke:#333,stroke-width:2px
 ```
 
 ---
@@ -389,10 +389,10 @@ graph TB
     end
     
     subgraph "Application Files"
-        E[/opt/dacoris/backend]
-        F[/opt/dacoris/frontend]
-        G[/var/lib/postgresql]
-        H[/var/www/uploads]
+        E["opt/dacoris/backend"]
+        F["opt/dacoris/frontend"]
+        G["var/lib/postgresql"]
+        H["var/www/uploads"]
     end
     
     A --> E
@@ -733,7 +733,7 @@ sudo systemctl status certbot.timer
 
 ```mermaid
 graph TB
-    A[Monitoring System] --> B[/api/health]
+    A[Monitoring System] --> B["API Health Endpoint"]
     A --> C[Database Connection]
     A --> D[Disk Space]
     A --> E[Container Status]
