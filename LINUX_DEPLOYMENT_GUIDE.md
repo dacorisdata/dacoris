@@ -48,8 +48,8 @@ graph TB
     D -->|API| H
     D -->|Email| I
     
-    style B fill:#9f9,stroke:#333,stroke-width:2px
-    style E fill:#fa9,stroke:#333,stroke-width:2px
+    style B fill:#333,stroke:#333,stroke-width:2px
+    style E fill:#333,stroke:#333,stroke-width:2px
 ```
 
 ### Technology Stack
@@ -141,8 +141,8 @@ graph LR
     B --> D[Single Command<br/>Easy Management<br/>Isolated Environment]
     C --> E[Full Control<br/>Custom Configuration<br/>More Complex]
     
-    style B fill:#adf,stroke:#333,stroke-width:2px
-    style D fill:#adf,stroke:#333,stroke-width:2px
+    style B fill:#095587,stroke:#333,stroke-width:2px
+    style D fill:#095587,stroke:#333,stroke-width:2px
 ```
 
 ---
@@ -402,8 +402,8 @@ graph TB
     D --> A
     D --> B
     
-    style A fill:#faa,stroke:#333,stroke-width:2px
-    style B fill:#faa,stroke:#333,stroke-width:2px
+    style A fill:#811010,stroke:#333,stroke-width:2px
+    style B fill:#811010,stroke:#333,stroke-width:2px
 ```
 
 ### Step 1: Install System Dependencies
@@ -622,7 +622,7 @@ graph LR
     C --> D[Setup Auto-renewal]
     D --> E[HTTPS Enabled]
     
-    style E fill:#9f9,stroke:#333,stroke-width:2px
+    style E fill:#bb333c,stroke:#333,stroke-width:2px
 ```
 
 ### Step 1: Install Certbot
@@ -746,8 +746,8 @@ graph TB
     F -->|Yes| G[System Healthy]
     F -->|No| H[Alert Admin]
     
-    style G fill:#9f9,stroke:#333,stroke-width:2px
-    style H fill:#f99,stroke:#333,stroke-width:2px
+    style G fill:#2b7d2b,stroke:#333,stroke-width:2px
+    style H fill:#2b7d2b,stroke:#333,stroke-width:2px
 ```
 
 ### Monitoring Script
@@ -855,7 +855,7 @@ graph TB
     F --> H[Rotate Old Backups]
     G --> I[Verify Backup]
     
-    style I fill:#9f9,stroke:#333,stroke-width:2px
+    style I fill:##2b7d2b,stroke:#333,stroke-width:2px
 ```
 
 ### Automated Backup Script
