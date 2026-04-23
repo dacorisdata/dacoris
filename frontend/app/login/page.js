@@ -172,9 +172,6 @@ function LoginPageContent() {
           <Typography variant="h5" sx={{ color: 'primary.main', fontWeight: 600, mb: 4, fontSize: { xs: '1.25rem', lg: '1.5rem' } }}>
             Your Institution's Research Intelligence Hub
           </Typography>
-          <Typography sx={{ fontSize: '1.125rem', color: 'text.secondary', lineHeight: 1.8, mb: 5 }}>
-            DACORIS brings together your entire research lifecycle — from funding opportunities and grant management through to data stewardship, research outputs, and institutional reporting — in one unified, secure platform.
-          </Typography>
 
           {/* Feature Highlights */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>

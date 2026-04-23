@@ -34,15 +34,15 @@ export default function AnalyticsPage() {
     if (u.is_institution_admin) { router.push('/institution-admin/dashboard'); return; }
 
     const [oppsRes, propsRes, projRes] = await Promise.all([
-      api.get('/api/grants/opportunities').catch(() => ({ data: [] })),
-      api.get('/api/grants/proposals').catch(() => ({ data: [] })),
-      api.get('/api/research/projects').catch(() => ({ data: [] })),
+      api.get('/grants/opportunities').catch(() => ({ data: [] })),
+      api.get('/grants/proposals').catch(() => ({ data: [] })),
+      api.get('/research/projects').catch(() => ({ data: [] })),
     ]);
 
     const projects = projRes.data || [];
     let ethicsTotal = 0;
     for (const proj of projects.slice(0, 10)) {
-      const r = await api.get(`/api/research/ethics/project/${proj.id}`).catch(() => ({ data: [] }));
+      const r = await api.get(`/research/ethics/project/${proj.id}`).catch(() => ({ data: [] }));
       ethicsTotal += (r.data || []).length;
     }
 

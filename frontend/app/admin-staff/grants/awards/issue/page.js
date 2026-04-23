@@ -12,7 +12,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#8b5cf6';
 
 const BUDGET_CATEGORIES = [
@@ -73,7 +73,7 @@ function IssueAwardForm() {
       
       // Create award
       const awardRes = await axios.post(
-        `${API_URL}/api/grants/awards`,
+        `${API_URL}/grants/awards`,
         {
           proposal_id: parseInt(proposalId),
           funder_name: funderName,
@@ -90,7 +90,7 @@ function IssueAwardForm() {
       const validLines = budgetLines.filter(l => l.amount && parseFloat(l.amount) > 0);
       if (validLines.length > 0) {
         await axios.post(
-          `${API_URL}/api/grants/awards/${awardRes.data.id}/budget`,
+          `${API_URL}/grants/awards/${awardRes.data.id}/budget`,
           validLines.map(l => ({
             category: l.category,
             description: l.description,

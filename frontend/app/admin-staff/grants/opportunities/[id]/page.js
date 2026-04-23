@@ -5,11 +5,11 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   Box, Typography, Button, CircularProgress, Alert, Chip, Paper, Divider, Grid,
 } from '@mui/material';
-import { ArrowBack as BackIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { ArrowBack as BackIcon } from '@mui/icons-material';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import api from '../../../../../lib/api';
 
-const ACCENT = '#8b5cf6';
+const ACCENT = '#16a699';
 
 const STATUS_COLORS = {
   open:     { bg: 'rgba(16,185,129,0.12)', color: '#10b981' },
@@ -38,22 +38,18 @@ export default function OpportunityDetailPage() {
 
   const loadOpportunity = async () => {
     try {
-      const res = await api.get(`/grants/opportunities/${params.id}`);
-      setOpp(res.data);
+      const id = parseInt(params.id, 10);
+      const res = await api.get('/grants/opportunities/from-excel-source');
+      const found = (res.data || []).find(o => o.id === id);
+      if (!found) {
+        setError('Opportunity not found');
+      } else {
+        setOpp(found);
+      }
     } catch (e) {
       setError('Failed to load opportunity details');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete "${opp.title}"?`)) return;
-    try {
-      await api.delete(`/grants/opportunities/${params.id}`);
-      router.push('/admin-staff/grants/opportunities');
-    } catch (e) {
-      setError('Failed to delete opportunity');
     }
   };
 
@@ -88,19 +84,13 @@ export default function OpportunityDetailPage() {
   const sc = STATUS_COLORS[opp.status] || STATUS_COLORS.closed;
 
   return (
-    <Box sx={{ p: 4, maxWidth: 1200, mx: 'auto' }}>
+    <Box sx={{ p: { xs: 2, md: 4 } }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+      <Box sx={{ mb: 3 }}>
         <Button startIcon={<BackIcon />} onClick={() => router.push('/admin-staff/grants/opportunities')}
-          sx={{ textTransform: 'none', color: 'text.secondary' }}>
+          sx={{ textTransform: 'none', color: 'text.secondary', pl: 0 }}>
           Back to Opportunities
         </Button>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startIcon={<DeleteIcon />} onClick={handleDelete}
-            sx={{ textTransform: 'none', borderColor: '#ef4444', color: '#ef4444', '&:hover': { borderColor: '#dc2626', bgcolor: 'rgba(239,68,68,0.04)' } }}>
-            Delete
-          </Button>
-        </Box>
       </Box>
 
       {/* Main Content */}
@@ -121,36 +111,24 @@ export default function OpportunityDetailPage() {
 
         <Divider sx={{ my: 3 }} />
 
-        {/* Key Details Grid */}
+        {/* Key Details Grid — 4 columns */}
         <Grid container spacing={3} sx={{ mb: 3 }}>
-          <Grid item xs={12} md={6}>
-            <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Category
-            </Typography>
-            <Typography sx={{ fontSize: 15 }}>{opp.category || '—'}</Typography>
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Funding Type
-            </Typography>
-            <Typography sx={{ fontSize: 15 }}>{opp.funding_type || '—'}</Typography>
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Funding Range
-            </Typography>
-            <Typography sx={{ fontSize: 15, fontWeight: 600, color: ACCENT }}>
-              {fmtMoney(opp.amount_min, opp.amount_max, opp.currency)}
-            </Typography>
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Application Deadline
-            </Typography>
-            <Typography sx={{ fontSize: 15, fontWeight: 600, color: opp.deadline && new Date(opp.deadline) < new Date() ? '#ef4444' : 'text.primary' }}>
-              {fmtDate(opp.deadline)}
-            </Typography>
-          </Grid>
+          {[{ label: 'Category', value: opp.category || '—' },
+            { label: 'Funding Type', value: opp.funding_type || '—' },
+            { label: 'Funding Range', value: fmtMoney(opp.amount_min, opp.amount_max, opp.currency), accent: true },
+            { label: 'Application Deadline', value: fmtDate(opp.deadline),
+              red: opp.deadline && new Date(opp.deadline) < new Date() },
+          ].map(({ label, value, accent, red }) => (
+            <Grid item xs={12} sm={6} md={3} key={label}>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                {label}
+              </Typography>
+              <Typography sx={{ fontSize: 14, fontWeight: accent || red ? 600 : 400,
+                color: red ? '#ef4444' : accent ? ACCENT : 'text.primary' }}>
+                {value}
+              </Typography>
+            </Grid>
+          ))}
         </Grid>
 
         <Divider sx={{ my: 3 }} />

@@ -11,16 +11,33 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE_MB", 50)) * 1024 * 1024
 
 ALLOWED_TYPES = {
-    "application/pdf", "application/msword",
+    "application/pdf", 
+    "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "text/csv", "image/jpeg", "image/png",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/csv", 
+    "text/plain",
+    "image/jpeg", 
+    "image/png",
+    "image/gif",
+    "application/zip",
+    "application/x-zip-compressed",
+    # Common variations
+    "application/octet-stream",  # Generic binary, often used for unknown types
 }
 
 async def save_upload(file: UploadFile, subfolder: str = "documents") -> dict:
-    if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(400, f"File type {file.content_type} not allowed")
+    # More lenient check - allow if content_type is None or in allowed list
+    if file.content_type and file.content_type not in ALLOWED_TYPES:
+        # Check file extension as fallback
+        ext = os.path.splitext(file.filename)[1].lower()
+        allowed_extensions = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', 
+                             '.csv', '.txt', '.jpg', '.jpeg', '.png', '.gif', '.zip'}
+        if ext not in allowed_extensions:
+            raise HTTPException(400, f"File type '{file.content_type}' with extension '{ext}' not allowed. Allowed: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, CSV, TXT, images, ZIP")
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
@@ -39,7 +56,6 @@ async def save_upload(file: UploadFile, subfolder: str = "documents") -> dict:
         "stored_filename": stored_name,
         "file_size_bytes": len(content),
         "mime_type": file.content_type,
-        "path": path,
     }
 
 def get_file_path(stored_filename: str, subfolder: str = "documents") -> str:

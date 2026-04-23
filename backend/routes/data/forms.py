@@ -83,6 +83,84 @@ async def list_forms(
     return result.scalars().all()
 
 
+@router.get("/enriched")
+async def list_forms_enriched(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.DATA_STEWARD, ResearchRole.PRINCIPAL_INVESTIGATOR,
+        ResearchRole.DATA_ENGINEER, ResearchRole.INSTITUTIONAL_LEAD,
+    ]))
+):
+    """List forms with submission counts and project info."""
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(
+        select(CaptureForm)
+        .options(
+            selectinload(CaptureForm.project),
+            selectinload(CaptureForm.created_by),
+            selectinload(CaptureForm.submissions),
+        )
+        .where(CaptureForm.institution_id == current_user.primary_institution_id)
+        .order_by(CaptureForm.created_at.desc())
+    )
+    forms = result.scalars().all()
+    return [
+        {
+            "id": f.id, "title": f.title, "description": f.description,
+            "source_system": f.source_system,
+            "external_form_id": f.external_form_id,
+            "is_active": f.is_active,
+            "project_title": f.project.title if f.project else None,
+            "project_id": f.project_id,
+            "created_by_name": f.created_by.name if f.created_by else None,
+            "created_at": f.created_at,
+            "submission_count": len(f.submissions) if f.submissions else 0,
+            "qa_stats": {
+                "staged": sum(1 for s in (f.submissions or []) if s.qa_status == QAStatus.STAGED),
+                "passed": sum(1 for s in (f.submissions or []) if s.qa_status == QAStatus.PASSED),
+                "failed": sum(1 for s in (f.submissions or []) if s.qa_status == QAStatus.FAILED),
+                "quarantined": sum(1 for s in (f.submissions or []) if s.qa_status == QAStatus.QUARANTINED),
+            },
+        }
+        for f in forms
+    ]
+
+
+@router.get("/all-submissions")
+async def list_all_submissions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.DATA_STEWARD, ResearchRole.DATA_ENGINEER,
+        ResearchRole.INSTITUTIONAL_LEAD,
+    ]))
+):
+    """List all submissions across all forms for the institution."""
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(
+        select(FormSubmission)
+        .join(CaptureForm, FormSubmission.form_id == CaptureForm.id)
+        .options(selectinload(FormSubmission.form), selectinload(FormSubmission.submitted_by))
+        .where(CaptureForm.institution_id == current_user.primary_institution_id)
+        .order_by(FormSubmission.submitted_at.desc())
+        .limit(500)
+    )
+    submissions = result.scalars().all()
+    return [
+        {
+            "id": s.id,
+            "form_id": s.form_id,
+            "form_title": s.form.title if s.form else None,
+            "submitted_by_name": s.submitted_by.name if s.submitted_by else None,
+            "source_system": s.source_system,
+            "qa_status": s.qa_status.value if hasattr(s.qa_status, "value") else s.qa_status,
+            "submitted_at": s.submitted_at,
+        }
+        for s in submissions
+    ]
+
+
 @router.get("/{form_id}")
 async def get_form(
     form_id: int,
@@ -167,5 +245,18 @@ async def list_submissions(
         "staged": sum(1 for s in submissions if s.qa_status == QAStatus.STAGED),
         "passed": sum(1 for s in submissions if s.qa_status == QAStatus.PASSED),
         "failed": sum(1 for s in submissions if s.qa_status == QAStatus.FAILED),
-        "submissions": submissions,
+        "quarantined": sum(1 for s in submissions if s.qa_status == QAStatus.QUARANTINED),
+        "submissions": [
+            {
+                "id": s.id, "form_id": s.form_id,
+                "data": json.loads(s.data) if isinstance(s.data, str) else s.data,
+                "submitted_by_id": s.submitted_by_id,
+                "source_system": s.source_system,
+                "qa_status": s.qa_status.value if hasattr(s.qa_status, "value") else s.qa_status,
+                "submitted_at": s.submitted_at,
+            }
+            for s in submissions
+        ],
     }
+
+

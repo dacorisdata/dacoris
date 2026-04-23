@@ -11,7 +11,7 @@ const TEAMS = [
   { id:3, project:'Community Water Governance – Turkana', award:'APP-2024-0041', pi:'Prof. David Kiprotich', members:[{ name:'Mr. Patrick Kimani', role:'Research Assistant', status:'Active' },{ name:'Ms. Sarah Lokiru', role:'Community Liaison', status:'Onboarding' }], status:'Proposed', institution:'University of Nairobi' },
 ];
 
-const COLORS = ['#1ca7a1','#8b5cf6','#0ea5e9','#10b981','#f97316','#ef4444'];
+const getColors = (theme) => [theme.palette.primary.main,'#8b5cf6','#0ea5e9','#10b981','#f97316','#ef4444'];
 const roleColor = r => ({ 'Principal Investigator':'#ef4444','Co-Investigator':'#8b5cf6','Data Engineer':'#0ea5e9','Research Associate':'#10b981','Field Enumerator':'#f97316','Lab Technician':'#06b6d4','Ethics Researcher':'#f59e0b','Research Assistant':'#64748b','Community Liaison':'#8b5cf6' }[r] || '#64748b');
 
 export default function ResearchTeamsPage() {
@@ -19,6 +19,7 @@ export default function ResearchTeamsPage() {
   const { fetchUser } = useAuth();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
+  const COLORS = getColors(theme);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
@@ -44,7 +45,7 @@ export default function ResearchTeamsPage() {
 
       <Box sx={{ display:'flex', gap:2, mb:3, flexWrap:'wrap' }}>
         {[{ label:'Active Teams', value: TEAMS.filter(t => t.status==='Active').length, color:'#10b981' },
-          { label:'Total Members', value: totalMembers, color:'#1ca7a1' },
+          { label:'Total Members', value: totalMembers, color:theme.palette.primary.main },
           { label:'Onboarding', value: TEAMS.flatMap(t => t.members).filter(m => m.status==='Onboarding').length, color:'#f59e0b' },
         ].map(k => (
           <Box key={k.label} sx={{ flex:'1 1 130px', bgcolor:'background.paper', border:`1px solid ${theme.palette.divider}`, borderRadius:2, p:1.5, textAlign:'center' }}>
@@ -65,7 +66,7 @@ export default function ResearchTeamsPage() {
               <Box>
                 <Typography sx={{ fontSize:14, fontWeight:700, color:'text.primary', mb:0.3 }}>{team.project}</Typography>
                 <Box sx={{ display:'flex', gap:1 }}>
-                  <Chip label={team.award} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor:'rgba(28,167,161,0.1)', color:'#1ca7a1' }} />
+                  <Chip label={team.award} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor:`${theme.palette.primary.main}18`, color:theme.palette.primary.main }} />
                   <Chip label={team.institution} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor: dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.05)', color:'text.secondary' }} />
                   <Chip label={team.status} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor: team.status==='Active'?'rgba(16,185,129,0.1)':'rgba(245,158,11,0.1)', color: team.status==='Active'?'#10b981':'#f59e0b' }} />
                 </Box>

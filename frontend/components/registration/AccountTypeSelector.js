@@ -34,7 +34,7 @@ export default function AccountTypeSelector({ onSelect, selectedType }) {
 
   const fetchAccountTypes = async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/registration/account-types`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/registration/account-types`);
       if (!response.ok) throw new Error('Failed to fetch account types');
       const data = await response.json();
       setAccountTypes(data);

@@ -55,7 +55,7 @@ export default function RegistrationStepper({ institutionDomain }) {
 
   const handleOrcidCallback = async (code) => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/orcid/callback?code=${code}`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/auth/orcid/callback?code=${code}`);
       const data = await response.json();
       
       if (response.ok) {
@@ -90,7 +90,7 @@ export default function RegistrationStepper({ institutionDomain }) {
         // Check if ORCID is required
         try {
           const response = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/registration/validate-step1`,
+            `${process.env.NEXT_PUBLIC_API_URL || '/api'}/registration/validate-step1`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -187,7 +187,7 @@ export default function RegistrationStepper({ institutionDomain }) {
       };
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/registration/complete`,
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/registration/complete`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

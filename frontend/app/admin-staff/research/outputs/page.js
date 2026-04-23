@@ -55,14 +55,14 @@ export default function ResearchOutputsPage() {
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.3 }}>Publications, datasets, reports, and all research outputs across the institution</Typography>
         </Box>
         <Button variant="contained" size="small" startIcon={<AddIcon />}
-          sx={{ bgcolor:'#1ca7a1', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#0e7490' } }}>
+          sx={{ bgcolor:'primary.main', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'primary.dark' } }}>
           Register Output
         </Button>
       </Box>
 
       {/* KPIs */}
       <Box sx={{ display:'flex', gap: 2, mb: 3, flexWrap:'wrap' }}>
-        {[{ label:'Total Outputs', value: MOCK_OUTPUTS.length, color:'#1ca7a1' },
+        {[{ label:'Total Outputs', value: MOCK_OUTPUTS.length, color:theme.palette.primary.main },
           { label:'Open Access', value: oaCount, color:'#10b981' },
           { label:'Total Citations', value: totalCitations, color:'#8b5cf6' },
           { label:'This Year', value: MOCK_OUTPUTS.filter(o => o.year === 2024).length, color:'#0ea5e9' },
@@ -114,8 +114,8 @@ export default function ResearchOutputsPage() {
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
                     {o.doi ? (
                       <Box sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
-                        <LinkIcon sx={{ fontSize:12, color:'#1ca7a1' }} />
-                        <Typography sx={{ fontSize:10, color:'#1ca7a1', fontFamily:'monospace' }}>{o.doi.slice(0,18)}…</Typography>
+                        <LinkIcon sx={{ fontSize:12, color:'primary.main' }} />
+                        <Typography sx={{ fontSize:10, color:'primary.main', fontFamily:'monospace' }}>{o.doi.slice(0,18)}…</Typography>
                       </Box>
                     ) : <Typography sx={{ fontSize:11, color:'text.disabled' }}>—</Typography>}
                   </TableCell>

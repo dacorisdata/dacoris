@@ -46,7 +46,7 @@ export default function ResearchProjectsPage() {
     if (u.is_global_admin)      { router.push('/global-admin/dashboard'); return; }
     if (u.is_institution_admin) { router.push('/institution-admin/dashboard'); return; }
     try {
-      const res = await api.get('/api/research/projects');
+      const res = await api.get('/research/projects');
       setProjects(res.data || []);
     } catch (e) { setError(e.response?.data?.detail || 'Failed to load projects'); }
     setLoading(false);

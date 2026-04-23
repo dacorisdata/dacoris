@@ -316,11 +316,18 @@ The Grant Management Module operationalizes the full grant lifecycle:
 
 **Features:**
 - Create and manage funding opportunities internally
-- Import opportunities from external sources (ResearchBeeline, manual upload)
-- Normalized opportunity schema: `sponsor`, `category`, `geography`, `eligibility`, `amount_range`, `deadlines`, `funding_type`, `status`
+- Import opportunities from external sources (Excel, API, manual upload)
+- **Opportunity Curation**: Admin staff can select which imported opportunities to publish to researchers
+  - Bulk selection via checkboxes
+  - "Publish to Researchers" / "Unpublish" actions
+  - Visual indicators showing published status
+  - Published count tracking in summary metrics
+  - Only curated opportunities visible to researchers; all opportunities visible to admin staff
+- Normalized opportunity schema: `sponsor`, `category`, `geography`, `eligibility`, `amount_range`, `deadlines`, `funding_type`, `status`, `is_curated`
 - De-duplication by `(source, source_opportunity_id)` and fuzzy match on title + sponsor + deadline
 - Opportunity status tracking: `Open`, `Closed`, `Upcoming`, `Archived`
-- Notification alerts to matching researchers based on profile/expertise
+- Sortable columns: Deadline, Status
+- Notification alerts to matching researchers based on profile/expertise (only for curated opportunities)
 
 **Data Model:**
 ```
@@ -328,35 +335,50 @@ GrantOpportunity
   id, institution_id, program_id, source_system, source_id,
   title, sponsor_id, category, geography, applicant_type,
   funding_type, amount_min, amount_max, currency,
-  open_date, deadline, status, description,
+  open_date, deadline, status, description, is_curated,
   created_by, created_at, updated_at
 ```
 
 **API Endpoints:**
 ```
-GET    /api/grants/opportunities
+GET    /api/grants/opportunities                    (admin: all, researcher: curated only)
 POST   /api/grants/opportunities
 GET    /api/grants/opportunities/{id}
 PUT    /api/grants/opportunities/{id}
+PATCH  /api/grants/opportunities/{id}/curate        (toggle is_curated flag)
+POST   /api/grants/opportunities/bulk-curate        (bulk publish/unpublish)
 DELETE /api/grants/opportunities/{id}
-POST   /api/grants/opportunities/import   (CSV/file import)
+POST   /api/grants/opportunities/import             (CSV/file import)
+GET    /api/grants/opportunities/from-excel-source  (read from Excel repository)
 ```
 
 ---
 
 #### 5.2.2 Proposal Development & Collaborative Authoring
 
+**Implementation Status:** ✅ **IMPLEMENTED** (Frontend UI Complete)
+
 **Features:**
-- Proposal workspace with structured sections (Executive Summary, Problem Statement, Methods, M&E, Budget Justification, Risk, Safeguards)
-- Template-driven form builder per opportunity/program
-- Section-level permissions (e.g., Finance Officer edits budget section only)
-- Rich text editor with inline commenting and @mentions
-- Auto-versioning of all sections; diff viewer; restore prior versions
-- Co-author invitation (internal and external guest)
-- Submission snapshot — immutable bundle at time of submit
-- Completion meter showing % of required sections filled
-- Required document upload tracker with file-type validation
-- Proposal status: `Draft`, `In Review`, `Submitted`, `Returned`, `Approved`, `Rejected`
+- ✅ Proposal workspace with structured sections (Executive Summary, Problem Statement, Methods, M&E, Budget Justification, Risk, Safeguards)
+- ✅ Section-based editor with individual section editing
+- ✅ Multi-line text editor for each section with word count tracking
+- ✅ Auto-save functionality for each section
+- ✅ Completion meter showing % of required sections filled (visual progress bar)
+- ✅ Section completion indicators (checkmarks for completed sections)
+- ✅ Co-author/collaborator invitation system with role assignment (Co-Investigator, Consultant, Advisor)
+- ✅ Collaborator management (add/remove collaborators)
+- ✅ Document upload system with type categorization (CV, Budget, Support Letter, Other)
+- ✅ Document tracker showing uploaded files
+- ✅ Submission workflow with validation (requires 80% completion)
+- ✅ c
+- ✅ Status-based permissions (editing disabled after submission)
+- ✅ Researcher discovery page showing only curated opportunities
+- ✅ Direct application flow from opportunity to proposal creation
+- 🔄 Template-driven form builder per opportunity/program (Backend pending)
+- 🔄 Section-level permissions (Backend pending)
+- 🔄 Rich text editor with inline commenting and @mentions (Future enhancement)
+- 🔄 Auto-versioning of all sections; diff viewer; restore prior versions (Future enhancement)
+- 🔄 Submission snapshot — immutable bundle at time of submit (Backend pending)
 
 **Data Model:**
 ```
@@ -385,15 +407,20 @@ Comment
 
 **API Endpoints:**
 ```
-POST   /api/grants/proposals
-GET    /api/grants/proposals/{id}
-POST   /api/grants/proposals/{id}/sections/{section_id}
-PUT    /api/grants/proposals/{id}/sections/{section_id}
-GET    /api/grants/proposals/{id}/versions
-POST   /api/grants/proposals/{id}/submit
-POST   /api/grants/proposals/{id}/documents
-POST   /api/grants/proposals/{id}/collaborators
-POST   /api/grants/proposals/{id}/comments
+POST   /api/grants/proposals                                    (create new proposal)
+GET    /api/grants/proposals                                    (list user's proposals)
+GET    /api/grants/proposals/{id}                               (get proposal details)
+GET    /api/grants/proposals/{id}/completion                    (get completion status)
+POST   /api/grants/proposals/{id}/sections/{section_id}         (create section)
+PUT    /api/grants/proposals/{id}/sections/{section_id}         (update section content)
+GET    /api/grants/proposals/{id}/versions                      (list versions)
+PATCH  /api/grants/proposals/{id}/status                        (change status, e.g., submit)
+POST   /api/grants/proposals/{id}/documents                     (upload document)
+GET    /api/grants/proposals/{id}/documents                     (list documents)
+POST   /api/grants/proposals/{id}/collaborators                 (add collaborator)
+DELETE /api/grants/proposals/{id}/collaborators/{collab_id}    (remove collaborator)
+POST   /api/grants/proposals/{id}/comments                      (add comment)
+GET    /api/grants/proposals/{id}/comments                      (list comments)
 ```
 
 ---

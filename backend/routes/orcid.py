@@ -217,3 +217,139 @@ async def orcid_callback(
             redirect_url = f"{FRONTEND_URL}/dashboard?token={jwt_token}"
         
         return RedirectResponse(url=redirect_url)
+
+
+@router.get("/search")
+async def search_orcid(
+    given_name: str = Query(None, description="Given name (first name)"),
+    family_name: str = Query(None, description="Family name (last name)"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Search ORCID registry for researchers by name"""
+    if not given_name and not family_name:
+        return []
+    
+    # Build search query
+    search_parts = []
+    if given_name and given_name.strip():
+        search_parts.append(f'given-names:{given_name.strip()}')
+    if family_name and family_name.strip():
+        search_parts.append(f'family-name:{family_name.strip()}')
+    
+    search_query = ' AND '.join(search_parts)
+    
+    # First, search local database for existing users with ORCID
+    local_results = []
+    try:
+        from models import OrcidProfile
+        conditions = []
+        if given_name and given_name.strip():
+            conditions.append(OrcidProfile.full_name.ilike(f"%{given_name}%"))
+        if family_name and family_name.strip():
+            conditions.append(OrcidProfile.full_name.ilike(f"%{family_name}%"))
+        
+        if conditions:
+            from sqlalchemy import and_
+            result = await db.execute(
+                select(OrcidProfile).where(and_(*conditions)).limit(10)
+            )
+            profiles = result.scalars().all()
+            
+            local_results = [
+                {
+                    "orcid": p.orcid_id,
+                    "name": p.full_name,
+                    "email": p.email,
+                    "affiliation": p.affiliation_name,
+                    "source": "local"
+                }
+                for p in profiles
+            ]
+    except Exception as e:
+        print(f"Local ORCID search error: {e}")
+    
+    # Always search ORCID API (don't skip even if local results exist)
+    try:
+        orcid_api_base = "https://pub.sandbox.orcid.org" if ORCID_SANDBOX_MODE else "https://pub.orcid.org"
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Search ORCID registry with structured query
+            search_response = await client.get(
+                f"{orcid_api_base}/v3.0/search/",
+                params={
+                    "q": search_query,
+                    "rows": 10
+                },
+                headers={"Accept": "application/json"}
+            )
+            
+            if search_response.status_code != 200:
+                print(f"ORCID search failed: {search_response.status_code}")
+                return local_results  # Return local results if ORCID fails
+            
+            search_data = search_response.json()
+            results = search_data.get("result", [])
+            
+            orcid_results = []
+            for item in results:
+                orcid_id = item.get("orcid-identifier", {}).get("path", "")
+                if not orcid_id:
+                    continue
+                
+                # Fetch basic profile info
+                try:
+                    profile_response = await client.get(
+                        f"{orcid_api_base}/v3.0/{orcid_id}/person",
+                        headers={"Accept": "application/json"}
+                    )
+                    
+                    if profile_response.status_code == 200:
+                        profile_data = profile_response.json()
+                        
+                        # Extract name
+                        name_obj = profile_data.get("name", {})
+                        given_names = name_obj.get("given-names", {}).get("value", "")
+                        family_name_val = name_obj.get("family-name", {}).get("value", "")
+                        full_name = f"{given_names} {family_name_val}".strip()
+                        
+                        # Extract email
+                        emails = profile_data.get("emails", {}).get("email", [])
+                        email = emails[0].get("email", "") if emails else ""
+                        
+                        # Extract affiliation
+                        affiliation = ""
+                        employments = profile_data.get("employments", {}).get("affiliation-group", [])
+                        if employments:
+                            emp_summary = employments[0].get("summaries", [])
+                            if emp_summary:
+                                org = emp_summary[0].get("employment-summary", {}).get("organization", {})
+                                affiliation = org.get("name", "")
+                        
+                        # Don't add if already in local results
+                        if not any(r["orcid"] == orcid_id for r in local_results):
+                            orcid_results.append({
+                                "orcid": orcid_id,
+                                "name": full_name or "Unknown",
+                                "email": email,
+                                "affiliation": affiliation,
+                                "source": "orcid"
+                            })
+                except Exception as e:
+                    print(f"Error fetching ORCID profile {orcid_id}: {e}")
+                    # Add minimal info even if profile fetch fails
+                    if not any(r["orcid"] == orcid_id for r in local_results):
+                        orcid_results.append({
+                            "orcid": orcid_id,
+                            "name": "Unknown",
+                            "email": "",
+                            "affiliation": "",
+                            "source": "orcid"
+                        })
+            
+            # Combine local and ORCID results, prioritizing local
+            all_results = local_results + orcid_results
+            return all_results[:10]  # Limit to 10 total results
+            
+    except Exception as e:
+        print(f"ORCID API search error: {e}")
+        return local_results  # Return local results if ORCID API fails

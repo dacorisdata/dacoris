@@ -32,10 +32,10 @@ export default function EthicsDecisionsPage() {
     if (u.is_global_admin)      { router.push('/global-admin/dashboard'); return; }
     if (u.is_institution_admin) { router.push('/institution-admin/dashboard'); return; }
     try {
-      const projRes = await api.get('/api/research/projects').catch(() => ({ data: [] }));
+      const projRes = await api.get('/research/projects').catch(() => ({ data: [] }));
       const all = [];
       for (const proj of (projRes.data || [])) {
-        const ethRes = await api.get(`/api/research/ethics/project/${proj.id}`).catch(() => ({ data: [] }));
+        const ethRes = await api.get(`/research/ethics/project/${proj.id}`).catch(() => ({ data: [] }));
         (ethRes.data || []).filter(a => Object.keys(STATUS_META).includes(a.status))
           .forEach(a => all.push({ ...a, project_title: proj.title }));
       }

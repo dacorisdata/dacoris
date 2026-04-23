@@ -43,7 +43,7 @@ export default function GrantReviewsPage() {
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.3 }}>Manage reviewer assignments, scoring, and COI declarations</Typography>
         </Box>
         <Button variant="contained" size="small" startIcon={<AssignIcon />}
-          sx={{ bgcolor:'#8b5cf6', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#7c3aed' } }}>
+          sx={{ bgcolor:'#16a699', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#14958a' } }}>
           Assign Reviewer
         </Button>
       </Box>
@@ -52,7 +52,7 @@ export default function GrantReviewsPage() {
 
       {/* KPI row */}
       <Box sx={{ display:'flex', gap: 2, mb: 3, flexWrap:'wrap' }}>
-        {[{ label:'Total Assignments', value: MOCK_REVIEWS.length, color:'#8b5cf6' },
+        {[{ label:'Total Assignments', value: MOCK_REVIEWS.length, color:'#16a699' },
           { label:'Submitted',         value: submitted,           color:'#10b981' },
           { label:'Overdue',           value: overdue,             color:'#ef4444' },
           { label:'Avg Score',         value: avgScore + '%',      color:'#0ea5e9' }].map(k => (
@@ -86,12 +86,12 @@ export default function GrantReviewsPage() {
                   </TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
                     <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
-                      <Avatar sx={{ width:28, height:28, fontSize:11, bgcolor:'#8b5cf6' }}>{r.reviewer.charAt(0)}</Avatar>
+                      <Avatar sx={{ width:28, height:28, fontSize:11, bgcolor:'#16a699' }}>{r.reviewer.charAt(0)}</Avatar>
                       <Typography sx={{ fontSize:12, color:'text.secondary' }}>{r.reviewer}</Typography>
                     </Box>
                   </TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
-                    <Chip label={r.stage} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor:'rgba(139,92,246,0.1)', color:'#8b5cf6' }} />
+                    <Chip label={r.stage} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor:'rgba(22,166,153,0.1)', color:'#16a699' }} />
                   </TableCell>
                   <TableCell sx={{ fontSize:12, color:'text.secondary', borderBottom:`1px solid ${theme.palette.divider}` }}>{new Date(r.due).toLocaleDateString('en-GB')}</TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
@@ -110,7 +110,7 @@ export default function GrantReviewsPage() {
                       sx={{ fontSize:10, fontWeight:600, bgcolor: r.coi?'rgba(239,68,68,0.1)':'rgba(34,197,94,0.1)', color: r.coi?'#ef4444':'#22c55e' }} />
                   </TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
-                    <Button size="small" sx={{ color:'#8b5cf6', textTransform:'none', fontSize:11, fontWeight:600 }}>View</Button>
+                    <Button size="small" sx={{ color:'#16a699', textTransform:'none', fontSize:11, fontWeight:600 }}>View</Button>
                   </TableCell>
                 </TableRow>
               ))}

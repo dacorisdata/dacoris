@@ -16,11 +16,11 @@ const ROLE_LABELS = {
 };
 
 const ROLE_COLORS = {
-  GRANT_MANAGER: '#8b5cf6', FINANCE_OFFICER: '#f59e0b',
-  ETHICS_COMMITTEE_MEMBER: '#10b981', DATA_STEWARD: '#0ea5e9',
-  DATA_ENGINEER: '#06b6d4', INSTITUTIONAL_LEADERSHIP: '#ef4444',
-  EXTERNAL_REVIEWER: '#f97316', ADMIN_STAFF: '#6366f1',
-  GUEST_COLLABORATOR: '#64748b', EXTERNAL_FUNDER: '#a855f7',
+  GRANT_MANAGER: '#16a699', FINANCE_OFFICER: '#16a699',
+  ETHICS_COMMITTEE_MEMBER: '#16a699', DATA_STEWARD: '#16a699',
+  DATA_ENGINEER: '#16a699', INSTITUTIONAL_LEADERSHIP: '#16a699',
+  EXTERNAL_REVIEWER: '#16a699', ADMIN_STAFF: '#16a699',
+  GUEST_COLLABORATOR: '#16a699', EXTERNAL_FUNDER: '#16a699',
 };
 
 export default function AdminStaffProfile() {
@@ -116,7 +116,7 @@ export default function AdminStaffProfile() {
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 860, mx: 'auto' }}>
+    <Box sx={{ p: { xs: 2, md: 4 } }}>
       {/* Header */}
       <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
         <Box>

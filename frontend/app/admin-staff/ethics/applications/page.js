@@ -54,11 +54,11 @@ export default function EthicsApplicationsPage() {
 
   const loadApps = async () => {
     try {
-      const projRes = await api.get('/api/research/projects').catch(() => ({ data: [] }));
+      const projRes = await api.get('/research/projects').catch(() => ({ data: [] }));
       const projects = projRes.data || [];
       const allApps = [];
       for (const proj of projects) {
-        const ethRes = await api.get(`/api/research/ethics/project/${proj.id}`).catch(() => ({ data: [] }));
+        const ethRes = await api.get(`/research/ethics/project/${proj.id}`).catch(() => ({ data: [] }));
         (ethRes.data || []).forEach(app => allApps.push({ ...app, project_title: proj.title }));
       }
       setApps(allApps);
@@ -78,7 +78,7 @@ export default function EthicsApplicationsPage() {
     if (!decisionForm.status) { setError('Please select a decision'); return; }
     setSubmitting(true); setError('');
     try {
-      await api.patch(`/api/research/ethics/${decisionDialog.id}/decision`, null, {
+      await api.patch(`/research/ethics/${decisionDialog.id}/decision`, null, {
         params: { target_status: decisionForm.status, decision_notes: decisionForm.notes, approved_until: decisionForm.approved_until || undefined }
       });
       setSuccess('Decision recorded successfully');

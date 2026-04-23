@@ -49,7 +49,7 @@ export default function Navbar() {
         {/* Nav links */}
         <Button color="inherit" component={Link} href="/login">Home</Button>
         <Button color="inherit" component={Link} href="/about">About</Button>
-        <Button color="inherit" component={Link} href="/research-output">Research Output</Button>
+        
 
         {/* Theme toggle */}
         <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>

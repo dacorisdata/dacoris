@@ -17,7 +17,7 @@ const EXPENSES = [
 ];
 
 const sColor = s => ({ 'Pending Review':'#f59e0b', Approved:'#10b981', Flagged:'#ef4444', Rejected:'#ef4444', Paid:'#0ea5e9' }[s] || '#64748b');
-const cColor  = c => ({ Personnel:'#8b5cf6', 'Field Work':'#f97316', Laboratory:'#0ea5e9', Equipment:'#1ca7a1', Consultancy:'#f59e0b' }[c] || '#64748b');
+const getCategoryColor = (c, theme) => ({ Personnel:'#8b5cf6', 'Field Work':'#f97316', Laboratory:'#0ea5e9', Equipment:theme.palette.primary.main, Consultancy:'#f59e0b' }[c] || '#64748b');
 
 export default function ExpensesPage() {
   const router = useRouter();
@@ -80,7 +80,7 @@ export default function ExpensesPage() {
                     <Typography sx={{ fontSize:10, color:'text.disabled' }}>{e.submittedBy}</Typography>
                   </TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
-                    <Chip label={e.category} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor: cColor(e.category)+'22', color: cColor(e.category) }} />
+                    <Chip label={e.category} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor: getCategoryColor(e.category, theme)+'22', color: getCategoryColor(e.category, theme) }} />
                   </TableCell>
                   <TableCell sx={{ fontSize:13, fontWeight:700, color:'text.primary', borderBottom:`1px solid ${theme.palette.divider}` }}>{e.amount}</TableCell>
                   <TableCell sx={{ fontSize:12, color:'text.secondary', borderBottom:`1px solid ${theme.palette.divider}` }}>{new Date(e.date).toLocaleDateString('en-GB')}</TableCell>

@@ -48,7 +48,7 @@ export default function GrantReportsPage() {
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.3 }}>Track funder report submissions, closeout checklists, and compliance deadlines</Typography>
         </Box>
         <Button variant="contained" size="small" startIcon={<DownloadIcon />}
-          sx={{ bgcolor:'#8b5cf6', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#7c3aed' } }}>
+          sx={{ bgcolor:'#16a699', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#14958a' } }}>
           Export Pack
         </Button>
       </Box>
@@ -88,7 +88,7 @@ export default function GrantReportsPage() {
                   <TableCell sx={{ fontSize:12, fontWeight:600, color:'text.primary', borderBottom:`1px solid ${theme.palette.divider}` }}>{r.award}</TableCell>
                   <TableCell sx={{ fontSize:12, color:'text.secondary', borderBottom:`1px solid ${theme.palette.divider}` }}>{r.funder}</TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
-                    <Chip label={r.type} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor:'rgba(139,92,246,0.1)', color:'#8b5cf6' }} />
+                    <Chip label={r.type} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor:'rgba(22,166,153,0.1)', color:'#16a699' }} />
                   </TableCell>
                   <TableCell sx={{ fontSize:12, color:'text.secondary', borderBottom:`1px solid ${theme.palette.divider}` }}>{r.period}</TableCell>
                   <TableCell sx={{ fontSize:12, color: r.status==='Overdue'?'#ef4444':'text.secondary', fontWeight: r.status==='Overdue'?700:400, borderBottom:`1px solid ${theme.palette.divider}` }}>
@@ -98,7 +98,7 @@ export default function GrantReportsPage() {
                     <Chip label={r.status} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor: sColor(r.status)+'22', color: sColor(r.status) }} />
                   </TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
-                    <Button size="small" sx={{ color:'#8b5cf6', textTransform:'none', fontSize:11, fontWeight:600 }}>
+                    <Button size="small" sx={{ color:'#16a699', textTransform:'none', fontSize:11, fontWeight:600 }}>
                       {r.status === 'Submitted' ? 'Download' : 'Submit'}
                     </Button>
                   </TableCell>

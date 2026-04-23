@@ -14,23 +14,26 @@ import {
   DynamicForm as FormIcon, TableChart as SubmissionIcon,
   Storage as RepositoryIcon, Hub as PipelineDataIcon,
   Analytics as AnalyticsIcon, ExitToApp as LogoutIcon,
-  Star as StarIcon,
+  Star as StarIcon, Inbox as InboxIcon, CheckCircle as EligibilityIcon,
+  Biotech as TechIcon, AttachMoney as BudgetStageIcon,
+  Groups2 as PanelIcon, Verified as FinalIcon,
+  UploadFile as DataImportIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 
 const ROLE_META = {
-  GRANT_MANAGER:            { label: 'Grant Manager',         color: '#8b5cf6' },
-  FINANCE_OFFICER:          { label: 'Finance Officer',        color: '#f59e0b' },
-  ETHICS_COMMITTEE_MEMBER:  { label: 'Ethics Committee',       color: '#10b981' },
-  DATA_STEWARD:             { label: 'Data Steward',           color: '#0ea5e9' },
-  DATA_ENGINEER:            { label: 'Data Engineer',          color: '#06b6d4' },
-  INSTITUTIONAL_LEADERSHIP: { label: 'Institutional Lead',     color: '#ef4444' },
-  EXTERNAL_REVIEWER:        { label: 'External Reviewer',      color: '#f97316' },
-  GUEST_COLLABORATOR:       { label: 'Guest Collaborator',     color: '#64748b' },
-  EXTERNAL_FUNDER:          { label: 'External Funder',        color: '#a855f7' },
-  ADMIN_STAFF:              { label: 'Admin Staff',            color: '#6366f1' },
+  GRANT_MANAGER:            { label: 'Grant Manager',         color: '#16a699' },
+  FINANCE_OFFICER:          { label: 'Finance Officer',        color: '#16a699' },
+  ETHICS_COMMITTEE_MEMBER:  { label: 'Ethics Committee',       color: '#16a699' },
+  DATA_STEWARD:             { label: 'Data Steward',           color: '#16a699' },
+  DATA_ENGINEER:            { label: 'Data Engineer',          color: '#16a699' },
+  INSTITUTIONAL_LEADERSHIP: { label: 'Institutional Lead',     color: '#16a699' },
+  EXTERNAL_REVIEWER:        { label: 'External Reviewer',      color: '#16a699' },
+  GUEST_COLLABORATOR:       { label: 'Guest Collaborator',     color: '#16a699' },
+  EXTERNAL_FUNDER:          { label: 'External Funder',        color: '#16a699' },
+  ADMIN_STAFF:              { label: 'Admin Staff',            color: '#16a699' },
 };
 
 // roles: 'all' | array of PrimaryAccountType values
@@ -47,9 +50,8 @@ const NAV_SECTIONS = [
     roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP','FINANCE_OFFICER','ADMIN_STAFF','EXTERNAL_FUNDER'],
     items: [
       { icon: SearchIcon,    label: 'Opportunities',    path: '/admin-staff/grants/opportunities', roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP','FINANCE_OFFICER','ADMIN_STAFF','EXTERNAL_FUNDER'] },
-      { icon: ProposalIcon,  label: 'Proposals',        path: '/admin-staff/grants/proposals',     roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
+      { icon: ProposalIcon,  label: 'All Proposals',    path: '/admin-staff/grants/proposals',     roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
       { icon: PipelineIcon,  label: 'Pipeline',         path: '/admin-staff/grants/pipeline',      roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
-      { icon: ReviewIcon,    label: 'Reviews',          path: '/admin-staff/grants/reviews',       roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP'] },
       { icon: AwardIcon,     label: 'Awards',           path: '/admin-staff/grants/awards',        roles: ['GRANT_MANAGER','FINANCE_OFFICER','INSTITUTIONAL_LEADERSHIP'] },
       { icon: FunderIcon,    label: 'Funder CRM',       path: '/admin-staff/grants/funders',       roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP'] },
       { icon: ReportIcon,    label: 'Reports & Compliance', path: '/admin-staff/grants/reports',   roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP','FINANCE_OFFICER'] },
@@ -81,6 +83,7 @@ const NAV_SECTIONS = [
       { icon: TeamsIcon,     label: 'Teams & Members',      path: '/admin-staff/research/teams',     roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
       { icon: OutputsIcon,   label: 'Research Outputs',     path: '/admin-staff/research/outputs',   roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
       { icon: DirectoryIcon, label: 'Researcher Directory', path: '/admin-staff/research/directory', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
+      { icon: DataImportIcon, label: 'Data Import Requests', path: '/admin-staff/research/data-imports', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
     ],
   },
   {

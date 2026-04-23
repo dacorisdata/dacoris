@@ -10,6 +10,8 @@ import {
   Summarize as ReportsIcon, DynamicForm as FormsIcon,
   Groups as CollabIcon, PersonAdd as InviteIcon,
   ExitToApp as LogoutIcon,
+  EmojiEvents as AwardIcon,
+  UploadFile as UploadIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
@@ -29,20 +31,21 @@ const NAV_SECTIONS = [
       { icon: DiscoverIcon,     label: 'Discover Opportunities', path: '/researcher/grants/discover' },
       { icon: ProposalIcon,     label: 'My Proposals',           path: '/researcher/grants/proposals' },
       { icon: ApplicationIcon,  label: 'My Applications',        path: '/researcher/grants/applications' },
+      { icon: AwardIcon,        label: 'My Awards',              path: '/researcher/grants/awards' },
     ],
   },
   {
     section: 'Research Projects',
     items: [
       { icon: ProjectIcon,   label: 'My Projects',         path: '/researcher/projects' },
-      { icon: MilestoneIcon, label: 'Milestones & Tasks',  path: '/researcher/projects/milestones' },
       { icon: EthicsIcon,    label: 'Ethics Applications', path: '/researcher/ethics' },
+      { icon: UploadIcon,    label: 'Data Imports',        path: '/researcher/projects/data-imports' },
     ],
   },
   {
     section: 'Research Outputs',
     items: [
-      { icon: PublicationsIcon, label: 'Publications',  path: '/researcher/publications' },
+      { icon: PublicationsIcon, label: 'Research Outputs', path: '/researcher/publications' },
       { icon: DatasetsIcon,     label: 'My Datasets',   path: '/researcher/data/datasets' },
       { icon: ReportsIcon,      label: 'Reports',       path: '/researcher/data/reports' },
     ],

@@ -11,6 +11,7 @@ import httpx
 from database import get_db
 from models import GrantOpportunity, User
 from auth import require_roles, ResearchRole, get_current_user
+from services.opportunity_import import OpportunityImportService
 
 router = APIRouter(prefix="/api/grants/opportunities", tags=["opportunities"])
 
@@ -36,11 +37,15 @@ class OpportunityOut(BaseModel):
     sponsor: Optional[str]
     description: Optional[str]
     category: Optional[str]
+    geography: Optional[str]
+    applicant_type: Optional[str]
+    funding_type: Optional[str]
     amount_min: Optional[float]
     amount_max: Optional[float]
     currency: str
-    deadline: Optional[datetime]
+    deadline: Optional[date]
     status: str
+    is_curated: bool
     created_at: datetime
 
     class Config:
@@ -50,17 +55,23 @@ class OpportunityOut(BaseModel):
 @router.get("", response_model=List[OpportunityOut])
 async def list_opportunities(
     status: Optional[str] = Query(None),
+    curated_only: Optional[bool] = Query(False),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles([
-        ResearchRole.GRANT_OFFICER, ResearchRole.PRINCIPAL_INVESTIGATOR,
-        ResearchRole.INSTITUTIONAL_LEAD, ResearchRole.SYSTEM_ADMIN
-    ]))
+    current_user: User = Depends(get_current_user)
 ):
-    query = select(GrantOpportunity).where(
-        GrantOpportunity.institution_id == current_user.primary_institution_id
-    )
+    """
+    List grant opportunities from database.
+    - Admin staff see all opportunities
+    - Researchers can filter to curated_only
+    """
+    query = select(GrantOpportunity)
+    
     if status:
         query = query.where(GrantOpportunity.status == status)
+    
+    if curated_only:
+        query = query.where(GrantOpportunity.is_curated == True)
+    
     result = await db.execute(query.order_by(GrantOpportunity.deadline))
     return result.scalars().all()
 
@@ -82,6 +93,60 @@ async def create_opportunity(
     await db.commit()
     await db.refresh(opp)
     return opp
+
+
+@router.get("/from-excel-source")
+async def get_opportunities_from_excel(
+    current_user: User = Depends(get_current_user)
+):
+    """Fetch opportunities from Excel file without persisting to database"""
+    try:
+        from pathlib import Path
+        import traceback
+        
+        excel_path = Path(__file__).parent.parent.parent / "data" / "opportunities.xlsx"
+        
+        if not excel_path.exists():
+            print(f"Excel file not found at: {excel_path}")
+            return []
+        
+        opportunities = OpportunityImportService.parse_dacoris_excel_file(str(excel_path))
+        
+        result = []
+        for idx, opp in enumerate(opportunities, 1):
+            result.append({
+                "id": idx,
+                "title": opp.get("title"),
+                "sponsor": opp.get("sponsor"),
+                "description": opp.get("description"),
+                "category": opp.get("category"),
+                "geography": opp.get("geography"),
+                "applicant_type": opp.get("applicant_type"),
+                "funding_type": opp.get("funding_type"),
+                "amount_min": opp.get("amount_min"),
+                "amount_max": opp.get("amount_max"),
+                "currency": opp.get("currency", "KES"),
+                "deadline": opp.get("deadline").isoformat() if opp.get("deadline") else None,
+                "eligibility": opp.get("eligibility"),
+                "criteria": opp.get("criteria"),
+                "application_url": opp.get("application_url"),
+                "contact_email": opp.get("contact_email"),
+                "source_system": opp.get("source_system", "excel_import"),
+                "source_id": opp.get("source_id"),
+                "status": opp.get("status", "open"),
+                "created_at": datetime.now().isoformat()
+            })
+        
+        return result
+        
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Error reading Excel file: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read opportunities: {str(e)}"
+        )
 
 
 @router.get("/{opp_id}", response_model=OpportunityOut)
@@ -172,78 +237,56 @@ def parse_date(date_value):
 @router.post("/import/excel")
 async def import_from_excel(
     file: UploadFile = File(...),
+    skip_duplicates: bool = Query(True, description="Skip duplicate opportunities"),
+    update_existing: bool = Query(False, description="Update existing opportunities"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Import grant opportunities from Excel file"""
+    """Import grant opportunities from Excel file with deduplication"""
     try:
-        contents = await file.read()
-        df = pd.read_excel(io.BytesIO(contents))
+        # Save uploaded file temporarily
+        import tempfile
+        import os
         
-        required_cols = ['title']
-        missing = [col for col in required_cols if col not in df.columns]
-        if missing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Missing required columns: {', '.join(missing)}"
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            contents = await file.read()
+            tmp_file.write(contents)
+            tmp_file_path = tmp_file.name
+        
+        try:
+            # Parse Excel file
+            opportunities = OpportunityImportService.parse_excel_file(tmp_file_path)
+            
+            if not opportunities:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No valid opportunities found in file"
+                )
+            
+            # Import opportunities
+            created, skipped, errors = await OpportunityImportService.import_opportunities(
+                db=db,
+                opportunities=opportunities,
+                created_by_id=current_user.id,
+                institution_id=current_user.primary_institution_id,
+                skip_duplicates=skip_duplicates,
+                update_existing=update_existing
             )
+            
+            return {
+                "success": True,
+                "created_count": created,
+                "skipped_count": skipped,
+                "total_rows": len(opportunities),
+                "errors": errors if errors else None
+            }
+            
+        finally:
+            # Clean up temp file
+            os.unlink(tmp_file_path)
         
-        imported_count = 0
-        errors = []
-        
-        for idx, row in df.iterrows():
-            try:
-                title = str(row['title'])
-                
-                # Check if opportunity already exists
-                existing = await db.execute(
-                    select(GrantOpportunity).where(
-                        GrantOpportunity.title == title,
-                        GrantOpportunity.institution_id == current_user.primary_institution_id
-                    )
-                )
-                if existing.scalar_one_or_none():
-                    errors.append(f"Row {idx + 2}: Opportunity '{title}' already exists")
-                    continue
-                
-                deadline = parse_date(row.get('deadline'))
-                
-                opp_data = {
-                    "title": title,
-                    "sponsor": str(row.get('sponsor', '')) if pd.notna(row.get('sponsor')) else None,
-                    "description": str(row.get('description', '')) if pd.notna(row.get('description')) else None,
-                    "category": str(row.get('category', '')) if pd.notna(row.get('category')) else None,
-                    "funding_type": str(row.get('funding_type', '')) if pd.notna(row.get('funding_type')) else None,
-                    "currency": str(row.get('currency', 'KES')),
-                    "amount_min": float(row['amount_min']) if pd.notna(row.get('amount_min')) else None,
-                    "amount_max": float(row['amount_max']) if pd.notna(row.get('amount_max')) else None,
-                    "deadline": deadline,
-                    "eligibility": str(row.get('eligibility', '')) if pd.notna(row.get('eligibility')) else None,
-                    "application_url": str(row.get('application_url', '')) if pd.notna(row.get('application_url')) else None,
-                    "contact_email": str(row.get('contact_email', '')) if pd.notna(row.get('contact_email')) else None,
-                    "status": str(row.get('status', 'open')),
-                }
-                
-                db_opp = GrantOpportunity(
-                    **opp_data,
-                    created_by_id=current_user.id,
-                    institution_id=current_user.primary_institution_id
-                )
-                db.add(db_opp)
-                imported_count += 1
-                
-            except Exception as e:
-                errors.append(f"Row {idx + 2}: {str(e)}")
-        
-        await db.commit()
-        
-        return {
-            "success": True,
-            "imported_count": imported_count,
-            "total_rows": len(df),
-            "errors": errors if errors else None
-        }
-        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -465,4 +508,158 @@ async def mock_external_api():
             "application_url": "https://www.edctp.org/call/tuberculosis-research-initiative/",
             "contact_email": "tb.research@edctp.org"
         }
+    ]
+
+
+# ==================== CURATION ENDPOINTS ====================
+
+@router.patch("/{opportunity_id}/curate")
+async def toggle_curation(
+    opportunity_id: int,
+    curate: bool = Query(..., description="True to publish, False to unpublish"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Toggle curation status (publish/unpublish to researchers)"""
+    result = await db.execute(
+        select(GrantOpportunity).where(GrantOpportunity.id == opportunity_id)
+    )
+    opportunity = result.scalar_one_or_none()
+    
+    if not opportunity:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+    
+    opportunity.is_curated = curate
+    await db.commit()
+    await db.refresh(opportunity)
+    
+    return {
+        "id": opportunity.id,
+        "title": opportunity.title,
+        "is_curated": opportunity.is_curated,
+        "message": f"Opportunity {'published' if curate else 'unpublished'} successfully"
+    }
+
+
+@router.post("/bulk-curate")
+async def bulk_curate_opportunities(
+    opportunity_ids: List[int],
+    curate: bool = Query(..., description="True to publish, False to unpublish"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Bulk publish/unpublish opportunities"""
+    from sqlalchemy import update
+    
+    stmt = (
+        update(GrantOpportunity)
+        .where(GrantOpportunity.id.in_(opportunity_ids))
+        .values(is_curated=curate)
+    )
+    
+    result = await db.execute(stmt)
+    await db.commit()
+    
+    return {
+        "updated_count": result.rowcount,
+        "is_curated": curate,
+        "message": f"{result.rowcount} opportunities {'published' if curate else 'unpublished'}"
+    }
+
+
+# ==================== BOOKMARK ENDPOINTS ====================
+
+@router.post("/{opportunity_id}/bookmark")
+async def bookmark_opportunity(
+    opportunity_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Bookmark an opportunity (save for later)"""
+    from models import OpportunityBookmark
+    
+    # Check if opportunity exists
+    result = await db.execute(
+        select(GrantOpportunity).where(GrantOpportunity.id == opportunity_id)
+    )
+    opportunity = result.scalar_one_or_none()
+    
+    if not opportunity:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+    
+    # Check if already bookmarked
+    existing = await db.execute(
+        select(OpportunityBookmark).where(
+            OpportunityBookmark.opportunity_id == opportunity_id,
+            OpportunityBookmark.user_id == current_user.id
+        )
+    )
+    
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Opportunity already bookmarked")
+    
+    # Create bookmark
+    bookmark = OpportunityBookmark(
+        opportunity_id=opportunity_id,
+        user_id=current_user.id
+    )
+    db.add(bookmark)
+    await db.commit()
+    
+    return {"message": "Opportunity bookmarked successfully", "opportunity_id": opportunity_id}
+
+
+@router.delete("/{opportunity_id}/bookmark")
+async def remove_bookmark(
+    opportunity_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove bookmark from an opportunity"""
+    from models import OpportunityBookmark
+    
+    result = await db.execute(
+        select(OpportunityBookmark).where(
+            OpportunityBookmark.opportunity_id == opportunity_id,
+            OpportunityBookmark.user_id == current_user.id
+        )
+    )
+    bookmark = result.scalar_one_or_none()
+    
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+    
+    await db.delete(bookmark)
+    await db.commit()
+    
+    return {"message": "Bookmark removed successfully", "opportunity_id": opportunity_id}
+
+
+@router.get("/bookmarks/my")
+async def get_my_bookmarks(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all bookmarked opportunities for current user"""
+    from models import OpportunityBookmark
+    
+    result = await db.execute(
+        select(GrantOpportunity)
+        .join(OpportunityBookmark)
+        .where(OpportunityBookmark.user_id == current_user.id)
+        .order_by(OpportunityBookmark.created_at.desc())
+    )
+    
+    opportunities = result.scalars().all()
+    
+    return [
+        {
+            "id": opp.id,
+            "title": opp.title,
+            "sponsor": opp.sponsor,
+            "deadline": opp.deadline,
+            "status": opp.status,
+            "is_curated": opp.is_curated
+        }
+        for opp in opportunities
     ]

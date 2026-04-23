@@ -54,7 +54,7 @@ export default function DataRepositoryPage() {
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.3 }}>FAIR-aligned data catalog · DataCite metadata · DOI minting · Access controls & embargo management</Typography>
         </Box>
         <Button variant="contained" size="small" startIcon={<AddIcon />}
-          sx={{ bgcolor:'#1ca7a1', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#0e7490' } }}>
+          sx={{ bgcolor:'primary.main', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'primary.dark' } }}>
           Deposit Dataset
         </Button>
       </Box>
@@ -64,7 +64,7 @@ export default function DataRepositoryPage() {
         {[{ label:'Published Datasets', value: published, color:'#10b981' },
           { label:'DOIs Minted', value: doiMinted, color:'#8b5cf6' },
           { label:'Total Records', value: totalRecords.toLocaleString(), color:'#0ea5e9' },
-          { label:'Total Datasets', value: MOCK_DATASETS.length, color:'#1ca7a1' },
+          { label:'Total Datasets', value: MOCK_DATASETS.length, color:theme.palette.primary.main },
         ].map(k => (
           <Box key={k.label} sx={{ flex:'1 1 150px', bgcolor:'background.paper', border:`1px solid ${theme.palette.divider}`, borderRadius:2.5, p:2 }}>
             <Typography sx={{ fontSize:11, color:'text.secondary', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>{k.label}</Typography>
@@ -139,7 +139,7 @@ export default function DataRepositoryPage() {
                   </TableCell>
                   <TableCell sx={{ fontSize:11, color:'text.secondary', borderBottom:`1px solid ${theme.palette.divider}` }}>{d.license}</TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
-                    <Button size="small" sx={{ color:'#1ca7a1', textTransform:'none', fontSize:11, fontWeight:600 }}>View</Button>
+                    <Button size="small" sx={{ color:'primary.main', textTransform:'none', fontSize:11, fontWeight:600 }}>View</Button>
                   </TableCell>
                 </TableRow>
               ))}

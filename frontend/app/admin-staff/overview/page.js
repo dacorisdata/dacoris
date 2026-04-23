@@ -28,10 +28,10 @@ import api from '../../../lib/api';
 
 const ROLE_CONFIG = {
   GRANT_MANAGER: {
-    label: 'Grant Manager', color: '#8b5cf6',
+    label: 'Grant Manager', color: '#16a699',
     description: 'Manage the full grant lifecycle — from opportunity discovery to award closeout.',
     modules: [
-      { label: 'Active Opportunities', icon: AssignmentIcon, color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', path: '/admin-staff/grants/opportunities', stat: 'opportunities' },
+      { label: 'Active Opportunities', icon: AssignmentIcon, color: '#16a699', bg: 'rgba(22,166,153,0.1)', path: '/admin-staff/grants/opportunities', stat: 'opportunities' },
       { label: 'Open Proposals',       icon: ProjectsIcon,   color: '#3b82f6', bg: 'rgba(59,130,246,0.1)',  path: '/admin-staff/grants/proposals',     stat: 'proposals' },
       { label: 'Active Awards',        icon: AwardsIcon,     color: '#10b981', bg: 'rgba(16,185,129,0.1)',  path: '/admin-staff/grants/awards',        stat: 'awards' },
     ],
@@ -43,7 +43,7 @@ const ROLE_CONFIG = {
     ],
   },
   FINANCE_OFFICER: {
-    label: 'Finance Officer', color: '#f59e0b',
+    label: 'Finance Officer', color: '#16a699',
     description: 'Oversee budgets, disbursements, and financial compliance across all active awards.',
     modules: [
       { label: 'Active Budgets',       icon: FinanceIcon,    color: '#f59e0b', bg: 'rgba(245,158,11,0.1)',  path: '/admin-staff/finance/budgets',       stat: 'budgets' },
@@ -58,12 +58,12 @@ const ROLE_CONFIG = {
     ],
   },
   ETHICS_COMMITTEE_MEMBER: {
-    label: 'Ethics Committee', color: '#10b981',
+    label: 'Ethics Committee', color: '#16a699',
     description: 'Review ethics applications, manage IRB workflows, and issue committee decisions.',
     modules: [
       { label: 'Pending Applications', icon: EthicsIcon,   color: '#10b981', bg: 'rgba(16,185,129,0.1)',  path: '/admin-staff/ethics/applications', stat: 'pending_ethics' },
       { label: 'My Assigned Reviews',  icon: ReviewIcon,   color: '#3b82f6', bg: 'rgba(59,130,246,0.1)',  path: '/admin-staff/ethics/reviews',      stat: 'assigned_reviews' },
-      { label: 'Decisions Issued',     icon: CheckIcon,    color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)',  path: '/admin-staff/ethics/decisions',    stat: 'decisions' },
+      { label: 'Decisions Issued',     icon: CheckIcon,    color: '#16a699', bg: 'rgba(22,166,153,0.1)',  path: '/admin-staff/ethics/decisions',    stat: 'decisions' },
     ],
     actions: [
       { label: 'Review Applications',  path: '/admin-staff/ethics/applications', icon: EthicsIcon },
@@ -73,7 +73,7 @@ const ROLE_CONFIG = {
     ],
   },
   DATA_STEWARD: {
-    label: 'Data Steward', color: '#0ea5e9',
+    label: 'Data Steward', color: '#16a699',
     description: 'Curate datasets, manage data access policies, and oversee repository quality.',
     modules: [
       { label: 'Managed Datasets', icon: DataIcon,     color: '#0ea5e9', bg: 'rgba(14,165,233,0.1)',  path: '/admin-staff/data/datasets',  stat: 'datasets' },
@@ -87,11 +87,11 @@ const ROLE_CONFIG = {
     ],
   },
   DATA_ENGINEER: {
-    label: 'Data Engineer', color: '#06b6d4',
+    label: 'Data Engineer', color: '#16a699',
     description: 'Build and manage data pipelines, ETL workflows, and analytics infrastructure.',
     modules: [
       { label: 'Data Pipelines',   icon: DataIcon,      color: '#06b6d4', bg: 'rgba(6,182,212,0.1)',   path: '/admin-staff/data/pipelines', stat: 'pipelines' },
-      { label: 'Managed Datasets', icon: AnalyticsIcon, color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', path: '/admin-staff/data/datasets',  stat: 'datasets' },
+      { label: 'Managed Datasets', icon: AnalyticsIcon, color: '#16a699', bg: 'rgba(22,166,153,0.1)', path: '/admin-staff/data/datasets',  stat: 'datasets' },
     ],
     actions: [
       { label: 'Data Pipelines', path: '/admin-staff/data/pipelines', icon: DataIcon },
@@ -99,10 +99,10 @@ const ROLE_CONFIG = {
     ],
   },
   INSTITUTIONAL_LEADERSHIP: {
-    label: 'Institutional Lead', color: '#ef4444',
+    label: 'Institutional Lead', color: '#16a699',
     description: 'Strategic oversight of the institution\'s research portfolio, grants, and compliance.',
     modules: [
-      { label: 'Active Grants',    icon: AssignmentIcon, color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', path: '/admin-staff/grants/opportunities', stat: 'opportunities' },
+      { label: 'Active Grants',    icon: AssignmentIcon, color: '#16a699', bg: 'rgba(22,166,153,0.1)', path: '/admin-staff/grants/opportunities', stat: 'opportunities' },
       { label: 'Active Projects',  icon: ProjectsIcon,   color: '#3b82f6', bg: 'rgba(59,130,246,0.1)', path: '/admin-staff/research/projects',    stat: 'projects' },
       { label: 'Ethics Pending',   icon: EthicsIcon,     color: '#10b981', bg: 'rgba(16,185,129,0.1)', path: '/admin-staff/ethics/applications',  stat: 'pending_ethics' },
       { label: 'Total Budget',     icon: FinanceIcon,    color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', path: '/admin-staff/finance/budgets',      stat: 'total_budget', prefix: '$' },
@@ -116,7 +116,7 @@ const ROLE_CONFIG = {
     ],
   },
   EXTERNAL_REVIEWER: {
-    label: 'External Reviewer', color: '#f97316',
+    label: 'External Reviewer', color: '#16a699',
     description: 'Review and score assigned grant applications within your area of expertise.',
     modules: [
       { label: 'Assigned Reviews', icon: ReviewIcon,  color: '#f97316', bg: 'rgba(249,115,22,0.1)', path: '/admin-staff/reviews', stat: 'assigned_reviews' },
@@ -128,7 +128,7 @@ const ROLE_CONFIG = {
     ],
   },
   ADMIN_STAFF: {
-    label: 'Admin Staff', color: '#6366f1',
+    label: 'Admin Staff', color: '#16a699',
     description: 'Administrative support across research operations and platform functions.',
     modules: [],
     actions: [
@@ -166,20 +166,20 @@ export default function AdminStaffOverview() {
       const role = u.primary_account_type;
       const s = {};
       if (['GRANT_MANAGER', 'INSTITUTIONAL_LEADERSHIP', 'FINANCE_OFFICER'].includes(role)) {
-        const oppsRes = await api.get('/api/grants/opportunities').catch(() => ({ data: [] }));
+        const oppsRes = await api.get('/grants/opportunities').catch(() => ({ data: [] }));
         s.opportunities = oppsRes.data?.filter(o => o.status === 'open')?.length ?? 0;
-        const propsRes = await api.get('/api/grants/proposals').catch(() => ({ data: [] }));
+        const propsRes = await api.get('/grants/proposals').catch(() => ({ data: [] }));
         s.proposals = propsRes.data?.filter(p => ['draft','in_review','submitted'].includes(p.status))?.length ?? 0;
         s.awards    = propsRes.data?.filter(p => p.status === 'approved')?.length ?? 0;
       }
       if (['ETHICS_COMMITTEE_MEMBER', 'INSTITUTIONAL_LEADERSHIP'].includes(role)) {
-        const ethicsRes = await api.get('/api/research/ethics').catch(() => ({ data: [] }));
+        const ethicsRes = await api.get('/research/ethics').catch(() => ({ data: [] }));
         s.pending_ethics  = ethicsRes.data?.filter(e => ['submitted','under_review'].includes(e.status))?.length ?? 0;
         s.assigned_reviews = ethicsRes.data?.filter(e => e.status === 'assigned')?.length ?? 0;
         s.decisions       = ethicsRes.data?.filter(e => ['approved','rejected','deferred'].includes(e.status))?.length ?? 0;
       }
       if (['DATA_STEWARD', 'DATA_ENGINEER', 'INSTITUTIONAL_LEADERSHIP'].includes(role)) {
-        const projRes = await api.get('/api/research/projects').catch(() => ({ data: [] }));
+        const projRes = await api.get('/research/projects').catch(() => ({ data: [] }));
         s.projects = projRes.data?.length ?? 0;
         s.datasets = 0;
         s.pipelines = 0;
@@ -332,8 +332,8 @@ export default function AdminStaffOverview() {
 
 const PERMISSION_CHIPS = {
   GRANT_MANAGER: [
-    { label: 'Create Opportunities', color: '#8b5cf6' },
-    { label: 'Manage Proposals',     color: '#8b5cf6' },
+    { label: 'Create Opportunities', color: '#16a699' },
+    { label: 'Manage Proposals',     color: '#16a699' },
     { label: 'Assign Reviewers',     color: '#3b82f6' },
     { label: 'Issue Awards',         color: '#10b981' },
     { label: 'View Audit Log',       color: '#f59e0b' },
@@ -344,20 +344,20 @@ const PERMISSION_CHIPS = {
     { label: 'Approve Disbursements',color: '#f59e0b' },
     { label: 'Review Expense Reports', color: '#10b981' },
     { label: 'Budget vs Actuals',    color: '#3b82f6' },
-    { label: 'View Audit Log',       color: '#8b5cf6' },
+    { label: 'View Audit Log',       color: '#16a699' },
     { label: 'Amend Awards',         color: '#ef4444' },
   ],
   ETHICS_COMMITTEE_MEMBER: [
     { label: 'Review Ethics Applications', color: '#10b981' },
     { label: 'Declare COI',          color: '#ef4444' },
     { label: 'Issue Decisions',      color: '#10b981' },
-    { label: 'Assign Reviewers (Chair)', color: '#8b5cf6' },
+    { label: 'Assign Reviewers (Chair)', color: '#16a699' },
     { label: 'View Projects',        color: '#3b82f6' },
   ],
   DATA_STEWARD: [
     { label: 'Curate Datasets',      color: '#0ea5e9' },
     { label: 'Manage Access Policies', color: '#0ea5e9' },
-    { label: 'Mint DOIs',            color: '#8b5cf6' },
+    { label: 'Mint DOIs',            color: '#16a699' },
     { label: 'Metadata Validation',  color: '#10b981' },
     { label: 'QA Oversight',         color: '#f59e0b' },
     { label: 'Approve Data Access',  color: '#ef4444' },
@@ -365,14 +365,14 @@ const PERMISSION_CHIPS = {
   DATA_ENGINEER: [
     { label: 'Build ETL Pipelines',  color: '#06b6d4' },
     { label: 'Manage Data Lake',     color: '#06b6d4' },
-    { label: 'ML Model Deployment',  color: '#8b5cf6' },
+    { label: 'ML Model Deployment',  color: '#16a699' },
     { label: 'Access Analytics',     color: '#3b82f6' },
     { label: 'QA Data',              color: '#10b981' },
   ],
   INSTITUTIONAL_LEADERSHIP: [
     { label: 'Strategic Dashboards', color: '#ef4444' },
     { label: 'Approve Key Decisions',color: '#ef4444' },
-    { label: 'Portfolio Reporting',  color: '#8b5cf6' },
+    { label: 'Portfolio Reporting',  color: '#16a699' },
     { label: 'View All Grants',      color: '#f59e0b' },
     { label: 'View All Projects',    color: '#3b82f6' },
     { label: 'Ethics Oversight',     color: '#10b981' },

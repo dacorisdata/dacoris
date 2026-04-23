@@ -13,8 +13,8 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const ACCENT = '#8b5cf6';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+const ACCENT = '#16a699';
 
 const REVIEW_CRITERIA = [
   { id: 'innovation', label: 'Innovation & Originality', weight: 25, max: 10 },
@@ -85,7 +85,7 @@ export default function ReviewProposalPage() {
       const overallScore = calculateOverallScore();
       
       await axios.post(
-        `${API_URL}/api/grants/reviews/${params.id}/submit`,
+        `${API_URL}/grants/reviews/${params.id}/submit`,
         {
           has_coi: hasCOI,
           coi_reason: hasCOI ? coiReason : null,

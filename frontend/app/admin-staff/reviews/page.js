@@ -33,7 +33,7 @@ export default function ExternalReviewsPage() {
     if (u.is_global_admin)      { router.push('/global-admin/dashboard'); return; }
     if (u.is_institution_admin) { router.push('/institution-admin/dashboard'); return; }
     try {
-      const res = await api.get('/api/grants/reviews/my').catch(() => ({ data: [] }));
+      const res = await api.get('/grants/reviews/my').catch(() => ({ data: [] }));
       setReviews(res.data || []);
     } catch (e) { setError('Failed to load assigned reviews'); }
     setLoading(false);

@@ -40,7 +40,7 @@ export default function AccountDetailsForm({
     setLoadingDepartments(true);
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/registration/departments/${institutionDomain}`
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/registration/departments/${institutionDomain}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -59,7 +59,7 @@ export default function AccountDetailsForm({
     setValidatingEmail(true);
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/registration/validate-email`,
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/registration/validate-email`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

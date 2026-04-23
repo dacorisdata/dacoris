@@ -26,7 +26,7 @@ export default function FinanceBudgetsPage() {
     if (u.is_global_admin)      { router.push('/global-admin/dashboard'); return; }
     if (u.is_institution_admin) { router.push('/institution-admin/dashboard'); return; }
     try {
-      const res = await api.get('/api/grants/awards').catch(() => ({ data: [] }));
+      const res = await api.get('/grants/awards').catch(() => ({ data: [] }));
       setAwards(res.data || []);
     } catch (e) { setError('Failed to load budget data'); }
     setLoading(false);

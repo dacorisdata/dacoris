@@ -9,7 +9,8 @@ import {
   MenuItem, Select, FormControl, InputLabel, useTheme, Menu, ListItemIcon, ListItemText, Checkbox, Autocomplete, IconButton, TablePagination,
 } from '@mui/material';
 import { Add as AddIcon, Search as SearchIcon, Assignment as AssignmentIcon, ExpandMore as ExpandIcon,
-  Edit as ManualIcon, UploadFile as ExcelIcon, CloudDownload as APIIcon, GetApp as DownloadIcon, Delete as DeleteIcon, Visibility as ViewIcon } from '@mui/icons-material';
+  Edit as ManualIcon, UploadFile as ExcelIcon, CloudDownload as APIIcon, GetApp as DownloadIcon, Delete as DeleteIcon, Visibility as ViewIcon,
+  ArrowUpward as ArrowUpIcon, ArrowDownward as ArrowDownIcon, CheckCircle as PublishedIcon, Unpublished as UnpublishedIcon } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 import api from '../../../../lib/api';
 
@@ -20,7 +21,7 @@ const STATUS_COLORS = {
   archived: { bg: 'rgba(100,116,139,0.08)', color: '#94a3b8' },
 };
 
-const ACCENT = '#8b5cf6';
+const ACCENT = '#16a699';
 
 export default function GrantOpportunitiesPage() {
   const router  = useRouter();
@@ -51,9 +52,11 @@ export default function GrantOpportunitiesPage() {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [selected, setSelected] = useState([]);
+  const [sortBy, setSortBy] = useState(null);
+  const [sortOrder, setSortOrder] = useState('asc');
 
   useEffect(() => { checkAuth(); }, []);
-  useEffect(() => { applyFilter(); }, [opps, search, statusFilter]);
+  useEffect(() => { applyFilter(); }, [opps, search, statusFilter, sortBy, sortOrder]);
   useEffect(() => { setPage(0); }, [filtered]);
 
   const checkAuth = async () => {
@@ -67,8 +70,11 @@ export default function GrantOpportunitiesPage() {
 
   const loadOpps = async () => {
     try {
+      // Fetch opportunities from database
       const res = await api.get('/grants/opportunities');
-      setOpps(res.data || []);
+      // Add curated flag (default false for Excel imports)
+      const oppsWithCuration = (res.data || []).map(o => ({ ...o, is_curated: o.is_curated || false }));
+      setOpps(oppsWithCuration);
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to load opportunities');
     }
@@ -78,6 +84,23 @@ export default function GrantOpportunitiesPage() {
     let data = [...opps];
     if (statusFilter !== 'all') data = data.filter(o => o.status === statusFilter);
     if (search) data = data.filter(o => o.title?.toLowerCase().includes(search.toLowerCase()) || o.sponsor?.toLowerCase().includes(search.toLowerCase()));
+    
+    // Apply sorting
+    if (sortBy) {
+      data.sort((a, b) => {
+        let aVal, bVal;
+        if (sortBy === 'deadline') {
+          aVal = a.deadline ? new Date(a.deadline).getTime() : 0;
+          bVal = b.deadline ? new Date(b.deadline).getTime() : 0;
+        } else if (sortBy === 'status') {
+          const statusOrder = { open: 1, upcoming: 2, closed: 3, archived: 4 };
+          aVal = statusOrder[a.status] || 99;
+          bVal = statusOrder[b.status] || 99;
+        }
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      });
+    }
+    
     setFiltered(data);
   };
 
@@ -148,28 +171,6 @@ export default function GrantOpportunitiesPage() {
     }
   };
 
-  const handleSelectAll = (event) => {
-    if (event.target.checked) {
-      const newSelected = paginatedOpps.map(opp => opp.id);
-      setSelected(newSelected);
-    } else {
-      setSelected([]);
-    }
-  };
-
-  const handleSelectOne = (id) => {
-    const selectedIndex = selected.indexOf(id);
-    let newSelected = [];
-    if (selectedIndex === -1) {
-      newSelected = [...selected, id];
-    } else {
-      newSelected = selected.filter(item => item !== id);
-    }
-    setSelected(newSelected);
-  };
-
-  const isSelected = (id) => selected.indexOf(id) !== -1;
-
   const handleAPIImport = async () => {
     if (!apiUrl) { setError('API URL is required'); return; }
     setImporting(true); setError('');
@@ -199,9 +200,74 @@ export default function GrantOpportunitiesPage() {
     }
   };
 
-  const fmtDate  = (d) => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
-  
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortOrder('asc');
+    }
+  };
+
   const paginatedOpps = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const isSelected = (id) => selected.indexOf(id) !== -1;
+
+  const handleSelectAll = (event) => {
+    if (event.target.checked) {
+      setSelected(paginatedOpps.map(o => o.id));
+    } else {
+      setSelected([]);
+    }
+  };
+
+  const handleSelectOne = (event, id) => {
+    event.stopPropagation();
+    const selectedIndex = selected.indexOf(id);
+    let newSelected = [];
+    if (selectedIndex === -1) {
+      newSelected = newSelected.concat(selected, id);
+    } else if (selectedIndex === 0) {
+      newSelected = newSelected.concat(selected.slice(1));
+    } else if (selectedIndex === selected.length - 1) {
+      newSelected = newSelected.concat(selected.slice(0, -1));
+    } else if (selectedIndex > 0) {
+      newSelected = newSelected.concat(
+        selected.slice(0, selectedIndex),
+        selected.slice(selectedIndex + 1)
+      );
+    }
+    setSelected(newSelected);
+  };
+
+  const handleCurateSelected = async () => {
+    try {
+      await api.post('/grants/opportunities/bulk-curate', selected, {
+        params: { curate: true }
+      });
+      setSuccess(`${selected.length} opportunity(ies) published to researchers`);
+      setTimeout(() => setSuccess(''), 3000);
+      setSelected([]);
+      await loadOpps();
+    } catch (e) {
+      setError('Failed to publish opportunities');
+    }
+  };
+
+  const handleUncurateSelected = async () => {
+    try {
+      await api.post('/grants/opportunities/bulk-curate', selected, {
+        params: { curate: false }
+      });
+      setSuccess(`${selected.length} opportunity(ies) unpublished from researchers`);
+      setTimeout(() => setSuccess(''), 3000);
+      setSelected([]);
+      await loadOpps();
+    } catch (e) {
+      setError('Failed to unpublish opportunities');
+    }
+  };
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
   const fmtMoney = (o) => {
     if (!o.amount_min && !o.amount_max) return '—';
     const fmt = (n) => n >= 1_000_000 ? `${(n/1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n/1000).toFixed(0)}K` : n;
@@ -217,30 +283,14 @@ export default function GrantOpportunitiesPage() {
       <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
         <Box>
           <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, mb: 0.5 }}>Grant Opportunities</Typography>
-          <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>Manage and publish funding opportunities for your institution</Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>
+            Browse funding opportunities from external sources • Data refreshed from Excel repository
+          </Typography>
         </Box>
-        <Button variant="contained" endIcon={<ExpandIcon />} 
-          onClick={(e) => { e.stopPropagation(); setAnchorEl(e.currentTarget); }}
-          sx={{ bgcolor: ACCENT, textTransform: 'none', borderRadius: 2, fontWeight: 600, '&:hover': { bgcolor: '#7c3aed' } }}>
-          New Opportunity
-        </Button>
-        <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-          PaperProps={{ sx: { borderRadius: 2, minWidth: 220, mt: 0.5 } }}>
-          <MenuItem onClick={() => { setAnchorEl(null); setShowCreate(true); }}>
-            <ListItemIcon><ManualIcon fontSize="small" sx={{ color: ACCENT }} /></ListItemIcon>
-            <ListItemText primary="Manual Entry" secondary="Create one opportunity" primaryTypographyProps={{ fontSize: 14, fontWeight: 600 }} secondaryTypographyProps={{ fontSize: 12 }} />
-          </MenuItem>
-          <MenuItem onClick={() => { setAnchorEl(null); setShowExcel(true); }}>
-            <ListItemIcon><ExcelIcon fontSize="small" sx={{ color: '#10b981' }} /></ListItemIcon>
-            <ListItemText primary="Excel Import" secondary="Batch upload from file" primaryTypographyProps={{ fontSize: 14, fontWeight: 600 }} secondaryTypographyProps={{ fontSize: 12 }} />
-          </MenuItem>
-          <MenuItem onClick={() => { setAnchorEl(null); setShowAPI(true); }}>
-            <ListItemIcon><APIIcon fontSize="small" sx={{ color: '#0ea5e9' }} /></ListItemIcon>
-            <ListItemText primary="External API" secondary="Pull from grant databases" primaryTypographyProps={{ fontSize: 14, fontWeight: 600 }} secondaryTypographyProps={{ fontSize: 12 }} />
-          </MenuItem>
-        </Menu>
+        <Chip 
+          label={`${opps.length} Opportunities Available`}
+          sx={{ bgcolor: `${ACCENT}18`, color: ACCENT, fontWeight: 600, fontSize: 13, px: 1 }}
+        />
       </Box>
 
       {error   && <Alert severity="error"   sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
@@ -263,16 +313,22 @@ export default function GrantOpportunitiesPage() {
         </FormControl>
       </Box>
 
-      {/* Batch Actions Bar */}
+      {/* Curation Actions */}
       {selected.length > 0 && (
-        <Box sx={{ mb: 2, p: 2, bgcolor: dark ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.05)', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography sx={{ fontWeight: 600, color: ACCENT }}>
-            {selected.length} selected
+        <Box sx={{ mb: 3, p: 2, bgcolor: `${ACCENT}08`, border: `1px solid ${ACCENT}40`, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'text.primary' }}>
+            {selected.length} opportunity(ies) selected
           </Typography>
-          <Button variant="outlined" startIcon={<DeleteIcon />} onClick={handleBatchDelete}
-            sx={{ textTransform: 'none', borderColor: '#ef4444', color: '#ef4444', '&:hover': { borderColor: '#dc2626', bgcolor: 'rgba(239,68,68,0.04)' } }}>
-            Delete Selected
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button variant="contained" size="small" startIcon={<PublishedIcon />} onClick={handleCurateSelected}
+              sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2, '&:hover': { bgcolor: '#14958a' } }}>
+              Publish to Researchers
+            </Button>
+            <Button variant="outlined" size="small" startIcon={<UnpublishedIcon />} onClick={handleUncurateSelected}
+              sx={{ borderColor: 'text.secondary', color: 'text.secondary', textTransform: 'none', fontWeight: 600, borderRadius: 2 }}>
+              Unpublish
+            </Button>
+          </Box>
         </Box>
       )}
 
@@ -284,6 +340,8 @@ export default function GrantOpportunitiesPage() {
           return <Chip key={s} label={`${count} ${s.charAt(0).toUpperCase() + s.slice(1)}`} size="small"
             sx={{ bgcolor: c.bg, color: c.color, fontWeight: 600, fontSize: 12 }} />;
         })}
+        <Chip label={`${opps.filter(o => o.is_curated).length} Published`} size="small" 
+          sx={{ bgcolor: `${ACCENT}18`, color: ACCENT, fontWeight: 600, fontSize: 12 }} />
         <Chip label={`${opps.length} Total`} size="small" sx={{ bgcolor: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', color: 'text.secondary', fontWeight: 600 }} />
       </Box>
 
@@ -297,14 +355,32 @@ export default function GrantOpportunitiesPage() {
                   indeterminate={selected.length > 0 && selected.length < paginatedOpps.length}
                   checked={paginatedOpps.length > 0 && selected.length === paginatedOpps.length}
                   onChange={handleSelectAll}
-                  sx={{ color: ACCENT, '&.Mui-checked': { color: ACCENT } }}
+                  sx={{ color: 'text.secondary', '&.Mui-checked': { color: ACCENT } }}
                 />
               </TableCell>
               <TableCell>Title</TableCell>
               <TableCell>Sponsor</TableCell>
               <TableCell>Funding Range</TableCell>
-              <TableCell>Deadline</TableCell>
-              <TableCell>Status</TableCell>
+              <TableCell 
+                onClick={() => handleSort('deadline')}
+                sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  Deadline
+                  {sortBy === 'deadline' && (
+                    sortOrder === 'asc' ? <ArrowUpIcon sx={{ fontSize: 14 }} /> : <ArrowDownIcon sx={{ fontSize: 14 }} />
+                  )}
+                </Box>
+              </TableCell>
+              <TableCell 
+                onClick={() => handleSort('status')}
+                sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  Status
+                  {sortBy === 'status' && (
+                    sortOrder === 'asc' ? <ArrowUpIcon sx={{ fontSize: 14 }} /> : <ArrowDownIcon sx={{ fontSize: 14 }} />
+                  )}
+                </Box>
+              </TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -323,17 +399,25 @@ export default function GrantOpportunitiesPage() {
               const sc = STATUS_COLORS[opp.status] || STATUS_COLORS.closed;
               const isItemSelected = isSelected(opp.id);
               return (
-                <TableRow key={opp.id} hover selected={isItemSelected} sx={{ '&:last-child td': { borderBottom: 'none' }, '&:hover': { bgcolor: `${ACCENT}06` } }}>
-                  <TableCell padding="checkbox">
+                <TableRow key={opp.id} hover sx={{ '&:last-child td': { borderBottom: 'none' }, '&:hover': { bgcolor: `${ACCENT}06` }, cursor: 'pointer', bgcolor: isItemSelected ? `${ACCENT}08` : 'transparent' }}
+                  onClick={() => router.push(`/admin-staff/grants/opportunities/${opp.id}`)}>
+                  <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={isItemSelected}
-                      onChange={() => handleSelectOne(opp.id)}
-                      sx={{ color: ACCENT, '&.Mui-checked': { color: ACCENT } }}
+                      onChange={(event) => handleSelectOne(event, opp.id)}
+                      sx={{ color: 'text.secondary', '&.Mui-checked': { color: ACCENT } }}
                     />
                   </TableCell>
                   <TableCell>
-                    <Typography sx={{ fontWeight: 600, fontSize: 14, color: 'text.primary' }}>{opp.title}</Typography>
-                    {opp.category && <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>{opp.category}</Typography>}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography sx={{ fontWeight: 600, fontSize: 14, color: 'text.primary' }}>{opp.title}</Typography>
+                        {opp.category && <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>{opp.category}</Typography>}
+                      </Box>
+                      {opp.is_curated && (
+                        <PublishedIcon sx={{ fontSize: 16, color: ACCENT }} titleAccess="Published to researchers" />
+                      )}
+                    </Box>
                   </TableCell>
                   <TableCell><Typography sx={{ fontSize: 13.5 }}>{opp.sponsor || '—'}</Typography></TableCell>
                   <TableCell><Typography sx={{ fontSize: 13.5 }}>{fmtMoney(opp)}</Typography></TableCell>
@@ -347,11 +431,8 @@ export default function GrantOpportunitiesPage() {
                       sx={{ bgcolor: sc.bg, color: sc.color, fontWeight: 600, fontSize: 11 }} />
                   </TableCell>
                   <TableCell align="right">
-                    <IconButton size="small" onClick={() => router.push(`/admin-staff/grants/opportunities/${opp.id}`)} sx={{ color: ACCENT }}>
+                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); router.push(`/admin-staff/grants/opportunities/${opp.id}`); }} sx={{ color: ACCENT }}>
                       <ViewIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleDelete(opp.id, opp.title); }} sx={{ color: '#ef4444' }}>
-                      <DeleteIcon fontSize="small" />
                     </IconButton>
                   </TableCell>
                 </TableRow>

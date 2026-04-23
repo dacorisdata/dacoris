@@ -220,12 +220,31 @@ class GrantOpportunity(Base):
     source_system = Column(String(100), default="internal")
     source_id = Column(String(200))
     status = Column(String(50), default="open", index=True)
+    is_curated = Column(Boolean, default=False, index=True)  # Published to researchers
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     proposals = relationship("Proposal", back_populates="opportunity")
     created_by = relationship("User", foreign_keys=[created_by_id])
+    bookmarks = relationship("OpportunityBookmark", back_populates="opportunity", cascade="all, delete-orphan")
+
+
+class OpportunityBookmark(Base):
+    __tablename__ = "opportunity_bookmarks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    opportunity_id = Column(Integer, ForeignKey("grant_opportunities.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    opportunity = relationship("GrantOpportunity", back_populates="bookmarks")
+    user = relationship("User")
+
+    __table_args__ = (
+        # Ensure a user can only bookmark an opportunity once
+        UniqueConstraint('opportunity_id', 'user_id', name='unique_user_opportunity_bookmark'),
+    )
 
 
 class Proposal(Base):
@@ -240,6 +259,10 @@ class Proposal(Base):
     submitted_at = Column(DateTime(timezone=True))
     current_version = Column(Integer, default=1)
     internal_notes = Column(Text)
+    # Workflow tracking
+    review_step = Column(Integer, default=0)          # 0-5 step within the pipeline
+    review_stage_name = Column(String(200), nullable=True)  # human-readable stage label
+    stage_notes = Column(Text, nullable=True)          # notes from last transition
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -254,6 +277,11 @@ class Proposal(Base):
     reviews = relationship("ProposalReview", back_populates="proposal",
                            cascade="all, delete-orphan")
     award = relationship("Award", back_populates="proposal", uselist=False)
+    stage_history = relationship("ProposalStageHistory", back_populates="proposal",
+                                 cascade="all, delete-orphan",
+                                 order_by="ProposalStageHistory.stage_step")
+    stage_assignments = relationship("ProposalStageAssignment", back_populates="proposal",
+                                     cascade="all, delete-orphan")
 
 
 class ProposalSection(Base):
@@ -266,11 +294,29 @@ class ProposalSection(Base):
     content_html = Column(Text, default="")
     word_count = Column(Integer, default=0)
     version = Column(Integer, default=1)
+    section_order = Column(Integer, default=0)
+    allowed_roles = Column(String(500), default="")  # comma-separated roles, empty = all
     last_edited_by_id = Column(Integer, ForeignKey("users.id"))
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     proposal = relationship("Proposal", back_populates="sections")
     last_edited_by = relationship("User", foreign_keys=[last_edited_by_id])
+    versions = relationship("ProposalSectionVersion", back_populates="section", order_by="ProposalSectionVersion.version_number.desc()")
+
+
+class ProposalSectionVersion(Base):
+    __tablename__ = "proposal_section_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    section_id = Column(Integer, ForeignKey("proposal_sections.id", ondelete="CASCADE"), nullable=False)
+    version_number = Column(Integer, nullable=False)
+    content_html = Column(Text, default="")
+    word_count = Column(Integer, default=0)
+    saved_by_id = Column(Integer, ForeignKey("users.id"))
+    saved_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    section = relationship("ProposalSection", back_populates="versions")
+    saved_by = relationship("User", foreign_keys=[saved_by_id])
 
 
 class ProposalDocument(Base):
@@ -295,10 +341,15 @@ class ProposalCollaborator(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Nullable for pending invites
     role = Column(String(100), default="co_investigator")
     can_edit = Column(Boolean, default=True)
+    status = Column(String(50), default="pending")  # pending, accepted, declined
+    invited_email = Column(String(200))  # For pending invites
+    invited_orcid = Column(String(100))  # For pending invites
+    invited_name = Column(String(200))  # For pending invites
     invited_at = Column(DateTime(timezone=True), server_default=func.now())
+    responded_at = Column(DateTime(timezone=True))
 
     proposal = relationship("Proposal", back_populates="collaborators")
     user = relationship("User", foreign_keys=[user_id])
@@ -322,6 +373,51 @@ class ProposalReview(Base):
 
     proposal = relationship("Proposal", back_populates="reviews")
     reviewer = relationship("User", foreign_keys=[reviewer_id])
+
+
+# Default intended duration per stage in working days
+STAGE_INTENDED_DAYS = {0: 3, 1: 7, 2: 14, 3: 7, 4: 14, 5: 7}
+
+
+class ProposalStageHistory(Base):
+    """Tracks when a proposal enters and exits each review stage."""
+    __tablename__ = "proposal_stage_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False)
+    stage_step = Column(Integer, nullable=False)       # 0-5
+    stage_name = Column(String(100))
+    entered_at = Column(DateTime(timezone=True), server_default=func.now())
+    intended_days = Column(Integer)                    # expected duration
+    exited_at = Column(DateTime(timezone=True))        # null = still active
+    entered_by_id = Column(Integer, ForeignKey("users.id"))
+
+    proposal = relationship("Proposal", back_populates="stage_history")
+    entered_by = relationship("User", foreign_keys=[entered_by_id])
+
+
+class ProposalStageAssignment(Base):
+    """Tracks which reviewer is assigned to review a specific stage of a proposal."""
+    __tablename__ = "proposal_stage_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False)
+    stage_step = Column(Integer, nullable=False)
+    stage_name = Column(String(100))
+    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+    assigned_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    notes = Column(Text)
+    status = Column(String(50), default="active")      # active | removed
+
+    proposal = relationship("Proposal", back_populates="stage_assignments")
+    reviewer = relationship("User", foreign_keys=[reviewer_id])
+    assigned_by = relationship("User", foreign_keys=[assigned_by_id])
+
+    __table_args__ = (
+        UniqueConstraint("proposal_id", "stage_step", "reviewer_id",
+                         name="uq_proposal_stage_reviewer"),
+    )
 
 
 class Award(Base):
@@ -388,6 +484,15 @@ class ResearchProject(Base):
                                        back_populates="project",
                                        cascade="all, delete-orphan")
     capture_forms = relationship("CaptureForm", back_populates="project")
+    data_import_requests = relationship("DataImportRequest", back_populates="project", cascade="all, delete-orphan")
+    members = relationship("ProjectMember", back_populates="project",
+                           cascade="all, delete-orphan")
+    milestones = relationship("ProjectMilestone", back_populates="project",
+                              cascade="all, delete-orphan",
+                              order_by="ProjectMilestone.due_date")
+    project_documents = relationship("ProjectDocument", back_populates="project",
+                                     cascade="all, delete-orphan")
+    research_outputs = relationship("ResearchOutput", back_populates="project")
 
 
 class EthicsApplication(Base):
@@ -412,6 +517,8 @@ class EthicsApplication(Base):
 
     project = relationship("ResearchProject", back_populates="ethics_applications")
     submitted_by = relationship("User", foreign_keys=[submitted_by_id])
+    documents = relationship("EthicsDocument", back_populates="ethics_application",
+                              cascade="all, delete-orphan")
 
 
 # ─── DATA MODULE A MODELS ────────────────────────────────────────────────────
@@ -608,3 +715,263 @@ class WorkFunder(Base):
     currency = Column(String, default='USD')
     
     work = relationship("ScholarlyWork", back_populates="funders")
+
+
+# ─── RESEARCH MODULE: TEAM, MILESTONES, OUTPUTS ──────────────────────────────
+
+class ProjectMember(Base):
+    __tablename__ = "project_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    role = Column(String(100), default="co_investigator")
+    status = Column(String(50), default="pending")   # pending | accepted | declined
+    invited_email = Column(String(200))
+    invited_name = Column(String(200))
+    invited_at = Column(DateTime(timezone=True), server_default=func.now())
+    joined_at = Column(DateTime(timezone=True))
+
+    project = relationship("ResearchProject", back_populates="members")
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "user_id", name="uq_project_member"),
+    )
+
+
+class ProjectMilestone(Base):
+    __tablename__ = "project_milestones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=False)
+    title = Column(String(500), nullable=False)
+    description = Column(Text)
+    due_date = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+    assigned_to_id = Column(Integer, ForeignKey("users.id"))
+    status = Column(String(50), default="pending")    # pending | in_progress | completed | overdue
+    priority = Column(String(20), default="medium")   # low | medium | high | critical
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("ResearchProject", back_populates="milestones")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    tasks = relationship("ProjectTask", back_populates="milestone",
+                         cascade="all, delete-orphan")
+
+
+class ProjectTask(Base):
+    __tablename__ = "project_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    milestone_id = Column(Integer, ForeignKey("project_milestones.id"), nullable=False)
+    title = Column(String(500), nullable=False)
+    assigned_to_id = Column(Integer, ForeignKey("users.id"))
+    due_date = Column(DateTime(timezone=True))
+    status = Column(String(50), default="todo")       # todo | in_progress | done
+    priority = Column(String(20), default="medium")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    milestone = relationship("ProjectMilestone", back_populates="tasks")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+
+
+class ProjectDocument(Base):
+    __tablename__ = "project_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=False)
+    document_type = Column(String(100))
+    original_filename = Column(String(500))
+    stored_filename = Column(String(500))
+    file_size_bytes = Column(Integer)
+    mime_type = Column(String(200))
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"))
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("ResearchProject", back_populates="project_documents")
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+
+
+class ResearchOutput(Base):
+    __tablename__ = "research_outputs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=True)
+    output_type = Column(String(100), default="journal_article")
+    title = Column(String(500), nullable=False)
+    abstract = Column(Text)
+    content_tiptap = Column(Text, default="{}")    # TipTap JSON content
+    doi = Column(String(200))
+    year = Column(Integer)
+    journal_name = Column(String(300))
+    status = Column(String(50), default="draft")   # draft | in_review | published
+    version = Column(Integer, default=1)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    last_edited_by_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    project = relationship("ResearchProject", back_populates="research_outputs")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    last_edited_by = relationship("User", foreign_keys=[last_edited_by_id])
+
+
+class EthicsDocument(Base):
+    __tablename__ = "ethics_documents"
+    id = Column(Integer, primary_key=True, index=True)
+    ethics_application_id = Column(Integer, ForeignKey("ethics_applications.id"), nullable=False)
+    document_type = Column(String(50), nullable=False)  # protocol, consent_form, data_management_plan, site_permission, other
+    original_filename = Column(String(300), nullable=False)
+    stored_filename = Column(String(300), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    file_size_bytes = Column(Integer, nullable=False)
+    mime_type = Column(String(100), nullable=False)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    ethics_application = relationship("EthicsApplication", back_populates="documents")
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+
+
+class DataImportRequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+
+
+class DataImportRequest(Base):
+    __tablename__ = "data_import_requests"
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=False)
+    requester_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(Enum(DataImportRequestStatus), default=DataImportRequestStatus.PENDING, nullable=False)
+    justification = Column(Text, nullable=False)
+    requested_datasets = Column(Text, nullable=False)  # JSON array of dataset identifiers/names
+    access_duration_months = Column(Integer, nullable=False)  # Duration of access in months
+    approved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    project = relationship("ResearchProject", back_populates="data_import_requests")
+    requester = relationship("User", foreign_keys=[requester_id])
+    approver = relationship("User", foreign_keys=[approved_by_id])
+
+
+# ─── DATA MODULE A: DATASETS & QA ────────────────────────────────────────────
+
+class DatasetStatus(str, enum.Enum):
+    DRAFT = "draft"
+    STAGING = "staging"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+class AccessLevel(str, enum.Enum):
+    PUBLIC = "public"
+    RESTRICTED = "restricted"
+    CONFIDENTIAL = "confidential"
+    HIGHLY_SENSITIVE = "highly_sensitive"
+
+class QARuleAction(str, enum.Enum):
+    FLAG = "flag"
+    REJECT = "reject"
+    AUTO_FIX = "auto_fix"
+
+class QAResultStatus(str, enum.Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+    WARNED = "warned"
+
+
+class Dataset(Base):
+    __tablename__ = "datasets"
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
+    source_form_id = Column(Integer, ForeignKey("capture_forms.id"), nullable=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text)
+    status = Column(Enum(DatasetStatus), default=DatasetStatus.DRAFT)
+    access_level = Column(Enum(AccessLevel), default=AccessLevel.RESTRICTED)
+    record_count = Column(Integer, default=0)
+    current_version = Column(Integer, default=1)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    project = relationship("ResearchProject")
+    source_form = relationship("CaptureForm")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    versions = relationship("DatasetVersion", back_populates="dataset",
+                            cascade="all, delete-orphan",
+                            order_by="DatasetVersion.version_number.desc()")
+    qa_rules = relationship("QARule", back_populates="dataset",
+                            cascade="all, delete-orphan")
+
+
+class DatasetVersion(Base):
+    __tablename__ = "dataset_versions"
+    id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=False)
+    version_number = Column(Integer, nullable=False)
+    checksum = Column(String(128))
+    storage_path = Column(String(500))
+    row_count = Column(Integer, default=0)
+    change_summary = Column(Text)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    dataset = relationship("Dataset", back_populates="versions")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class QARule(Base):
+    __tablename__ = "qa_rules"
+    id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=False)
+    rule_type = Column(String(50), nullable=False)  # missing_value, duplicate, range, format, consistency
+    field_name = Column(String(200), nullable=False)
+    operator = Column(String(50))  # gt, lt, eq, between, regex, not_null, unique
+    threshold = Column(String(200))
+    action = Column(Enum(QARuleAction), default=QARuleAction.FLAG)
+    is_active = Column(Boolean, default=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    dataset = relationship("Dataset", back_populates="qa_rules")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class QAResult(Base):
+    __tablename__ = "qa_results"
+    id = Column(Integer, primary_key=True, index=True)
+    submission_id = Column(Integer, ForeignKey("form_submissions.id"), nullable=False)
+    rule_id = Column(Integer, ForeignKey("qa_rules.id"), nullable=False)
+    status = Column(Enum(QAResultStatus), nullable=False)
+    details = Column(Text)
+    reviewed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    submission = relationship("FormSubmission")
+    rule = relationship("QARule")
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
+
+
+class DataTransformation(Base):
+    __tablename__ = "data_transformations"
+    id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=False)
+    transformation_type = Column(String(100), nullable=False)  # recode, standardize, derive, clean
+    parameters = Column(Text)  # JSON
+    applied_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    applied_at = Column(DateTime(timezone=True), server_default=func.now())
+    reversible = Column(Boolean, default=True)
+
+    dataset = relationship("Dataset")
+    applied_by = relationship("User", foreign_keys=[applied_by_id])

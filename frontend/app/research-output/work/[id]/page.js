@@ -14,7 +14,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#8b5cf6';
 
 export default function WorkDetailPage() {
@@ -30,7 +30,7 @@ export default function WorkDetailPage() {
 
   const loadWork = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/public/works/${params.id}`);
+      const res = await axios.get(`${API_URL}/public/works/${params.id}`);
       setWork(res.data);
     } catch (e) {
       setError('Failed to load work details');

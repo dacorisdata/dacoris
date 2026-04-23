@@ -18,7 +18,7 @@ const MOCK_FUNDERS = [
   { id:6, name:'Kenya National Research Fund', type:'Government', country:'Kenya', status:'Active', grants:4, totalAwarded:'KES 12M', nextDeadline:'2024-04-30', pipeline:'Submitted', contact:'info@knrf.go.ke' },
 ];
 
-const pipelineColor = p => ({Prospecting:'#64748b', Invited:'#f59e0b', Submitted:'#8b5cf6', Awarded:'#10b981', Renewed:'#0ea5e9'}[p] || '#64748b');
+const pipelineColor = p => ({Prospecting:'#64748b', Invited:'#f59e0b', Submitted:'#16a699', Awarded:'#10b981', Renewed:'#0ea5e9'}[p] || '#64748b');
 
 export default function FunderCRMPage() {
   const router = useRouter();
@@ -47,7 +47,7 @@ export default function FunderCRMPage() {
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.3 }}>Manage funder relationships, pipelines, and engagement history</Typography>
         </Box>
         <Button variant="contained" size="small" startIcon={<AddIcon />}
-          sx={{ bgcolor:'#8b5cf6', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#7c3aed' } }}>
+          sx={{ bgcolor:'#16a699', textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#14958a' } }}>
           Add Funder
         </Button>
       </Box>
@@ -89,7 +89,7 @@ export default function FunderCRMPage() {
                 <TableRow key={f.id} sx={{ '&:hover':{ bgcolor: dark?'#0f172a':'rgba(0,0,0,0.02)' }, cursor:'pointer' }} onClick={() => setSelected(f)}>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
                     <Box sx={{ display:'flex', alignItems:'center', gap:1.5 }}>
-                      <Avatar sx={{ width:32, height:32, bgcolor:'#8b5cf6', fontSize:12 }}>{f.name.charAt(0)}</Avatar>
+                      <Avatar sx={{ width:32, height:32, bgcolor:'#16a699', fontSize:12 }}>{f.name.charAt(0)}</Avatar>
                       <Box>
                         <Typography sx={{ fontSize:13, fontWeight:600, color:'text.primary' }}>{f.name}</Typography>
                         <Typography sx={{ fontSize:11, color:'text.secondary' }}>{f.country}</Typography>
@@ -97,7 +97,7 @@ export default function FunderCRMPage() {
                     </Box>
                   </TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
-                    <Chip label={f.type} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor:'rgba(139,92,246,0.1)', color:'#8b5cf6' }} />
+                    <Chip label={f.type} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor:'rgba(22,166,153,0.1)', color:'#16a699' }} />
                   </TableCell>
                   <TableCell sx={{ borderBottom:`1px solid ${theme.palette.divider}` }}>
                     <Chip label={f.pipeline} size="small" sx={{ fontSize:10, fontWeight:600, bgcolor: pipelineColor(f.pipeline)+'22', color: pipelineColor(f.pipeline) }} />
