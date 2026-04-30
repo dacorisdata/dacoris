@@ -15,11 +15,13 @@ import {
   PersonAdd as PersonAddIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useTheme } from '@mui/material/styles';
 import { globalAdminAPI } from '../../../lib/api';
 
 export default function AnalyticsPage() {
   const router = useRouter();
   const { fetchUser } = useAuth();
+  const theme = useTheme();
   
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -70,8 +72,8 @@ export default function AnalyticsPage() {
     <Box sx={{ p: 4 }}>
       {/* Header */}
       <Box sx={{ mb: 4 }}>
-        <Typography sx={{ color: '#fff', fontSize: 24, fontWeight: 700, mb: 0.5 }}>Analytics</Typography>
-        <Typography sx={{ color: '#2c3035', fontSize: 14 }}>Platform statistics and insights</Typography>
+        <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>Analytics</Typography>
+        <Typography variant="body2" color="text.secondary">Platform statistics and insights</Typography>
       </Box>
 
       {/* Alerts */}
@@ -83,77 +85,77 @@ export default function AnalyticsPage() {
 
       {/* Stats Grid */}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 3 }}>
-        <Box sx={{ bgcolor: '#1e293b', borderRadius: 3, p: 4, border: '1px solid #334155' }}>
+        <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, p: 4, border: 1, borderColor: 'divider' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'rgba(79, 70, 229, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <SchoolIcon sx={{ color: '#4f46e5', fontSize: 28 }} />
+            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'primary.main', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.15 }}>
+              <SchoolIcon sx={{ color: 'primary.main', fontSize: 28, opacity: 1 }} />
             </Box>
             <Box>
-              <Typography sx={{ color: '#2c3035', fontSize: 13, fontWeight: 600, mb: 0.5 }}>Total Institutions</Typography>
-              <Typography sx={{ color: '#fff', fontSize: 32, fontWeight: 700 }}>{analytics?.total_institutions || 0}</Typography>
+              <Typography variant="overline" color="text.secondary">Total Institutions</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 700 }}>{analytics?.total_institutions || 0}</Typography>
             </Box>
           </Box>
-          <Typography sx={{ color: '#2c3035', fontSize: 12 }}>
+          <Typography variant="caption" color="text.secondary">
             Registered organizations
           </Typography>
         </Box>
 
-        <Box sx={{ bgcolor: '#1e293b', borderRadius: 3, p: 4, border: '1px solid #334155' }}>
+        <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, p: 4, border: 1, borderColor: 'divider' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'rgba(34, 197, 94, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <PeopleIcon sx={{ color: '#22c55e', fontSize: 28 }} />
+            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'success.main', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.15 }}>
+              <PeopleIcon sx={{ color: 'success.main', fontSize: 28, opacity: 1 }} />
             </Box>
             <Box>
-              <Typography sx={{ color: '#2c3035', fontSize: 13, fontWeight: 600, mb: 0.5 }}>Total Users</Typography>
-              <Typography sx={{ color: '#fff', fontSize: 32, fontWeight: 700 }}>{analytics?.total_users || 0}</Typography>
+              <Typography variant="overline" color="text.secondary">Total Users</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 700 }}>{analytics?.total_users || 0}</Typography>
             </Box>
           </Box>
-          <Typography sx={{ color: '#2c3035', fontSize: 12 }}>
+          <Typography variant="caption" color="text.secondary">
             All registered users
           </Typography>
         </Box>
 
-        <Box sx={{ bgcolor: '#1e293b', borderRadius: 3, p: 4, border: '1px solid #334155' }}>
+        <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, p: 4, border: 1, borderColor: 'divider' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <TrendingUpIcon sx={{ color: '#10b981', fontSize: 28 }} />
+            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'success.main', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.15 }}>
+              <TrendingUpIcon sx={{ color: 'success.main', fontSize: 28, opacity: 1 }} />
             </Box>
             <Box>
-              <Typography sx={{ color: '#2c3035', fontSize: 13, fontWeight: 600, mb: 0.5 }}>Active Users</Typography>
-              <Typography sx={{ color: '#fff', fontSize: 32, fontWeight: 700 }}>{analytics?.active_users || 0}</Typography>
+              <Typography variant="overline" color="text.secondary">Active Users</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 700 }}>{analytics?.active_users || 0}</Typography>
             </Box>
           </Box>
-          <Typography sx={{ color: '#22c55e', fontSize: 12 }}>
+          <Typography variant="caption" color="success.main">
             ↑ {analytics?.total_users > 0 ? Math.round((analytics.active_users / analytics.total_users) * 100) : 0}% of total
           </Typography>
         </Box>
 
-        <Box sx={{ bgcolor: '#1e293b', borderRadius: 3, p: 4, border: '1px solid #334155' }}>
+        <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, p: 4, border: 1, borderColor: 'divider' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'rgba(251, 191, 36, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <PersonAddIcon sx={{ color: '#fbbf24', fontSize: 28 }} />
+            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'warning.main', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.15 }}>
+              <PersonAddIcon sx={{ color: 'warning.main', fontSize: 28, opacity: 1 }} />
             </Box>
             <Box>
-              <Typography sx={{ color: '#2c3035', fontSize: 13, fontWeight: 600, mb: 0.5 }}>Pending Users</Typography>
-              <Typography sx={{ color: '#fff', fontSize: 32, fontWeight: 700 }}>{analytics?.pending_users || 0}</Typography>
+              <Typography variant="overline" color="text.secondary">Pending Users</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 700 }}>{analytics?.pending_users || 0}</Typography>
             </Box>
           </Box>
-          <Typography sx={{ color: '#2c3035', fontSize: 12 }}>
+          <Typography variant="caption" color="text.secondary">
             Awaiting approval
           </Typography>
         </Box>
 
-        <Box sx={{ bgcolor: '#1e293b', borderRadius: 3, p: 4, border: '1px solid #334155' }}>
+        <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, p: 4, border: 1, borderColor: 'divider' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'rgba(59, 130, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <PeopleIcon sx={{ color: '#3b82f6', fontSize: 28 }} />
+            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: 'info.main', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.15 }}>
+              <PeopleIcon sx={{ color: 'info.main', fontSize: 28, opacity: 1 }} />
             </Box>
             <Box>
-              <Typography sx={{ color: '#2c3035', fontSize: 13, fontWeight: 600, mb: 0.5 }}>ORCID Users</Typography>
-              <Typography sx={{ color: '#fff', fontSize: 32, fontWeight: 700 }}>{analytics?.total_orcid_users || 0}</Typography>
+              <Typography variant="overline" color="text.secondary">ORCID Users</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 700 }}>{analytics?.total_orcid_users || 0}</Typography>
             </Box>
           </Box>
-          <Typography sx={{ color: '#2c3035', fontSize: 12 }}>
+          <Typography variant="caption" color="text.secondary">
             Researchers with ORCID
           </Typography>
         </Box>

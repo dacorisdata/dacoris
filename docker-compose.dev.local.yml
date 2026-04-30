@@ -1,0 +1,99 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: dacoris-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Waxmangme86
+      POSTGRES_DB: dacoris
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dacoris-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dacoris-backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:Waxmangme86@db:5432/dacoris
+      - FRONTEND_URL=http://192.168.100.90
+      - JWT_SECRET_KEY=f61375a0bb2981f19a4391c3e294b49a
+      - JWT_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - ADMIN_SESSION_EXPIRE_MINUTES=480
+      - ORCID_CLIENT_ID=APP-SFROMHSFNMHXG46K
+      - ORCID_CLIENT_SECRET=399d9908-8e91-4fb3-a42b-fe37e70718fe
+      - ORCID_REDIRECT_URI=http://192.168.100.90/api/auth/orcid/callback
+      - ORCID_SANDBOX_MODE=false
+      - ORCID_API_BASE_URL=https://orcid.org
+      - GLOBAL_ADMIN_EMAIL=admin@dacoris.org
+      - UPLOAD_DIR=/app/uploads
+      - MAX_FILE_SIZE_MB=50
+      - NOTIFICATION_MODE=console
+      - KOBO_API_BASE_URL=https://kf.kobotoolbox.org/api/v2
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=steveggaita@gmail.com
+      - SMTP_PASSWORD=hkpd boqh bupm azka
+      - FROM_EMAIL=DACORIS <no-reply@dacoris.org>
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend:/app  # Mount backend code for hot reload
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - dacoris-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev.local  # Use local dev Dockerfile (no npm install)
+    container_name: dacoris-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=/api
+      - NEXT_PUBLIC_ORCID_CLIENT_ID=APP-SFROMHSFNMHXG46K
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true  # Enable polling for file changes (useful in Docker)
+    volumes:
+      - ./frontend:/app  # Mount entire frontend including node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - dacoris-network
+    restart: unless-stopped
+    stdin_open: true  # Keep stdin open for interactive debugging
+    tty: true  # Allocate a pseudo-TTY
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: dacoris-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - dacoris-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  dacoris-network:
+    driver: bridge

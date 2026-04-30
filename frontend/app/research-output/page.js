@@ -18,8 +18,7 @@ import axios from 'axios';
 import { COLORS } from '@/contexts/ThemeContext';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
-const ACCENT = '#8b5cf6';
-const ACCENT_DIM = alpha(ACCENT, 0.1);
+const tl = COLORS.teal;
 const sl = COLORS.slate;
 
 export default function ResearchOutputPage() {
@@ -138,14 +137,14 @@ export default function ResearchOutputPage() {
       <Box sx={{
         bgcolor: 'background.paper',
         border: `1px solid ${theme.palette.divider}`,
-        borderLeft: `3px solid ${ACCENT}`,
+        borderLeft: `3px solid ${tl[600]}`,
         borderRadius: 2.5,
         p: 2.5,
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
         transition: 'box-shadow 0.2s, border-color 0.2s, transform 0.2s',
-        '&:hover': { boxShadow: `0 6px 20px ${alpha(ACCENT, dark ? 0.2 : 0.12)}`, borderColor: alpha(ACCENT, 0.5), transform: 'translateY(-1px)' },
+        '&:hover': { boxShadow: `0 6px 20px ${alpha(tl[600], dark ? 0.2 : 0.12)}`, borderColor: alpha(tl[600], 0.5), transform: 'translateY(-1px)' },
       }}>
         <Box sx={{ display: 'flex', gap: 0.75, mb: 1.5, flexWrap: 'wrap' }}>
           {work.is_open_access && (
@@ -154,10 +153,10 @@ export default function ResearchOutputPage() {
           )}
           {work.primary_topic && (
             <Chip label={work.primary_topic} size="small"
-              sx={{ fontSize: 10, height: 20, bgcolor: ACCENT_DIM, color: ACCENT, fontWeight: 600 }} />
+              sx={{ fontSize: 10, height: 20, bgcolor: alpha(tl[600], 0.1), color: tl[600], fontWeight: 600 }} />
           )}
         </Box>
-        <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 0.75, color: 'text.primary', lineHeight: 1.4, cursor: 'pointer', '&:hover': { color: ACCENT } }}
+        <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 0.75, color: 'text.primary', lineHeight: 1.4, cursor: 'pointer', '&:hover': { color: tl[600] } }}
           onClick={() => router.push(`/research-output/work/${work.id}`)}>
           {work.title}
         </Typography>
@@ -197,7 +196,7 @@ export default function ResearchOutputPage() {
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button fullWidth variant="outlined" size="small" endIcon={<OpenIcon />}
             onClick={() => router.push(`/research-output/work/${work.id}`)}
-            sx={{ textTransform: 'none', borderColor: ACCENT, color: ACCENT, fontSize: 11, fontWeight: 600, borderRadius: 2, '&:hover': { borderColor: '#7c3aed', bgcolor: ACCENT_DIM } }}>
+            sx={{ textTransform: 'none', borderColor: tl[600], color: tl[600], fontSize: 11, fontWeight: 600, borderRadius: 2, '&:hover': { borderColor: tl[700], bgcolor: alpha(tl[600], 0.1) } }}>
             View Details
           </Button>
           {work.doi && (
@@ -216,7 +215,7 @@ export default function ResearchOutputPage() {
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-        <CircularProgress sx={{ color: ACCENT }} />
+        <CircularProgress sx={{ color: tl[600] }} />
       </Box>
     );
   }
@@ -228,8 +227,8 @@ export default function ResearchOutputPage() {
       <Box sx={{
         position: 'relative', overflow: 'hidden',
         background: dark
-          ? `linear-gradient(160deg, ${sl[900]} 0%, #1e1028 60%, #2d1b4e 100%)`
-          : `linear-gradient(160deg, #5b21b6 0%, ${ACCENT} 50%, #7c3aed 100%)`,
+          ? `linear-gradient(160deg, ${sl[900]} 0%, ${sl[800]} 50%, ${tl[900]} 100%)`
+          : `linear-gradient(160deg, ${tl[700]} 0%, ${tl[600]} 40%, ${tl[700]} 100%)`,
         py: { xs: 7, md: 10 }, px: 2,
       }}>
         {[{ size: 500, top: -160, right: -100, op: 0.06 }, { size: 300, bottom: -80, left: -60, op: 0.07 }, { size: 160, top: '30%', left: '60%', op: 0.05 }].map((c, i) => (
@@ -249,7 +248,7 @@ export default function ResearchOutputPage() {
             Open access to research publications — linking authors, institutions, and funders following FAIR principles.
           </Typography>
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-            {[{ label: 'Findable', bg: alpha('#10b981', 0.25) }, { label: 'Accessible', bg: alpha('#3b82f6', 0.25) }, { label: 'Interoperable', bg: alpha('#f59e0b', 0.25) }, { label: 'Reusable', bg: alpha('#e879f9', 0.25) }].map(({ label, bg }) => (
+            {[{ label: 'Findable', bg: alpha(COLORS.green[600], 0.25) }, { label: 'Accessible', bg: alpha(COLORS.blue[600], 0.25) }, { label: 'Interoperable', bg: alpha(COLORS.amber[600], 0.25) }, { label: 'Reusable', bg: alpha(tl[600], 0.25) }].map(({ label, bg }) => (
               <Chip key={label} label={label} sx={{ bgcolor: bg, color: '#fff', fontWeight: 700, fontSize: 12, border: `1px solid ${alpha('#fff', 0.25)}` }} />
             ))}
           </Box>
@@ -261,7 +260,7 @@ export default function ResearchOutputPage() {
         <Box sx={{ bgcolor: 'background.paper', borderBottom: `1px solid ${theme.palette.divider}` }}>
           <Container maxWidth="lg" sx={{ py: 3 }}>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)', lg: 'repeat(6, 1fr)' }, gap: 2 }}>
-              <StatCard icon={PublicationIcon} label="Works" value={stats.total_works} color={ACCENT} bgColor={ACCENT_DIM} subtitle={`${stats.open_access_percentage}% OA`} />
+              <StatCard icon={PublicationIcon} label="Works" value={stats.total_works} color={tl[600]} bgColor={alpha(tl[600], 0.1)} subtitle={`${stats.open_access_percentage}% OA`} />
               <StatCard icon={PeopleIcon} label="Authors" value={stats.total_authors} color="#06b6d4" bgColor={alpha('#06b6d4', 0.1)} />
               <StatCard icon={CitationIcon} label="Citations" value={stats.total_citations?.toLocaleString()} color={COLORS.amber[500]} bgColor={alpha(COLORS.amber[500], 0.1)} />
               <StatCard icon={BusinessIcon} label="Institutions" value={stats.total_institutions} color="#0ea5e9" bgColor={alpha('#0ea5e9', 0.1)} />
@@ -283,9 +282,9 @@ export default function ResearchOutputPage() {
         <Box sx={{ bgcolor: 'background.paper', border: `1px solid ${theme.palette.divider}`, borderRadius: 3, overflow: 'hidden' }}>
           <Tabs value={tab} onChange={(e, v) => { setTab(v); setPage(0); }} sx={{
             borderBottom: `1px solid ${theme.palette.divider}`, px: 2,
-            '& .MuiTabs-indicator': { bgcolor: ACCENT, height: 3, borderRadius: '3px 3px 0 0' },
+            '& .MuiTabs-indicator': { bgcolor: tl[600], height: 3, borderRadius: '3px 3px 0 0' },
             '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, fontSize: 13, minHeight: 52, color: 'text.secondary' },
-            '& .Mui-selected': { color: `${ACCENT} !important` },
+            '& .Mui-selected': { color: `${tl[600]} !important` },
           }}>
             <Tab icon={<PublicationIcon sx={{ fontSize: 16 }} />} iconPosition="start" label={`Works (${works.length})`} />
             <Tab icon={<PeopleIcon sx={{ fontSize: 16 }} />} iconPosition="start" label={`Authors (${authors.length})`} />
@@ -349,7 +348,7 @@ export default function ResearchOutputPage() {
                       <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 0.3 }}>{author.name}</Typography>
                       {author.affiliation && <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>{author.affiliation}</Typography>}
                       {author.orcid && <Typography sx={{ fontSize: 10, color: 'text.disabled', mb: 0.75 }}>ORCID: {author.orcid}</Typography>}
-                      <Chip label={`${author.publication_count} publications`} size="small" sx={{ fontSize: 10, height: 20, bgcolor: ACCENT_DIM, color: ACCENT, fontWeight: 600 }} />
+                      <Chip label={`${author.publication_count} publications`} size="small" sx={{ fontSize: 10, height: 20, bgcolor: alpha(tl[600], 0.1), color: tl[600], fontWeight: 600 }} />
                     </Box>
                   </Box>
                 ))}
@@ -387,7 +386,7 @@ export default function ResearchOutputPage() {
                       {funder.country && <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.75 }}>{funder.country}</Typography>}
                       <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
                         <Chip label={`${funder.grants_count} grants`} size="small" sx={{ fontSize: 10, height: 20, bgcolor: alpha(COLORS.green[600], 0.1), color: COLORS.green[600], fontWeight: 600 }} />
-                        <Chip label={`$${(funder.total_funding / 1000000).toFixed(1)}M funded`} size="small" sx={{ fontSize: 10, height: 20, bgcolor: ACCENT_DIM, color: ACCENT, fontWeight: 600 }} />
+                        <Chip label={`$${(funder.total_funding / 1000000).toFixed(1)}M funded`} size="small" sx={{ fontSize: 10, height: 20, bgcolor: alpha(tl[600], 0.1), color: tl[600], fontWeight: 600 }} />
                       </Box>
                     </Box>
                   </Box>
@@ -399,8 +398,8 @@ export default function ResearchOutputPage() {
 
         {/* Footer note */}
         <Box sx={{ mt: 3, p: 3, bgcolor: 'background.paper', border: `1px solid ${theme.palette.divider}`, borderRadius: 3, display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-          <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: ACCENT_DIM, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <PublicIcon sx={{ fontSize: 18, color: ACCENT }} />
+          <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: alpha(tl[600], 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <PublicIcon sx={{ fontSize: 18, color: tl[600] }} />
           </Box>
           <Box>
             <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 0.5, color: 'text.primary' }}>About This Portal</Typography>

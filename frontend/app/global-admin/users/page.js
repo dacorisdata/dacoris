@@ -28,11 +28,13 @@ import {
 } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useTheme } from '@mui/material/styles';
 import { globalAdminAPI } from '../../../lib/api';
 
 export default function UsersPage() {
   const router = useRouter();
   const { fetchUser } = useAuth();
+  const theme = useTheme();
   
   const [users, setUsers] = useState([]);
   const [institutions, setInstitutions] = useState([]);
@@ -104,8 +106,8 @@ export default function UsersPage() {
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
-          <Typography sx={{ color: '#fff', fontSize: 24, fontWeight: 700, mb: 0.5 }}>All Users</Typography>
-          <Typography sx={{ color: '#2c3035', fontSize: 14 }}>Manage all registered users across institutions</Typography>
+          <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>All Users</Typography>
+          <Typography variant="body2" color="text.secondary">Manage all registered users across institutions</Typography>
         </Box>
       </Box>
 
@@ -123,34 +125,16 @@ export default function UsersPage() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           InputProps={{
-            startAdornment: <SearchIcon sx={{ color: '#2c3035', mr: 1 }} />,
+            startAdornment: <SearchIcon sx={{ color: 'text.secondary', mr: 1 }} />,
           }}
-          sx={{
-            flex: '1 1 300px',
-            '& .MuiOutlinedInput-root': {
-              color: '#fff',
-              bgcolor: '#1e293b',
-              borderRadius: 2,
-              '& fieldset': { borderColor: '#334155' },
-              '&:hover fieldset': { borderColor: '#475569' },
-              '&.Mui-focused fieldset': { borderColor: '#4f46e5' },
-            },
-          }}
+          sx={{ flex: '1 1 300px' }}
         />
         <FormControl sx={{ minWidth: 150 }}>
-          <InputLabel sx={{ color: '#94a3b8' }}>Status</InputLabel>
+          <InputLabel>Status</InputLabel>
           <Select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             label="Status"
-            sx={{
-              color: '#fff',
-              bgcolor: '#1e293b',
-              borderRadius: 2,
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: '#334155' },
-              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#475569' },
-              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#4f46e5' },
-            }}
           >
             <MenuItem value="all">All Status</MenuItem>
             <MenuItem value="ACTIVE">Active</MenuItem>
@@ -159,19 +143,11 @@ export default function UsersPage() {
           </Select>
         </FormControl>
         <FormControl sx={{ minWidth: 180 }}>
-          <InputLabel sx={{ color: '#94a3b8' }}>Account Type</InputLabel>
+          <InputLabel>Account Type</InputLabel>
           <Select
             value={accountTypeFilter}
             onChange={(e) => setAccountTypeFilter(e.target.value)}
             label="Account Type"
-            sx={{
-              color: '#fff',
-              bgcolor: '#1e293b',
-              borderRadius: 2,
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: '#334155' },
-              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#475569' },
-              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#4f46e5' },
-            }}
           >
             <MenuItem value="all">All Types</MenuItem>
             <MenuItem value="ORCID">ORCID Researcher</MenuItem>
@@ -182,38 +158,38 @@ export default function UsersPage() {
       </Box>
 
       {/* Users Table */}
-      <Box sx={{ bgcolor: '#1e293b', borderRadius: 3, border: '1px solid #334155', overflow: 'hidden' }}>
+      <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, border: 1, borderColor: 'divider', overflow: 'hidden' }}>
         <TableContainer>
           <Table>
             <TableHead>
-              <TableRow sx={{ bgcolor: '#0f172a' }}>
-                <TableCell sx={{ color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #334155' }}>User</TableCell>
-                <TableCell sx={{ color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #334155' }}>Account Type</TableCell>
-                <TableCell sx={{ color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #334155' }}>Institution</TableCell>
-                <TableCell sx={{ color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #334155' }}>Status</TableCell>
-                <TableCell sx={{ color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #334155' }}>Joined</TableCell>
-                <TableCell sx={{ color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #334155' }}>Actions</TableCell>
+              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>User</TableCell>
+                <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Account Type</TableCell>
+                <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Institution</TableCell>
+                <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Status</TableCell>
+                <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Joined</TableCell>
+                <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {filteredUsers.map((user) => (
-                <TableRow key={user.id} sx={{ '&:hover': { bgcolor: '#0f172a' } }}>
-                  <TableCell sx={{ borderBottom: '1px solid #334155' }}>
+                <TableRow key={user.id} sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+                  <TableCell sx={{ borderBottom: 1, borderColor: 'divider' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Avatar sx={{ width: 36, height: 36, bgcolor: '#4f46e5', fontSize: 14 }}>
+                      <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main', fontSize: 14 }}>
                         {user.name?.charAt(0) || user.email?.charAt(0) || 'U'}
                       </Avatar>
                       <Box>
-                        <Typography sx={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
                           {user.name || 'No name'}
                         </Typography>
-                        <Typography sx={{ color: '#2c3035', fontSize: 12 }}>
+                        <Typography variant="caption" color="text.secondary">
                           {user.email}
                         </Typography>
                       </Box>
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ borderBottom: '1px solid #334155' }}>
+                  <TableCell sx={{ borderBottom: 1, borderColor: 'divider' }}>
                     <Chip
                       label={
                         user.is_global_admin ? 'Global Admin' :
@@ -235,13 +211,15 @@ export default function UsersPage() {
                       }}
                     />
                   </TableCell>
-                  <TableCell sx={{ color: '#94a3b8', fontSize: 13, borderBottom: '1px solid #334155' }}>
-                    {user.institution_id ? 
-                      institutions.find(i => i.id === user.institution_id)?.name || `ID: ${user.institution_id}` :
-                      '-'
-                    }
+                  <TableCell sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {user.institution_id ? 
+                        institutions.find(i => i.id === user.institution_id)?.name || `ID: ${user.institution_id}` :
+                        '-'
+                      }
+                    </Typography>
                   </TableCell>
-                  <TableCell sx={{ borderBottom: '1px solid #334155' }}>
+                  <TableCell sx={{ borderBottom: 1, borderColor: 'divider' }}>
                     <Chip
                       label={user.status}
                       size="small"
@@ -258,23 +236,19 @@ export default function UsersPage() {
                       }}
                     />
                   </TableCell>
-                  <TableCell sx={{ color: '#94a3b8', fontSize: 13, borderBottom: '1px solid #334155' }}>
-                    {new Date(user.created_at).toLocaleDateString()}
+                  <TableCell sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {new Date(user.created_at).toLocaleDateString()}
+                    </Typography>
                   </TableCell>
-                  <TableCell sx={{ borderBottom: '1px solid #334155' }}>
+                  <TableCell sx={{ borderBottom: 1, borderColor: 'divider' }}>
                     <Button
                       size="small"
                       onClick={() => {
                         setSelectedUser(user);
                         setUserDetailsOpen(true);
                       }}
-                      sx={{
-                        color: '#818cf8',
-                        textTransform: 'none',
-                        fontSize: 12,
-                        fontWeight: 600,
-                        '&:hover': { bgcolor: 'rgba(129, 140, 248, 0.1)' },
-                      }}
+                      sx={{ textTransform: 'none', fontSize: 12, fontWeight: 600 }}
                     >
                       View Details
                     </Button>
@@ -287,7 +261,7 @@ export default function UsersPage() {
         
         {filteredUsers.length === 0 && (
           <Box sx={{ p: 4, textAlign: 'center' }}>
-            <Typography sx={{ color: '#2c3035', fontSize: 14 }}>No users found</Typography>
+            <Typography variant="body2" color="text.secondary">No users found</Typography>
           </Box>
         )}
       </Box>
@@ -300,28 +274,29 @@ export default function UsersPage() {
         fullWidth
         PaperProps={{
           sx: {
-            bgcolor: '#1e293b',
+            bgcolor: 'background.paper',
             borderRadius: 3,
-            border: '1px solid #334155',
+            border: 1,
+            borderColor: 'divider',
           },
         }}
       >
         {selectedUser && (
           <>
-            <DialogTitle sx={{ color: '#fff', fontSize: 18, fontWeight: 700, borderBottom: '1px solid #334155' }}>
+            <DialogTitle sx={{ fontSize: 18, fontWeight: 700, borderBottom: 1, borderColor: 'divider' }}>
               User Details
             </DialogTitle>
             <DialogContent sx={{ pt: 3 }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Avatar sx={{ width: 64, height: 64, bgcolor: '#4f46e5', fontSize: 24 }}>
+                  <Avatar sx={{ width: 64, height: 64, bgcolor: 'primary.main', fontSize: 24 }}>
                     {selectedUser.name?.charAt(0) || selectedUser.email?.charAt(0) || 'U'}
                   </Avatar>
                   <Box>
-                    <Typography sx={{ color: '#fff', fontSize: 20, fontWeight: 600 }}>
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
                       {selectedUser.name || 'No name'}
                     </Typography>
-                    <Typography sx={{ color: '#2c3035', fontSize: 14 }}>
+                    <Typography variant="body2" color="text.secondary">
                       {selectedUser.email}
                     </Typography>
                   </Box>
@@ -329,7 +304,7 @@ export default function UsersPage() {
 
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                   <Box>
-                    <Typography sx={{ color: '#2c3035', fontSize: 12, mb: 0.5 }}>Account Type</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>Account Type</Typography>
                     <Chip
                       label={
                         selectedUser.is_global_admin ? 'Global Admin' :
@@ -348,7 +323,7 @@ export default function UsersPage() {
                     />
                   </Box>
                   <Box>
-                    <Typography sx={{ color: '#2c3035', fontSize: 12, mb: 0.5 }}>Status</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>Status</Typography>
                     <Chip
                       label={selectedUser.status}
                       sx={{
@@ -362,8 +337,8 @@ export default function UsersPage() {
                     />
                   </Box>
                   <Box>
-                    <Typography sx={{ color: '#2c3035', fontSize: 12, mb: 0.5 }}>Institution</Typography>
-                    <Typography sx={{ color: '#fff', fontSize: 14 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>Institution</Typography>
+                    <Typography variant="body2">
                       {selectedUser.institution_id ? 
                         institutions.find(i => i.id === selectedUser.institution_id)?.name || `ID: ${selectedUser.institution_id}` :
                         'None'
@@ -371,18 +346,18 @@ export default function UsersPage() {
                     </Typography>
                   </Box>
                   <Box>
-                    <Typography sx={{ color: '#2c3035', fontSize: 12, mb: 0.5 }}>User ID</Typography>
-                    <Typography sx={{ color: '#fff', fontSize: 14 }}>{selectedUser.id}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>User ID</Typography>
+                    <Typography variant="body2">{selectedUser.id}</Typography>
                   </Box>
                   <Box>
-                    <Typography sx={{ color: '#2c3035', fontSize: 12, mb: 0.5 }}>Joined</Typography>
-                    <Typography sx={{ color: '#fff', fontSize: 14 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>Joined</Typography>
+                    <Typography variant="body2">
                       {new Date(selectedUser.created_at).toLocaleDateString()}
                     </Typography>
                   </Box>
                   <Box>
-                    <Typography sx={{ color: '#2c3035', fontSize: 12, mb: 0.5 }}>Last Login</Typography>
-                    <Typography sx={{ color: '#fff', fontSize: 14 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>Last Login</Typography>
+                    <Typography variant="body2">
                       {selectedUser.last_login ? new Date(selectedUser.last_login).toLocaleDateString() : 'Never'}
                     </Typography>
                   </Box>
@@ -390,21 +365,16 @@ export default function UsersPage() {
 
                 {selectedUser.orcid_id && (
                   <Box>
-                    <Typography sx={{ color: '#2c3035', fontSize: 12, mb: 0.5 }}>ORCID iD</Typography>
-                    <Typography sx={{ color: '#fff', fontSize: 14 }}>{selectedUser.orcid_id}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>ORCID iD</Typography>
+                    <Typography variant="body2">{selectedUser.orcid_id}</Typography>
                   </Box>
                 )}
               </Box>
             </DialogContent>
-            <DialogActions sx={{ px: 3, pb: 3, borderTop: '1px solid #334155', pt: 2 }}>
+            <DialogActions sx={{ px: 3, pb: 3, borderTop: 1, borderColor: 'divider', pt: 2 }}>
               <Button
                 onClick={() => setUserDetailsOpen(false)}
-                sx={{
-                  color: '#94a3b8',
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  '&:hover': { bgcolor: 'rgba(148, 163, 184, 0.1)' },
-                }}
+                sx={{ textTransform: 'none', fontWeight: 600 }}
               >
                 Close
               </Button>

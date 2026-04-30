@@ -1,6 +1,6 @@
 'use client';
 
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, Chip } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
   People as PeopleIcon,
@@ -71,7 +71,31 @@ export default function InstitutionAdminSidebar() {
     >
       {/* Header */}
       <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+        {/* Institution Name Badge */}
+        {user?.institution_name && (
+          <Box sx={{ mb: 2 }}>
+            <Chip
+              label={user.institution_name}
+              size="small"
+              sx={{
+                width: '100%',
+                bgcolor: 'primary.main',
+                color: '#fff',
+                fontWeight: 600,
+                fontSize: 12,
+                height: 28,
+                '& .MuiChip-label': {
+                  px: 1.5,
+                  whiteSpace: 'normal',
+                  textAlign: 'center',
+                },
+              }}
+            />
+          </Box>
+        )}
+        
+        {/* User Info */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Box
             sx={{
               width: 34,

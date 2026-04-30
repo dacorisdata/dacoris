@@ -68,6 +68,7 @@ class Institution(Base):
     orcid_client_secret = Column(String, nullable=True)
     orcid_redirect_uri = Column(String, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    primary_admin_id = Column(Integer, ForeignKey('users.id'), nullable=True)
     settings = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -200,11 +201,11 @@ class GrantOpportunity(Base):
     __tablename__ = "grant_opportunities"
 
     id = Column(Integer, primary_key=True, index=True)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=True)
+    # institution_id removed - opportunities are now platform-wide, filtered by categories
     title = Column(String(500), nullable=False)
     sponsor = Column(String(300))
     description = Column(Text)
-    category = Column(String(200))
+    category = Column(String(200))  # Legacy field, kept for backward compatibility
     geography = Column(String(200))
     applicant_type = Column(String(200))
     funding_type = Column(String(100))
@@ -228,6 +229,7 @@ class GrantOpportunity(Base):
     proposals = relationship("Proposal", back_populates="opportunity")
     created_by = relationship("User", foreign_keys=[created_by_id])
     bookmarks = relationship("OpportunityBookmark", back_populates="opportunity", cascade="all, delete-orphan")
+    category_assignments = relationship("OpportunityCategories", cascade="all, delete-orphan")
 
 
 class OpportunityBookmark(Base):
@@ -244,6 +246,66 @@ class OpportunityBookmark(Base):
     __table_args__ = (
         # Ensure a user can only bookmark an opportunity once
         UniqueConstraint('opportunity_id', 'user_id', name='unique_user_opportunity_bookmark'),
+    )
+
+
+# Opportunity Categories for filtering
+class OpportunityCategory(Base):
+    __tablename__ = "opportunity_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    slug = Column(String(100), nullable=False, unique=True, index=True)
+    color = Column(String(20), default="#3B82F6")  # Tailwind blue-500
+    icon = Column(String(50), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    opportunity_associations = relationship("OpportunityCategories", back_populates="category", cascade="all, delete-orphan")
+    institution_associations = relationship("InstitutionCategory", back_populates="category", cascade="all, delete-orphan")
+
+
+# Junction table: Opportunity <-> Category (many-to-many)
+class OpportunityCategories(Base):
+    __tablename__ = "opportunity_category_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    opportunity_id = Column(Integer, ForeignKey("grant_opportunities.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("opportunity_categories.id"), nullable=False)
+    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    opportunity = relationship("GrantOpportunity")
+    category = relationship("OpportunityCategory", back_populates="opportunity_associations")
+    assigner = relationship("User", foreign_keys=[assigned_by])
+
+    __table_args__ = (
+        UniqueConstraint('opportunity_id', 'category_id', name='unique_opportunity_category'),
+    )
+
+
+# Junction table: Institution <-> Category (many-to-many)
+class InstitutionCategory(Base):
+    __tablename__ = "institution_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("opportunity_categories.id"), nullable=False)
+    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+    notes = Column(Text, nullable=True)
+
+    # Relationships
+    institution = relationship("Institution")
+    category = relationship("OpportunityCategory", back_populates="institution_associations")
+    assigner = relationship("User", foreign_keys=[assigned_by])
+
+    __table_args__ = (
+        UniqueConstraint('institution_id', 'category_id', name='unique_institution_category'),
     )
 
 

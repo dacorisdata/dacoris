@@ -12,6 +12,7 @@
 2. [System Architecture Overview](#2-system-architecture-overview)
 3. [Roles, Users & Permissions Model](#3-roles-users--permissions-model)
 4. [Platform Foundation (IAM — Already Implemented)](#4-platform-foundation-iam--already-implemented)
+    - 4.3 [Global Admin Platform Management](#43-global-admin-platform-management)
 5. [Module 1 – Grant Management](#5-module-1--grant-management)
 6. [Module 2 – Research Management](#6-module-2--research-management)
 7. [Module 3A – Data Management: Capture, Repository & Analysis](#7-module-3a--data-management-capture-repository--analysis)
@@ -217,18 +218,24 @@ These roles are assigned to ORCID-authenticated users who perform specialist ove
 
 #### Grant Management Permissions
 
-| Permission | PI | CO_I | GRANT_OFFICER | FINANCE_OFFICER | EXTERNAL_REVIEWER | APPLICANT |
-|---|---|---|---|---|---|---|
-| Create opportunity | – | – | ✅ | – | – | – |
-| Submit proposal | ✅ | ✅ (assigned) | – | – | – | ✅ |
-| Internal review/approve | ✅ | – | ✅ | – | – | – |
-| Score applications | – | – | – | – | ✅ | – |
-| Issue award | – | – | ✅ | – | – | – |
-| Manage budget | ✅ | – | – | ✅ | – | – |
-| Approve disbursements | – | – | – | ✅ | – | – |
-| Submit expense report | ✅ | ✅ | – | – | – | – |
-| View audit log | – | – | ✅ | ✅ | – | – |
-| Amend award | – | – | ✅ | ✅ | – | – |
+| Permission | GLOBAL_ADMIN | GRANT_OFFICER | PI | CO_I | FINANCE_OFFICER | EXTERNAL_REVIEWER | APPLICANT |
+|---|---|---|---|---|---|---|---|
+| Create opportunity | ✅ | ✅ | – | – | – | – | – |
+| Curate opportunities (publish/unpublish) | ✅ | – | – | – | – | – | – |
+| Assign opportunity categories | ✅ | – | – | – | – | – | – |
+| Manage opportunity categories | ✅ | – | – | – | – | – | – |
+| Assign categories to institutions | ✅ | – | – | – | – | – | – |
+| View all opportunities (uncurated) | ✅ | ✅ | – | – | – | – | – |
+| View category-filtered opportunities | – | – | ✅ | ✅ | – | – | ✅ |
+| Submit proposal | – | – | ✅ | ✅ (assigned) | – | – | ✅ |
+| Internal review/approve | – | ✅ | ✅ | – | – | – | – |
+| Score applications | – | – | – | – | – | ✅ | – |
+| Issue award | – | ✅ | – | – | – | – | – |
+| Manage budget | – | – | ✅ | – | ✅ | – | – |
+| Approve disbursements | – | – | – | – | ✅ | – | – |
+| Submit expense report | – | – | ✅ | ✅ | – | – | – |
+| View audit log | ✅ | ✅ | – | – | ✅ | – | – |
+| Amend award | – | ✅ | – | – | ✅ | – | – |
 
 #### Research Management Permissions
 
@@ -262,6 +269,11 @@ Beyond RBAC, these contextual rules apply:
 
 - **COI Rule:** A reviewer cannot score an application if they have declared a conflict of interest with the applicant. System automatically blocks access.
 - **Institution Isolation:** Users can only access data belonging to their `institution_id` (tenant). Global Admin excepted.
+- **Category-Based Opportunity Filtering:** Researchers and Institution Admins can only view opportunities that:
+  1. Are curated (is_curated = true)
+  2. Have at least one category assigned to their institution
+  3. Are in "Open" or "Upcoming" status
+  Global Admin sees all opportunities regardless of curation status or category.
 - **Stage Gating:** Finance Officers can only approve payments for programs they are explicitly assigned to; amounts above a threshold require a second approver (maker-checker).
 - **Guest Expiry:** Guest Collaborator accounts automatically expire after a configured date. Access is revoked without manual intervention.
 - **Ethics Gate:** Data capture for a human-subjects project cannot begin until an ethics approval is recorded and linked.
@@ -301,6 +313,106 @@ Before building any module, the following IAM items must be completed:
 | SAML 2.0 / SCIM federation | P2 | For enterprise SSO (university LDAP) |
 | Session management UI | P2 | View and revoke active sessions |
 
+### 4.3 Global Admin Platform Management
+
+The Global Admin has cross-cutting responsibilities beyond IAM, including platform-wide opportunity curation and category management.
+
+#### 4.3.1 Opportunity Curation & Category Management
+
+**Overview:**
+Global Admin manages all funding opportunities at the platform level and controls which opportunities are visible to which institutions through a category-based filtering system.
+
+**Features:**
+
+**Opportunity Management:**
+- View all opportunities (curated and uncurated) from all sources
+- Create, edit, and delete opportunities
+- Import opportunities from external sources (Excel, API feeds)
+- Curate opportunities (publish/unpublish to make visible to institutions)
+- Assign multiple categories to each opportunity
+- Bulk operations: curate/uncurate, categorize multiple opportunities
+- Search and filter by status, category, deadline, source
+- Dashboard showing:
+  - Total opportunities (all, curated, uncurated)
+  - Opportunities by category
+  - Opportunities by status
+  - Recent imports and changes
+
+**Category Management:**
+- Create and manage opportunity categories (e.g., "Health", "Agriculture", "Education", "Technology", "Infrastructure")
+- Define category metadata: name, description, slug, color code
+- View opportunities assigned to each category
+- View institutions assigned to each category
+- Edit and delete categories (with validation to prevent orphaned data)
+- Category usage statistics
+
+**Institution Category Assignment:**
+- Assign multiple categories to each institution
+- View which institutions have access to which opportunity categories
+- Bulk assign categories to multiple institutions
+- Remove category assignments
+- Visual indicators showing institution's active categories
+- Category assignment audit trail (who assigned, when)
+
+**Access Control:**
+- Only Global Admin can curate opportunities and manage categories
+- Grant Officers can create opportunities but cannot curate or assign categories
+- Institution Admins and researchers see only curated opportunities in their institution's categories
+
+**Data Model:**
+```
+OpportunityCategory
+  id, name, description, slug, color,
+  icon (optional), is_active,
+  created_at, updated_at
+
+InstitutionCategory (junction table)
+  id, institution_id, category_id,
+  assigned_by (user_id), assigned_at,
+  notes (optional)
+
+OpportunityCategory (junction table - updated in Section 5.2.1)
+  opportunity_id, category_id,
+  assigned_by (user_id), assigned_at
+```
+
+**API Endpoints:**
+```
+# Category Management
+GET    /api/global-admin/categories                           # List all categories
+POST   /api/global-admin/categories                           # Create category
+GET    /api/global-admin/categories/{id}                      # Get category details
+PUT    /api/global-admin/categories/{id}                      # Update category
+DELETE /api/global-admin/categories/{id}                      # Delete category
+GET    /api/global-admin/categories/{id}/opportunities        # Opportunities in category
+GET    /api/global-admin/categories/{id}/institutions         # Institutions with category
+
+# Institution Category Assignment
+GET    /api/global-admin/institutions/{id}/categories         # Get institution's categories
+POST   /api/global-admin/institutions/{id}/categories         # Assign categories (bulk)
+DELETE /api/global-admin/institutions/{id}/categories/{cat_id} # Remove category
+POST   /api/global-admin/institutions/bulk-assign-categories  # Bulk assign to multiple institutions
+
+# Opportunity Curation (detailed in Section 5.2.1)
+GET    /api/global-admin/opportunities                        # All opportunities
+POST   /api/global-admin/opportunities/{id}/categories        # Assign categories to opportunity
+DELETE /api/global-admin/opportunities/{id}/categories/{cat_id} # Remove category from opportunity
+```
+
+**Frontend Implementation:**
+- **Global Admin Dashboard** (`/global-admin/dashboard`): Overview metrics including opportunity and category statistics
+- **Opportunities Page** (`/global-admin/opportunities`): Full opportunity management with curation controls
+- **Categories Page** (`/global-admin/categories`): Category CRUD operations
+- **Institutions Page** (`/global-admin/institutions`): Enhanced to show and manage category assignments per institution
+
+**Workflow:**
+1. Global Admin imports or creates opportunities
+2. Global Admin assigns categories to opportunities (e.g., "Health", "Education")
+3. Global Admin assigns categories to institutions (e.g., Medical University gets "Health" category)
+4. Global Admin curates opportunities (marks as published)
+5. Researchers at Medical University see only curated opportunities in "Health" category
+6. Researchers at other institutions without "Health" category do not see those opportunities
+
 ---
 
 ## 5. Module 1 – Grant Management
@@ -314,42 +426,82 @@ The Grant Management Module operationalizes the full grant lifecycle:
 
 #### 5.2.1 Opportunity Management
 
+**Architecture Change:** Opportunity curation is now managed at the **Global Admin** level with **category-based filtering** for institutions.
+
 **Features:**
 - Create and manage funding opportunities internally
 - Import opportunities from external sources (Excel, API, manual upload)
-- **Opportunity Curation**: Admin staff can select which imported opportunities to publish to researchers
-  - Bulk selection via checkboxes
-  - "Publish to Researchers" / "Unpublish" actions
-  - Visual indicators showing published status
+- **Global Admin Opportunity Curation**: 
+  - Global Admin curates all opportunities in the platform
+  - Assigns opportunities to one or more categories (e.g., "Health", "Agriculture", "Education", "Technology")
+  - Bulk selection and categorization via checkboxes
+  - "Publish" / "Unpublish" actions with category assignment
+  - Visual indicators showing published status and assigned categories
   - Published count tracking in summary metrics
-  - Only curated opportunities visible to researchers; all opportunities visible to admin staff
-- Normalized opportunity schema: `sponsor`, `category`, `geography`, `eligibility`, `amount_range`, `deadlines`, `funding_type`, `status`, `is_curated`
+- **Institution Category Assignment**:
+  - Global Admin assigns allowed categories to each institution
+  - Institutions can have multiple categories (e.g., a university might have "Health", "Education", "Research")
+  - Category assignments managed in Global Admin → Institutions section
+  - Visual category badges showing institution's allowed categories
+- **Category-Based Filtering**:
+  - Researchers only see opportunities matching their institution's assigned categories
+  - Institution Admins see opportunities in their institution's categories
+  - Global Admin sees all opportunities (curated and uncurated)
+  - Opportunities without categories are not visible to any institution
+- Normalized opportunity schema: `sponsor`, `categories[]`, `geography`, `eligibility`, `amount_range`, `deadlines`, `funding_type`, `status`, `is_curated`
 - De-duplication by `(source, source_opportunity_id)` and fuzzy match on title + sponsor + deadline
 - Opportunity status tracking: `Open`, `Closed`, `Upcoming`, `Archived`
-- Sortable columns: Deadline, Status
-- Notification alerts to matching researchers based on profile/expertise (only for curated opportunities)
+- Sortable columns: Deadline, Status, Category
+- Notification alerts to matching researchers based on profile/expertise (only for curated opportunities in their categories)
 
 **Data Model:**
 ```
+OpportunityCategory
+  id, name, description, slug, color,
+  created_at, updated_at
+
 GrantOpportunity
-  id, institution_id, program_id, source_system, source_id,
-  title, sponsor_id, category, geography, applicant_type,
+  id, program_id, source_system, source_id,
+  title, sponsor_id, categories[] (many-to-many), geography, applicant_type,
   funding_type, amount_min, amount_max, currency,
   open_date, deadline, status, description, is_curated,
   created_by, created_at, updated_at
+
+OpportunityCategories (junction table)
+  opportunity_id, category_id
+
+InstitutionCategory (junction table)
+  institution_id, category_id, assigned_by, assigned_at
 ```
 
 **API Endpoints:**
 ```
-GET    /api/grants/opportunities                    (admin: all, researcher: curated only)
-POST   /api/grants/opportunities
-GET    /api/grants/opportunities/{id}
-PUT    /api/grants/opportunities/{id}
-PATCH  /api/grants/opportunities/{id}/curate        (toggle is_curated flag)
-POST   /api/grants/opportunities/bulk-curate        (bulk publish/unpublish)
-DELETE /api/grants/opportunities/{id}
-POST   /api/grants/opportunities/import             (CSV/file import)
-GET    /api/grants/opportunities/from-excel-source  (read from Excel repository)
+# Opportunity Management (Global Admin)
+GET    /api/global-admin/opportunities                        (all opportunities)
+POST   /api/global-admin/opportunities                        (create opportunity)
+GET    /api/global-admin/opportunities/{id}                   (get opportunity)
+PUT    /api/global-admin/opportunities/{id}                   (update opportunity)
+PATCH  /api/global-admin/opportunities/{id}/curate            (toggle is_curated)
+POST   /api/global-admin/opportunities/bulk-curate            (bulk publish/unpublish)
+POST   /api/global-admin/opportunities/{id}/categories        (assign categories)
+DELETE /api/global-admin/opportunities/{id}                   (delete opportunity)
+POST   /api/global-admin/opportunities/import                 (CSV/file import)
+GET    /api/global-admin/opportunities/from-excel-source      (read from Excel)
+
+# Category Management (Global Admin)
+GET    /api/global-admin/categories                           (list all categories)
+POST   /api/global-admin/categories                           (create category)
+PUT    /api/global-admin/categories/{id}                      (update category)
+DELETE /api/global-admin/categories/{id}                      (delete category)
+
+# Institution Category Assignment (Global Admin)
+GET    /api/global-admin/institutions/{id}/categories         (get institution categories)
+POST   /api/global-admin/institutions/{id}/categories         (assign categories)
+DELETE /api/global-admin/institutions/{id}/categories/{cat_id} (remove category)
+
+# Researcher/Institution View (Category-Filtered)
+GET    /api/grants/opportunities                              (filtered by institution categories)
+GET    /api/grants/opportunities/{id}                         (if in institution's categories)
 ```
 
 ---
@@ -4914,6 +5066,7 @@ This maps which workflow events trigger which notifications to which roles.
 | 1.2 | March 2026 | Confirmed: Module priority order · Data Part B: Fabric vs. open-source full comparison with decision framework |
 | 1.3 | March 2026 | Added Section 16 — complete intra-module and inter-module workflows and data flows: master lifecycle flowchart, 16-event inter-module catalogue, Grant pre-award/review/post-award flows, Research project/ethics/outputs flows, Data A capture/QA/repository flows, Data B ingestion/analytics flows, cross-module data flow map, state machine summary, notification flow map |
 | 1.4 | March 2026 | Role restructure: removed `EXTERNAL_FUNDER`; moved `DATA_STEWARD`, `ETHICS_REVIEWER`, and `EXTERNAL_REVIEWER` to new Administrative Roles tier (Section 3.2); updated Account Hierarchy (Section 3.1); removed pending/approve step from researcher account type onboarding (Section 4.1) |
+| 1.5 | April 2026 | **Opportunity Curation Architecture Change**: Moved opportunity curation from institution-level to Global Admin; implemented category-based filtering system; added Section 4.3 (Global Admin Platform Management); updated Section 5.2.1 (Opportunity Management) with category model; updated Grant Management Permissions (Section 3.3) to include Global Admin; added Category-Based Opportunity Filtering ABAC rule (Section 3.4); removed `institution_id` from `GrantOpportunity` model; added `OpportunityCategory`, `InstitutionCategory` junction tables and related APIs |
 
 ---
 

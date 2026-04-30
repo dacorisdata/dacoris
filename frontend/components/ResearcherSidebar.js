@@ -11,7 +11,6 @@ import {
   Groups as CollabIcon, PersonAdd as InviteIcon,
   ExitToApp as LogoutIcon,
   EmojiEvents as AwardIcon,
-  UploadFile as UploadIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
@@ -39,7 +38,6 @@ const NAV_SECTIONS = [
     items: [
       { icon: ProjectIcon,   label: 'My Projects',         path: '/researcher/projects' },
       { icon: EthicsIcon,    label: 'Ethics Applications', path: '/researcher/ethics' },
-      { icon: UploadIcon,    label: 'Data Imports',        path: '/researcher/projects/data-imports' },
     ],
   },
   {

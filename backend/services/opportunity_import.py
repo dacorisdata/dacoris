@@ -10,7 +10,7 @@ import hashlib
 from difflib import SequenceMatcher
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
-from models import GrantOpportunity, User
+from models import GrantOpportunity, User, OpportunityCategory, OpportunityCategories
 
 
 class OpportunityImportService:
@@ -279,6 +279,9 @@ class OpportunityImportService:
                         skipped_count += 1
                         continue
                 
+                # Extract category name before creating opportunity
+                category_name = opp_data.pop('category', None)
+                
                 # Create new opportunity
                 new_opp = GrantOpportunity(
                     institution_id=institution_id,
@@ -286,6 +289,26 @@ class OpportunityImportService:
                     **opp_data
                 )
                 db.add(new_opp)
+                await db.flush()  # Flush to get the opportunity ID
+                
+                # Assign category if provided
+                if category_name:
+                    # Look up category by name (case-insensitive)
+                    cat_result = await db.execute(
+                        select(OpportunityCategory).where(
+                            OpportunityCategory.name.ilike(category_name.strip())
+                        )
+                    )
+                    category = cat_result.scalar_one_or_none()
+                    
+                    if category:
+                        # Create the relationship
+                        opp_cat = OpportunityCategories(
+                            opportunity_id=new_opp.id,
+                            category_id=category.id
+                        )
+                        db.add(opp_cat)
+                
                 created_count += 1
                 
             except Exception as e:
