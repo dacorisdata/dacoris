@@ -1,6 +1,6 @@
 'use client';
 
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, Chip } from '@mui/material';
 import {
   Dashboard as DashIcon, Person as PersonIcon,
   Search as SearchIcon, Description as ProposalIcon,
@@ -17,7 +17,8 @@ import {
   Star as StarIcon, Inbox as InboxIcon, CheckCircle as EligibilityIcon,
   Biotech as TechIcon, AttachMoney as BudgetStageIcon,
   Groups2 as PanelIcon, Verified as FinalIcon,
-  UploadFile as DataImportIcon,
+  UploadFile as DataImportIcon, Grading as ProjectReviewIcon,
+  FolderSpecial as DmpReviewIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
@@ -71,7 +72,7 @@ const NAV_SECTIONS = [
     roles: ['ETHICS_COMMITTEE_MEMBER','INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'],
     items: [
       { icon: EthicsIcon,   label: 'Applications',     path: '/admin-staff/ethics/applications', roles: ['ETHICS_COMMITTEE_MEMBER','INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
-      { icon: ReviewIcon,   label: 'My Reviews',       path: '/admin-staff/ethics/reviews',      roles: ['ETHICS_COMMITTEE_MEMBER'] },
+      { icon: ReviewIcon,   label: 'Ethics Reviews',    path: '/admin-staff/ethics/reviews',      roles: ['ETHICS_COMMITTEE_MEMBER','ADMIN_STAFF','INSTITUTIONAL_LEADERSHIP'] },
       { icon: DecisionIcon, label: 'Decisions',        path: '/admin-staff/ethics/decisions',    roles: ['ETHICS_COMMITTEE_MEMBER','INSTITUTIONAL_LEADERSHIP'] },
     ],
   },
@@ -79,11 +80,13 @@ const NAV_SECTIONS = [
     section: 'Research Management',
     roles: ['INSTITUTIONAL_LEADERSHIP','DATA_STEWARD','ETHICS_COMMITTEE_MEMBER','ADMIN_STAFF','GRANT_MANAGER'],
     items: [
-      { icon: ProjectIcon,   label: 'Projects',             path: '/admin-staff/research/projects',  roles: ['INSTITUTIONAL_LEADERSHIP','DATA_STEWARD','ETHICS_COMMITTEE_MEMBER','ADMIN_STAFF','GRANT_MANAGER'] },
-      { icon: TeamsIcon,     label: 'Teams & Members',      path: '/admin-staff/research/teams',     roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
-      { icon: OutputsIcon,   label: 'Research Outputs',     path: '/admin-staff/research/outputs',   roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
-      { icon: DirectoryIcon, label: 'Researcher Directory', path: '/admin-staff/research/directory', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
-      { icon: DataImportIcon, label: 'Data Import Requests', path: '/admin-staff/research/data-imports', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
+      { icon: ProjectIcon,       label: 'Projects',             path: '/admin-staff/research/projects',        roles: ['INSTITUTIONAL_LEADERSHIP','DATA_STEWARD','ETHICS_COMMITTEE_MEMBER','ADMIN_STAFF','GRANT_MANAGER'] },
+      { icon: ProjectReviewIcon, label: 'Project Review',       path: '/admin-staff/research/projects/review', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
+      { icon: TeamsIcon,         label: 'Teams & Members',      path: '/admin-staff/research/teams',           roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
+      { icon: OutputsIcon,       label: 'Research Outputs',     path: '/admin-staff/research/outputs',         roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
+      { icon: DirectoryIcon,     label: 'Researcher Directory', path: '/admin-staff/research/directory',       roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
+      { icon: DataImportIcon,    label: 'Data Import Requests', path: '/admin-staff/research/data-imports',   roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
+      { icon: DmpReviewIcon,       label: 'DMP Reviews',          path: '/admin-staff/dmp/reviews',             roles: ['DATA_STEWARD','INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
     ],
   },
   {
@@ -131,29 +134,36 @@ export default function AdminStaffSidebar() {
   const handleLogout = () => { logout(); router.push('/login'); };
 
   const NavItem = ({ icon: Icon, label, path }) => {
-    const active = pathname === path || pathname.startsWith(path + '/');
+    const active = pathname === path || (path !== '/admin-staff/research/projects' && pathname.startsWith(path + '/'));
+    const exactActive = pathname === path;
+    const isActive = active || exactActive;
     return (
       <Box onClick={() => router.push(path)} sx={{
         display: 'flex', alignItems: 'center', gap: 1.5,
-        px: 1.5, py: 1.1, cursor: 'pointer', borderRadius: 2,
-        bgcolor: active ? accent : 'transparent',
-        color: active ? '#fff' : 'text.secondary',
+        px: 1.5, py: 1, cursor: 'pointer', borderRadius: 2,
+        bgcolor: isActive ? `${accent}18` : 'transparent',
+        borderLeft: isActive ? `3px solid ${accent}` : '3px solid transparent',
+        color: isActive ? accent : 'text.secondary',
         transition: 'all 0.15s',
-        '&:hover': { bgcolor: active ? accent : 'action.hover', color: active ? '#fff' : 'text.primary' },
+        '&:hover': { bgcolor: isActive ? `${accent}18` : 'action.hover', color: isActive ? accent : 'text.primary' },
       }}>
-        <Icon sx={{ fontSize: 16, flexShrink: 0 }} />
-        <Typography sx={{ fontSize: 13, fontWeight: active ? 600 : 500 }}>{label}</Typography>
+        <Icon sx={{ fontSize: 15, flexShrink: 0 }} />
+        <Typography sx={{ fontSize: 12.5, fontWeight: isActive ? 700 : 500 }}>{label}</Typography>
       </Box>
     );
   };
 
   const SectionLabel = ({ label }) => (
-    <Typography sx={{
-      color: 'text.disabled', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8,
-      textTransform: 'uppercase', px: 1.5, pt: 2, pb: 0.3,
-    }}>
-      {label}
-    </Typography>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, pt: 2.5, pb: 0.5 }}>
+      <Box sx={{ height: '1px', flex: 1, bgcolor: 'divider' }} />
+      <Typography sx={{
+        color: 'text.disabled', fontSize: 9, fontWeight: 800, letterSpacing: 1.1,
+        textTransform: 'uppercase', whiteSpace: 'nowrap',
+      }}>
+        {label}
+      </Typography>
+      <Box sx={{ height: '1px', flex: 1, bgcolor: 'divider' }} />
+    </Box>
   );
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'AS';
@@ -170,6 +180,30 @@ export default function AdminStaffSidebar() {
       minHeight: '100vh', flexShrink: 0,
     }}>
       <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+        {/* Institution Name Badge */}
+        {user?.institution_name && (
+          <Box sx={{ mb: 1.5 }}>
+            <Chip
+              label={user.institution_name}
+              size="small"
+              sx={{
+                width: '100%',
+                bgcolor: accent,
+                color: '#fff',
+                fontWeight: 600,
+                fontSize: 11,
+                height: 24,
+                '& .MuiChip-label': {
+                  px: 1.5,
+                  whiteSpace: 'normal',
+                  textAlign: 'center',
+                },
+              }}
+            />
+          </Box>
+        )}
+        
+        {/* User Info */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Box sx={{
             width: 38, height: 38, borderRadius: 2, flexShrink: 0,

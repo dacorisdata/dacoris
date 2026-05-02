@@ -31,7 +31,7 @@ docker-compose -f docker-compose.dev.yml logs -f
 docker-compose -f docker-compose.dev.yml logs -f frontend
 
 # Backend only
-docker-compose -f docker-compose.dev.yml logs -f backend
+can we do the same to this p
 ```
 
 ---

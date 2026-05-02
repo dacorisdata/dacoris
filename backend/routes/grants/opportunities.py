@@ -61,10 +61,51 @@ async def list_opportunities(
 ):
     """
     List grant opportunities from database.
-    - Admin staff see all opportunities
-    - Researchers can filter to curated_only
+    - Global/Institution admins see all opportunities
+    - Admin-staff and researchers see only opportunities matching their institution's categories
     """
-    query = select(GrantOpportunity)
+    from models import OpportunityCategory, InstitutionCategory, OpportunityCategories
+    
+    # Only Global Admins and Institution Admins see ALL opportunities
+    # Everyone else (including admin-staff and researchers) see filtered by institution categories
+    is_global_or_inst_admin = current_user.is_global_admin or current_user.is_institution_admin
+    
+    if is_global_or_inst_admin:
+        # Global/Institution admins see all opportunities
+        query = select(GrantOpportunity)
+        
+        if status:
+            query = query.where(GrantOpportunity.status == status)
+        
+        if curated_only:
+            query = query.where(GrantOpportunity.is_curated == True)
+        
+        result = await db.execute(query.order_by(GrantOpportunity.deadline))
+        return result.scalars().all()
+    
+    # Admin-staff and researchers see only opportunities matching their institution's categories
+    if not current_user.primary_institution_id:
+        return []
+    
+    # Get institution's category IDs
+    inst_categories_result = await db.execute(
+        select(InstitutionCategory.category_id).where(
+            InstitutionCategory.institution_id == current_user.primary_institution_id
+        )
+    )
+    institution_category_ids = [row[0] for row in inst_categories_result.fetchall()]
+    
+    if not institution_category_ids:
+        # Institution has no categories assigned, return empty list
+        return []
+    
+    # Get opportunities that match institution's categories
+    query = (
+        select(GrantOpportunity)
+        .join(OpportunityCategories, GrantOpportunity.id == OpportunityCategories.opportunity_id)
+        .where(OpportunityCategories.category_id.in_(institution_category_ids))
+        .distinct()
+    )
     
     if status:
         query = query.where(GrantOpportunity.status == status)

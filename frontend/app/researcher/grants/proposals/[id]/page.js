@@ -203,6 +203,33 @@ export default function ProposalWorkspacePage() {
     return () => clearInterval(interval);
   }, [sectionContent, wordCount, proposal]);
 
+  // Auto-save when leaving the page
+  useEffect(() => {
+    const handleBeforeUnload = async (e) => {
+      if (currentSection && sectionContent !== sections[currentSection]?.content) {
+        // Try to save before leaving
+        const token = localStorage.getItem('token');
+        const sectionData = sections[currentSection];
+        
+        if (token && sectionData?.id && proposal) {
+          // Use sendBeacon for reliable save on page unload
+          const data = JSON.stringify({
+            content_html: sectionContent,
+            word_count: wordCount
+          });
+          
+          navigator.sendBeacon(
+            `${API_URL}/grants/proposals/${params.id}/sections/${sectionData.id}`,
+            new Blob([data], { type: 'application/json' })
+          );
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [currentSection, sectionContent, sections, proposal, wordCount, params.id]);
+
   const loadProposal = async () => {
     try {
       setLoading(true);
@@ -350,13 +377,34 @@ export default function ProposalWorkspacePage() {
     }
   };
 
-  const switchSection = (sectionKey) => {
-    // Save current section before switching
+  const switchSection = async (sectionKey) => {
+    // Auto-save current section before switching
     if (currentSection && sectionContent !== sections[currentSection]?.content) {
+      // Update local state first
       setSections(prev => ({
         ...prev,
         [currentSection]: { ...prev[currentSection], content: sectionContent, wordCount }
       }));
+      
+      // Save to backend
+      try {
+        const token = localStorage.getItem('token');
+        const sectionData = sections[currentSection];
+        
+        if (token && sectionData?.id && proposal) {
+          await axios.put(
+            `${API_URL}/grants/proposals/${params.id}/sections/${sectionData.id}`,
+            {
+              content_html: sectionContent,
+              word_count: wordCount
+            },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        }
+      } catch (e) {
+        console.error('Failed to save section on switch:', e);
+        // Don't block the switch even if save fails
+      }
     }
     
     setCurrentSection(sectionKey);

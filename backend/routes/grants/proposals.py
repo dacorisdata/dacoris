@@ -1152,7 +1152,8 @@ async def list_available_reviewers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Return users who can act as reviewers (grant_officer, external_reviewer, etc.)."""
+    """Return users who can act as reviewers (grant_officer, external_reviewer, etc.).
+    If no reviewers with reviewer roles are found, defaults to current user."""
     reviewer_roles = ("grant_officer", "research_admin", "institutional_lead",
                       "external_reviewer", "ethics_reviewer")
     result = await db.execute(
@@ -1169,7 +1170,24 @@ async def list_available_reviewers(
         {"roles": list(reviewer_roles), "inst_id": current_user.primary_institution_id},
     )
     rows = result.fetchall()
-    return [{"id": r[0], "name": r[1], "email": r[2], "roles": r[3]} for r in rows]
+    reviewers = [{"id": r[0], "name": r[1], "email": r[2], "roles": r[3]} for r in rows]
+    
+    # If no reviewers found, default to current user
+    if not reviewers:
+        # Get current user's roles
+        roles_result = await db.execute(
+            text("SELECT string_agg(role, ', ') FROM user_roles WHERE user_id = :uid"),
+            {"uid": current_user.id}
+        )
+        user_roles = roles_result.scalar() or "admin_staff"
+        reviewers = [{
+            "id": current_user.id,
+            "name": current_user.name,
+            "email": current_user.email,
+            "roles": user_roles
+        }]
+    
+    return reviewers
 
 
 # ─── Document Preview ──────────────────────────────────────────

@@ -119,6 +119,8 @@ class User(Base):
     institution = relationship("Institution", back_populates="users", foreign_keys=[primary_institution_id])
     orcid_profile = relationship("OrcidProfile", back_populates="user", uselist=False)
     notifications = relationship("Notification", back_populates="recipient", foreign_keys="Notification.recipient_id")
+    publication_libraries = relationship("PublicationLibrary", back_populates="user")
+    manuscripts = relationship("Manuscript", back_populates="user")
 
 class OrcidProfile(Base):
     __tablename__ = "orcid_profiles"
@@ -1037,3 +1039,127 @@ class DataTransformation(Base):
 
     dataset = relationship("Dataset")
     applied_by = relationship("User", foreign_keys=[applied_by_id])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PUBLICATION LIBRARY MODELS
+# ═══════════════════════════════════════════════════════════════════════════
+
+class PublicationLibrary(Base):
+    __tablename__ = "publication_libraries"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    parent_id = Column(Integer, ForeignKey("publication_libraries.id"), nullable=True)
+    is_folder = Column(Boolean, default=False)
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    user = relationship("User", back_populates="publication_libraries")
+    publications = relationship("Publication", back_populates="library", cascade="all, delete-orphan")
+    parent = relationship("PublicationLibrary", remote_side=[id], backref="children")
+
+
+class Publication(Base):
+    __tablename__ = "publications"
+    id = Column(Integer, primary_key=True, index=True)
+    library_id = Column(Integer, ForeignKey("publication_libraries.id"), nullable=False)
+    
+    # Core metadata
+    title = Column(Text, nullable=False)
+    authors = Column(Text, nullable=False)
+    journal = Column(String(500), nullable=True)
+    year = Column(Integer, nullable=True)
+    doi = Column(String(255), nullable=True, index=True)
+    pmid = Column(String(50), nullable=True, index=True)
+    
+    # Source info
+    source = Column(String(50), nullable=True)  # PubMed, Crossref, OpenAlex, etc.
+    source_id = Column(String(255), nullable=True)
+    
+    # Additional metadata
+    abstract = Column(Text, nullable=True)
+    publication_type = Column(String(100), nullable=True)
+    language = Column(String(50), nullable=True)
+    country = Column(String(100), nullable=True)
+    keywords = Column(Text, nullable=True)  # JSON array
+    
+    # Citation info
+    citation_count = Column(Integer, default=0)
+    
+    # User interaction
+    starred = Column(Boolean, default=False)
+    tags = Column(Text, nullable=True)  # JSON array
+    notes = Column(Text, nullable=True)
+    
+    # AI summary
+    ai_summary = Column(Text, nullable=True)
+    ai_summary_generated_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    library = relationship("PublicationLibrary", back_populates="publications")
+
+
+# Update User model to include publication_libraries relationship
+# This should be added to the User class definition
+# user.publication_libraries = relationship("PublicationLibrary", back_populates="user")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MANUSCRIPT MODELS
+# ═══════════════════════════════════════════════════════════════════════════
+
+class Manuscript(Base):
+    __tablename__ = "manuscripts"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(500), nullable=False)
+    short_description = Column(Text, nullable=True)
+    department = Column(String(255), nullable=True)
+    keywords = Column(Text, nullable=True)  # JSON array
+    
+    # Owner/creator
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Content
+    content = Column(Text, nullable=True)
+    abstract = Column(Text, nullable=True)
+    
+    # Status
+    status = Column(String(50), default='draft')  # draft, in_review, submitted, published
+    version = Column(Integer, default=1)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User", back_populates="manuscripts")
+    co_authors = relationship("ManuscriptCoAuthor", back_populates="manuscript", cascade="all, delete-orphan")
+
+
+class ManuscriptCoAuthor(Base):
+    __tablename__ = "manuscript_co_authors"
+    id = Column(Integer, primary_key=True, index=True)
+    manuscript_id = Column(Integer, ForeignKey("manuscripts.id"), nullable=False)
+    
+    # Co-author details
+    given_name = Column(String(255), nullable=False)
+    family_name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=True)
+    orcid = Column(String(50), nullable=True)
+    
+    # Invitation status
+    status = Column(String(50), default='invited')  # invited, accepted, declined
+    invited_at = Column(DateTime(timezone=True), server_default=func.now())
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Order in author list
+    author_order = Column(Integer, nullable=False)
+    
+    # Relationship
+    manuscript = relationship("Manuscript", back_populates="co_authors")

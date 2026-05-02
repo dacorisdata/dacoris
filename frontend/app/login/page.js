@@ -320,7 +320,7 @@ function LoginPageContent() {
               <Typography sx={{ fontSize: '0.875rem', color: 'text.secondary' }}>
                 Don't have an account?{' '}
                 <MuiLink component={Link} href="/register" sx={{ color: 'primary.main', fontWeight: 600, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
-                  Register your institution →
+                  Register here→
                 </MuiLink>
               </Typography>
             </Box>

@@ -25,14 +25,14 @@ services:
     container_name: dacoris-backend
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:Waxmangme86@db:5432/dacoris
-      - FRONTEND_URL=http://192.168.100.90
+      - FRONTEND_URL=http://192.168.0.103
       - JWT_SECRET_KEY=f61375a0bb2981f19a4391c3e294b49a
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - ADMIN_SESSION_EXPIRE_MINUTES=480
-      - ORCID_CLIENT_ID=APP-SFROMHSFNMHXG46K
-      - ORCID_CLIENT_SECRET=399d9908-8e91-4fb3-a42b-fe37e70718fe
-      - ORCID_REDIRECT_URI=http://192.168.100.90/api/auth/orcid/callback
+      - ORCID_CLIENT_ID=APP-S0GZISHBG32PK5HU
+      - ORCID_CLIENT_SECRET=542b22f8-8f65-44a3-a0bd-e5043cc64bbd
+      - ORCID_REDIRECT_URI=http://192.168.0.103/api/auth/orcid/callback
       - ORCID_SANDBOX_MODE=false
       - ORCID_API_BASE_URL=https://orcid.org
       - GLOBAL_ADMIN_EMAIL=admin@dacoris.org
@@ -62,7 +62,7 @@ services:
     container_name: dacoris-frontend
     environment:
       - NEXT_PUBLIC_API_URL=/api
-      - NEXT_PUBLIC_ORCID_CLIENT_ID=APP-SFROMHSFNMHXG46K
+      - NEXT_PUBLIC_ORCID_CLIENT_ID=APP-S0GZISHBG32PK5HU
       - NODE_ENV=development
       - WATCHPACK_POLLING=true  # Enable polling for file changes (useful in Docker)
     volumes:

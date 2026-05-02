@@ -33,6 +33,8 @@ from routes.data.datasets import router as datasets_router
 from routes.data.qa import router as qa_router
 from routes.public_research import router as public_research_router
 from routes.scholarly_works import router as scholarly_works_router
+from routes.publications import router as publications_router
+from routes.manuscripts import router as manuscripts_router
 
 load_dotenv()
 
@@ -52,7 +54,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost",
         "http://frontend:3000",
-        "http://192.168.100.90",
+        "http://192.168.0.103",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -83,6 +85,8 @@ app.include_router(datasets_router)
 app.include_router(qa_router)
 app.include_router(public_research_router)
 app.include_router(scholarly_works_router)
+app.include_router(publications_router)
+app.include_router(manuscripts_router)
 
 class UserCreate(BaseModel):
     email: str
