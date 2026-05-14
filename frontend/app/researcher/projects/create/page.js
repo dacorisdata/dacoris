@@ -13,7 +13,7 @@ import {
   Science as ProjectIcon, Group as TeamIcon, Description as DescIcon,
   Gavel as EthicsIcon, Flag as MilestoneIcon, AttachMoney as MoneyIcon,
   VerifiedUser as DeclareIcon, EmojiEvents as TrophyIcon, Person as PersonIcon,
-  WorkspacePremium as OrcidIcon,
+  WorkspacePremium as OrcidIcon, Storage as StorageIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 
@@ -21,13 +21,14 @@ const ACCENT = '#16a699';
 const GOLD   = '#f59e0b';
 
 const STEPS = [
-  { label: 'Project Core',     Icon: ProjectIcon  },
-  { label: 'Research Team',    Icon: TeamIcon     },
-  { label: 'Research Details', Icon: DescIcon     },
-  { label: 'Ethics & DMP',     Icon: EthicsIcon   },
-  { label: 'Milestones',       Icon: MilestoneIcon },
-  { label: 'Financials',       Icon: MoneyIcon    },
-  { label: 'Declarations',     Icon: DeclareIcon  },
+  { label: 'Project Core',        Icon: ProjectIcon   },
+  { label: 'Research Team',       Icon: TeamIcon      },
+  { label: 'Research Details',    Icon: DescIcon      },
+  { label: 'Ethics Compliance',   Icon: EthicsIcon    },
+  { label: 'Data Management Plan', Icon: StorageIcon  },
+  { label: 'Milestones',          Icon: MilestoneIcon },
+  { label: 'Financials',          Icon: MoneyIcon     },
+  { label: 'Declarations',        Icon: DeclareIcon   },
 ];
 
 const inp = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
@@ -497,10 +498,10 @@ export default function CreateProjectPage() {
               </Box>
             )}
 
-            {/* Step 4 */}
+            {/* Step 4 - Ethics Compliance */}
             {activeStep === 3 && (
               <Box>
-                <SectionHeader icon={EthicsIcon} title="Ethics, Compliance & Data Management" subtitle="Regulatory requirements and data stewardship" />
+                <SectionHeader icon={EthicsIcon} title="Ethics Compliance" subtitle="Regulatory requirements and ethical integrity" />
                 <SubLabel label="Ethics & Integrity" />
                 <FieldRow>
                   <FormControl sx={{ flex: '1 1 260px' }}>
@@ -523,7 +524,13 @@ export default function CreateProjectPage() {
                     value={formData.conflictOfInterest} onChange={e => set('conflictOfInterest', e.target.value)}
                     placeholder="Disclose any financial or personal interests that may affect objectivity" sx={inp} />
                 </Box>
-                <Divider sx={{ my: 2.5 }} />
+              </Box>
+            )}
+
+            {/* Step 5 - Data Management Plan */}
+            {activeStep === 4 && (
+              <Box>
+                <SectionHeader icon={StorageIcon} title="Data Management Plan" subtitle="Data stewardship and preservation strategy" />
                 <SubLabel label="Data Management Plan" />
                 <Box sx={{ mb: 2.5 }}>
                   <TextField fullWidth label="DMP Link (Optional)" value={formData.dmpLinked}
@@ -536,8 +543,8 @@ export default function CreateProjectPage() {
               </Box>
             )}
 
-            {/* Step 5 */}
-            {activeStep === 4 && (
+            {/* Step 6 - Milestones */}
+            {activeStep === 5 && (
               <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -591,8 +598,8 @@ export default function CreateProjectPage() {
               </Box>
             )}
 
-            {/* Step 6 */}
-            {activeStep === 5 && (
+            {/* Step 7 - Financials */}
+            {activeStep === 6 && (
               <Box>
                 <SectionHeader icon={MoneyIcon} title="Financial Details" subtitle="Funding accountability and award details" />
                 <SubLabel label="Award Details" />
@@ -664,8 +671,8 @@ export default function CreateProjectPage() {
               </Box>
             )}
 
-            {/* Step 7 */}
-            {activeStep === 6 && (
+            {/* Step 8 - Declarations */}
+            {activeStep === 7 && (
               <Box>
                 <SectionHeader icon={DeclareIcon} title="Final Declarations" subtitle="Legal and institutional sign-off" />
                 <Box sx={{ mb: 2.5 }}>
