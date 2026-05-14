@@ -41,70 +41,70 @@ api.interceptors.response.use(
 // Auth endpoints
 export const authAPI = {
   login: (email, password) => 
-    api.post('/auth/login', new URLSearchParams({ username: email, password }), {
+    api.post('/api/auth/login', new URLSearchParams({ username: email, password }), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     }),
   
-  getCurrentUser: () => api.get('/auth/me'),
+  getCurrentUser: () => api.get('/api/auth/me'),
 };
 
 // ORCID endpoints
 export const orcidAPI = {
   initiateLogin: () => {
-    window.location.href = `${API_BASE_URL}/auth/orcid/login`;
+    window.location.href = `${API_BASE_URL}/api/auth/orcid/login`;
   },
 };
 
 // Onboarding endpoints
 export const onboardingAPI = {
-  getInstitutions: () => api.get('/onboarding/institutions'),
+  getInstitutions: () => api.get('/api/onboarding/institutions'),
   selectInstitution: (institutionId) => 
-    api.post('/onboarding/select-institution', { institution_id: institutionId }),
-  getStatus: () => api.get('/onboarding/status'),
-  complete: () => api.post('/onboarding/complete'),
+    api.post('/api/onboarding/select-institution', { institution_id: institutionId }),
+  getStatus: () => api.get('/api/onboarding/status'),
+  complete: () => api.post('/api/onboarding/complete'),
 };
 
 // Global Admin endpoints
 export const globalAdminAPI = {
-  listInstitutions: () => api.get('/global-admin/institutions'),
-  createInstitution: (data) => api.post('/global-admin/institutions', data),
-  getInstitution: (id) => api.get(`/global-admin/institutions/${id}`),
-  updateInstitution: (id, data) => api.put(`/global-admin/institutions/${id}`, data),
-  toggleInstitutionStatus: (id) => api.post(`/global-admin/institutions/${id}/toggle-status`),
+  listInstitutions: () => api.get('/api/global-admin/institutions'),
+  createInstitution: (data) => api.post('/api/global-admin/institutions', data),
+  getInstitution: (id) => api.get(`/api/global-admin/institutions/${id}`),
+  updateInstitution: (id, data) => api.put(`/api/global-admin/institutions/${id}`, data),
+  toggleInstitutionStatus: (id) => api.post(`/api/global-admin/institutions/${id}/toggle-status`),
   createInstitutionAdmin: (institutionId, data) => 
-    api.post(`/global-admin/institutions/${institutionId}/admin`, data),
+    api.post(`/api/global-admin/institutions/${institutionId}/admin`, data),
   listAllUsers: (skip = 0, limit = 100) => 
-    api.get('/global-admin/users', { params: { skip, limit } }),
-  getAnalytics: () => api.get('/global-admin/analytics'),
+    api.get('/api/global-admin/users', { params: { skip, limit } }),
+  getAnalytics: () => api.get('/api/global-admin/analytics'),
   getInstitutionUsers: (institutionId) => 
-    api.get(`/global-admin/institutions/${institutionId}/users`),
+    api.get(`/api/global-admin/institutions/${institutionId}/users`),
 };
 
 // Institution Admin endpoints
 export const institutionAdminAPI = {
-  getUsers: () => api.get('/institution-admin/users'),
-  getStats: () => api.get('/institution-admin/stats'),
+  getUsers: () => api.get('/api/institution-admin/users'),
+  getStats: () => api.get('/api/institution-admin/stats'),
   listUsers: (skip = 0, limit = 100) => 
-    api.get('/institution-admin/users', { params: { skip, limit } }),
-  listPendingUsers: () => api.get('/institution-admin/users/pending'),
+    api.get('/api/institution-admin/users', { params: { skip, limit } }),
+  listPendingUsers: () => api.get('/api/institution-admin/users/pending'),
   approveUser: (userId) => 
-    api.post(`/institution-admin/users/${userId}/approve`),
+    api.post(`/api/institution-admin/users/${userId}/approve`),
   rejectUser: (userId) => 
-    api.post(`/institution-admin/users/${userId}/reject`),
+    api.post(`/api/institution-admin/users/${userId}/reject`),
   assignRoles: (userId, roles, primary_account_type) =>
-    api.post(`/institution-admin/users/${userId}/roles`, { roles, primary_account_type }),
-  getUserRoles: (userId) => api.get(`/institution-admin/users/${userId}/roles`),
-  getRoles: () => api.get('/institution-admin/roles'),
-  createRole: (data) => api.post('/institution-admin/roles', data),
-  getInstitutionSettings: () => api.get('/institution-admin/settings'),
-  updateInstitutionSettings: (data) => api.put('/institution-admin/settings', data),
-  getAnalytics: () => api.get('/institution-admin/analytics'),
+    api.post(`/api/institution-admin/users/${userId}/roles`, { roles, primary_account_type }),
+  getUserRoles: (userId) => api.get(`/api/institution-admin/users/${userId}/roles`),
+  getRoles: () => api.get('/api/institution-admin/roles'),
+  createRole: (data) => api.post('/api/institution-admin/roles', data),
+  getInstitutionSettings: () => api.get('/api/institution-admin/settings'),
+  updateInstitutionSettings: (data) => api.put('/api/institution-admin/settings', data),
+  getAnalytics: () => api.get('/api/institution-admin/analytics'),
 };
 
 // Researcher endpoints
 export const researcherAPI = {
-  getProfile: () => api.get('/auth/me'),
-  updateProfile: (data) => api.put('/auth/me', data),
+  getProfile: () => api.get('/api/auth/me'),
+  updateProfile: (data) => api.put('/api/auth/me', data),
 };
 
 export default api;
