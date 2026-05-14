@@ -4,12 +4,13 @@ services:
     container_name: dacoris-db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: Waxmangme86
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: dacoris
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "5432:5432"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -19,76 +20,74 @@ services:
       - dacoris-network
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: dacoris-backend
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:Waxmangme86@db:5432/dacoris
-      - FRONTEND_URL=http://192.168.100.90
-      - JWT_SECRET_KEY=f61375a0bb2981f19a4391c3e294b49a
-      - JWT_ALGORITHM=HS256
-      - ACCESS_TOKEN_EXPIRE_MINUTES=30
-      - ADMIN_SESSION_EXPIRE_MINUTES=480
-      - ORCID_CLIENT_ID=APP-SFROMHSFNMHXG46K
-      - ORCID_CLIENT_SECRET=399d9908-8e91-4fb3-a42b-fe37e70718fe
-      - ORCID_REDIRECT_URI=http://192.168.100.90/api/auth/orcid/callback
-      - ORCID_SANDBOX_MODE=false
-      - ORCID_API_BASE_URL=https://orcid.org
-      - GLOBAL_ADMIN_EMAIL=admin@dacoris.org
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/dacoris
+      - PORT=8000
+      - FRONTEND_URL=https://rims.dacoris.com
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=${JWT_ALGORITHM}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+      - ADMIN_SESSION_EXPIRE_MINUTES=${ADMIN_SESSION_EXPIRE_MINUTES}
+      - ORCID_CLIENT_ID=${ORCID_CLIENT_ID}
+      - ORCID_CLIENT_SECRET=${ORCID_CLIENT_SECRET}
+      - ORCID_REDIRECT_URI=https://rims.dacoris.com/api/auth/orcid/callback
+      - ORCID_SANDBOX_MODE=${ORCID_SANDBOX_MODE}
+      - ORCID_API_BASE_URL=${ORCID_API_BASE_URL}
+      - GLOBAL_ADMIN_EMAIL=${GLOBAL_ADMIN_EMAIL}
       - UPLOAD_DIR=/app/uploads
-      - MAX_FILE_SIZE_MB=50
-      - NOTIFICATION_MODE=console
-      - KOBO_API_BASE_URL=https://kf.kobotoolbox.org/api/v2
-      - SMTP_HOST=smtp.gmail.com
-      - SMTP_PORT=587
-      - SMTP_USER=steveggaita@gmail.com
-      - SMTP_PASSWORD=hkpd boqh bupm azka
-      - FROM_EMAIL=DACORIS <no-reply@dacoris.org>
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB}
+      - NOTIFICATION_MODE=${NOTIFICATION_MODE}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - FROM_EMAIL=${FROM_EMAIL}
+      - KOBO_API_BASE_URL=${KOBO_API_BASE_URL}
     volumes:
-      - ./backend/uploads:/app/uploads
+      - backend_uploads:/app/uploads
+    ports:
+      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
     networks:
       - dacoris-network
-    restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: /api
-        NEXT_PUBLIC_ORCID_CLIENT_ID: APP-SFROMHSFNMHXG46K
+    build: ./frontend
     container_name: dacoris-frontend
     environment:
       - NEXT_PUBLIC_API_URL=/api
-      - NEXT_PUBLIC_ORCID_CLIENT_ID=APP-SFROMHSFNMHXG46K
     ports:
       - "3000:3000"
     depends_on:
       - backend
+    restart: unless-stopped
     networks:
       - dacoris-network
-    restart: unless-stopped
 
   nginx:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
+    build: ./nginx
     container_name: dacoris-nginx
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - /etc/nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
-      - backend
       - frontend
+      - backend
+    restart: unless-stopped
     networks:
       - dacoris-network
-    restart: unless-stopped
 
 volumes:
   postgres_data:
+  backend_uploads:
 
 networks:
   dacoris-network:
