@@ -121,7 +121,8 @@ export default function ResearcherSidebar() {
       width: 230, bgcolor: 'background.paper',
       borderRight: 1, borderColor: 'divider',
       display: 'flex', flexDirection: 'column',
-      minHeight: '100vh', flexShrink: 0,
+      height: '100vh', position: 'sticky', top: 0,
+      flexShrink: 0,
     }}>
       <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
         {/* Institution Name Badge */}

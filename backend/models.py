@@ -1163,3 +1163,108 @@ class ManuscriptCoAuthor(Base):
     
     # Relationship
     manuscript = relationship("Manuscript", back_populates="co_authors")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DATA SOURCE CONNECTIONS (Saved source configurations)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class DataSource(Base):
+    """
+    Saved data source connection configurations.
+    These are reusable connection definitions researchers can import from.
+    """
+    __tablename__ = "data_sources"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False, index=True)
+    researcher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    name = Column(String(255), nullable=False)
+    source_type = Column(String(50), nullable=False)   # kobo_collect | google_sheets | excel
+    url = Column(Text, nullable=True)
+    api_key = Column(Text, nullable=True)               # stored as-is; future: encrypt
+    asset_uid = Column(String(100), nullable=True)      # KoboCollect form UID
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    record_count = Column(Integer, nullable=True)
+    last_sync = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    institution = relationship("Institution")
+    researcher = relationship("User", foreign_keys=[researcher_id])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LAKEHOUSE DATA IMPORT MODELS (Metadata-First Architecture)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class DataImportStatus(str, enum.Enum):
+    PENDING = "pending"
+    QUEUED = "queued"
+    INGESTING = "ingesting"
+    INGESTED = "ingested"
+    FAILED = "failed"
+
+class DataSourceType(str, enum.Enum):
+    URL = "url"
+    FILE_UPLOAD = "file_upload"
+    KOBO_COLLECT = "kobo_collect"
+    GOOGLE_SHEETS = "google_sheets"
+    EXCEL = "excel"
+    API_FEED = "api_feed"
+
+class DataImport(Base):
+    """
+    Metadata-only tracking for data imports.
+    Raw data is stored in MinIO Bronze bucket, not in PostgreSQL.
+    """
+    __tablename__ = "data_imports"
+    
+    id = Column(String(36), primary_key=True, default=lambda: secrets.token_urlsafe(16))
+    
+    # Context IDs
+    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False, index=True)
+    researcher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=True, index=True)
+    
+    # Source metadata
+    source_url = Column(Text, nullable=True)
+    source_type = Column(Enum(DataSourceType), nullable=False)
+    source_tag = Column(String(100), nullable=False)
+    file_name = Column(String(255), nullable=True)
+    file_format = Column(String(20), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    
+    # Ingestion tracking
+    ingest_status = Column(Enum(DataImportStatus), default=DataImportStatus.PENDING, nullable=False, index=True)
+    bronze_path = Column(Text, nullable=True)
+    bronze_bucket = Column(String(100), nullable=True)
+    ingest_triggered_at = Column(DateTime(timezone=True), nullable=True)
+    ingest_completed_at = Column(DateTime(timezone=True), nullable=True)
+    error_message = Column(Text, nullable=True)
+    
+    # Additional metadata
+    record_count = Column(Integer, nullable=True)
+    description = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=True)  # JSON string for flexible metadata
+    
+    # Priority and retry tracking
+    priority = Column(Integer, default=5)  # 1 (low) to 10 (high)
+    retry_count = Column(Integer, default=0)
+    last_retry_at = Column(DateTime(timezone=True), nullable=True)
+    file_size_estimate = Column(Integer, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    institution = relationship("Institution")
+    researcher = relationship("User", foreign_keys=[researcher_id])
+    project = relationship("ResearchProject")
+    creator = relationship("User", foreign_keys=[created_by])
