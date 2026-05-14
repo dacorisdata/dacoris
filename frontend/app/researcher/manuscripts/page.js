@@ -1,0 +1,612 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  Box, Typography, Button, Paper, TextField, Dialog, DialogContent, DialogTitle, DialogActions,
+  Stepper, Step, StepLabel, Chip, IconButton, Autocomplete, useTheme, CircularProgress,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Menu, MenuItem,
+} from '@mui/material';
+import {
+  Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, MoreVert as MoreIcon,
+  Article as ArticleIcon, Person as PersonIcon, Close as CloseIcon, Search as SearchIcon,
+} from '@mui/icons-material';
+
+const ACCENT = '#1ca7a1';
+
+const STEPS = ['Manuscript Details', 'Invite Co-Authors'];
+
+export default function ManuscriptsPage() {
+  const router = useRouter();
+  const theme = useTheme();
+  const dark = theme.palette.mode === 'dark';
+
+  const [manuscripts, setManuscripts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [currentManuscript, setCurrentManuscript] = useState(null);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    title: '',
+    department: '',
+    keywords: [],
+    shortDescription: '',
+    coAuthors: [],
+  });
+
+  // Co-author search state
+  const [coAuthorForm, setCoAuthorForm] = useState({
+    givenName: '',
+    familyName: '',
+    email: '',
+    orcid: '',
+  });
+  const [searchingOrcid, setSearchingOrcid] = useState(false);
+  const [orcidResults, setOrcidResults] = useState([]);
+
+  useEffect(() => {
+    fetchManuscripts();
+  }, []);
+
+  const fetchManuscripts = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setManuscripts(data);
+      }
+    } catch (error) {
+      console.error('Error fetching manuscripts:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const searchOrcid = async () => {
+    if (!coAuthorForm.givenName.trim() || !coAuthorForm.familyName.trim()) {
+      return;
+    }
+
+    setSearchingOrcid(true);
+    setOrcidResults([]);
+
+    try {
+      // Search ORCID public API
+      const query = `given-names:${coAuthorForm.givenName} AND family-name:${coAuthorForm.familyName}`;
+      const response = await fetch(
+        `https://pub.orcid.org/v3.0/search/?q=${encodeURIComponent(query)}`,
+        {
+          headers: {
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const results = data.result || [];
+        
+        // Extract ORCID IDs and names
+        const formattedResults = results.slice(0, 5).map(item => ({
+          orcid: item['orcid-identifier']?.path,
+          givenName: item['given-names'] || coAuthorForm.givenName,
+          familyName: item['family-name'] || coAuthorForm.familyName,
+        })).filter(r => r.orcid);
+
+        setOrcidResults(formattedResults);
+
+        // If exactly one result, auto-fill
+        if (formattedResults.length === 1) {
+          setCoAuthorForm(prev => ({
+            ...prev,
+            orcid: formattedResults[0].orcid,
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error searching ORCID:', error);
+    } finally {
+      setSearchingOrcid(false);
+    }
+  };
+
+  const handleNext = () => {
+    if (activeStep === 0) {
+      // Validate step 1
+      if (!formData.title.trim()) {
+        alert('Please enter a manuscript title');
+        return;
+      }
+    }
+    setActiveStep((prev) => prev + 1);
+  };
+
+  const handleBack = () => {
+    setActiveStep((prev) => prev - 1);
+  };
+
+  const addCoAuthor = () => {
+    if (!coAuthorForm.givenName.trim() || !coAuthorForm.familyName.trim()) {
+      alert('Please enter given name and family name');
+      return;
+    }
+
+    const newCoAuthor = {
+      ...coAuthorForm,
+      id: Date.now(),
+      author_order: formData.coAuthors.length + 1,
+    };
+
+    setFormData(prev => ({
+      ...prev,
+      coAuthors: [...prev.coAuthors, newCoAuthor],
+    }));
+
+    setCoAuthorForm({
+      givenName: '',
+      familyName: '',
+      email: '',
+      orcid: '',
+    });
+  };
+
+  const removeCoAuthor = (id) => {
+    setFormData(prev => ({
+      ...prev,
+      coAuthors: prev.coAuthors.filter(ca => ca.id !== id),
+    }));
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: formData.title,
+          short_description: formData.shortDescription,
+          department: formData.department,
+          keywords: JSON.stringify(formData.keywords),
+          co_authors: formData.coAuthors.map(ca => ({
+            given_name: ca.givenName,
+            family_name: ca.familyName,
+            email: ca.email,
+            orcid: ca.orcid,
+            author_order: ca.author_order,
+          })),
+        }),
+      });
+
+      if (response.ok) {
+        await fetchManuscripts();
+        handleCloseDialog();
+      } else {
+        alert('Failed to create manuscript');
+      }
+    } catch (error) {
+      console.error('Error creating manuscript:', error);
+      alert('Failed to create manuscript');
+    }
+  };
+
+  const handleCloseDialog = () => {
+    setCreateDialogOpen(false);
+    setActiveStep(0);
+    setFormData({
+      title: '',
+      department: '',
+      keywords: [],
+      shortDescription: '',
+      coAuthors: [],
+    });
+  };
+
+  const deleteManuscript = async (id) => {
+    if (!confirm('Delete this manuscript?')) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        await fetchManuscripts();
+        setAnchorEl(null);
+      }
+    } catch (error) {
+      console.error('Error deleting manuscript:', error);
+    }
+  };
+
+  const getStepContent = (step) => {
+    switch (step) {
+      case 0:
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 2 }}>
+            <TextField
+              fullWidth
+              label="Manuscript Title"
+              value={formData.title}
+              onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+              required
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+            />
+
+            <Autocomplete
+              freeSolo
+              options={[]}
+              value={formData.department}
+              onInputChange={(_, newValue) => setFormData(prev => ({ ...prev, department: newValue }))}
+              renderInput={(params) => (
+                <TextField {...params} label="Department" placeholder="Type or select department" />
+              )}
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+            />
+
+            <Autocomplete
+              multiple
+              freeSolo
+              options={[]}
+              value={formData.keywords}
+              onChange={(_, newValue) => setFormData(prev => ({ ...prev, keywords: newValue }))}
+              renderInput={(params) => (
+                <TextField {...params} label="Keywords" placeholder="Add keywords" />
+              )}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip
+                    label={option}
+                    {...getTagProps({ index })}
+                    size="small"
+                    sx={{ bgcolor: `${ACCENT}15`, color: ACCENT }}
+                  />
+                ))
+              }
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+            />
+
+            <TextField
+              fullWidth
+              multiline
+              rows={4}
+              label="Short Description"
+              value={formData.shortDescription}
+              onChange={(e) => setFormData(prev => ({ ...prev, shortDescription: e.target.value }))}
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+            />
+          </Box>
+        );
+
+      case 1:
+        return (
+          <Box sx={{ pt: 2 }}>
+            <Paper elevation={0} sx={{ p: 2.5, mb: 3, bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)', borderRadius: 2 }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Add Co-Author</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
+                <TextField
+                  size="small"
+                  label="Given Name"
+                  value={coAuthorForm.givenName}
+                  onChange={(e) => {
+                    setCoAuthorForm(prev => ({ ...prev, givenName: e.target.value }));
+                    setOrcidResults([]);
+                  }}
+                  required
+                />
+                <TextField
+                  size="small"
+                  label="Family Name"
+                  value={coAuthorForm.familyName}
+                  onChange={(e) => {
+                    setCoAuthorForm(prev => ({ ...prev, familyName: e.target.value }));
+                    setOrcidResults([]);
+                  }}
+                  required
+                />
+                <TextField
+                  size="small"
+                  label="Email (optional)"
+                  type="email"
+                  value={coAuthorForm.email}
+                  onChange={(e) => setCoAuthorForm(prev => ({ ...prev, email: e.target.value }))}
+                />
+                <TextField
+                  size="small"
+                  label="ORCID"
+                  value={coAuthorForm.orcid}
+                  onChange={(e) => setCoAuthorForm(prev => ({ ...prev, orcid: e.target.value }))}
+                  placeholder="0000-0000-0000-0000"
+                  InputProps={{
+                    readOnly: true,
+                    sx: { bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }
+                  }}
+                />
+              </Box>
+              
+              <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
+                <Button
+                  variant="outlined"
+                  onClick={searchOrcid}
+                  disabled={!coAuthorForm.givenName.trim() || !coAuthorForm.familyName.trim() || searchingOrcid}
+                  startIcon={searchingOrcid ? <CircularProgress size={16} /> : <SearchIcon />}
+                  sx={{
+                    textTransform: 'none',
+                    borderRadius: 2,
+                    borderColor: 'divider',
+                    color: 'text.secondary',
+                  }}
+                >
+                  {searchingOrcid ? 'Searching...' : 'Search ORCID'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={addCoAuthor}
+                  sx={{
+                    textTransform: 'none',
+                    borderRadius: 2,
+                    borderColor: ACCENT,
+                    color: ACCENT,
+                    '&:hover': { borderColor: '#0e7490', bgcolor: `${ACCENT}08` }
+                  }}
+                >
+                  Add Co-Author
+                </Button>
+              </Box>
+
+              {/* ORCID Search Results */}
+              {orcidResults.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1, color: 'text.secondary' }}>
+                    Select ORCID Profile:
+                  </Typography>
+                  {orcidResults.map((result, index) => (
+                    <Paper
+                      key={index}
+                      elevation={0}
+                      variant="outlined"
+                      sx={{
+                        p: 1.5,
+                        mb: 1,
+                        cursor: 'pointer',
+                        borderRadius: 2,
+                        transition: 'all 0.15s',
+                        '&:hover': { borderColor: ACCENT, bgcolor: `${ACCENT}05` },
+                        borderColor: coAuthorForm.orcid === result.orcid ? ACCENT : 'divider',
+                        bgcolor: coAuthorForm.orcid === result.orcid ? `${ACCENT}08` : 'transparent',
+                      }}
+                      onClick={() => setCoAuthorForm(prev => ({ ...prev, orcid: result.orcid }))}
+                    >
+                      <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
+                        {result.givenName} {result.familyName}
+                      </Typography>
+                      <Typography sx={{ fontSize: 11, color: 'text.secondary', fontFamily: 'monospace' }}>
+                        ORCID: {result.orcid}
+                      </Typography>
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+            </Paper>
+
+            {formData.coAuthors.length > 0 && (
+              <Box>
+                <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 1.5 }}>
+                  Co-Authors ({formData.coAuthors.length})
+                </Typography>
+                {formData.coAuthors.map((coAuthor, index) => (
+                  <Paper
+                    key={coAuthor.id}
+                    elevation={0}
+                    variant="outlined"
+                    sx={{ p: 2, mb: 1.5, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <PersonIcon sx={{ fontSize: 20, color: 'text.disabled' }} />
+                      <Box>
+                        <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                          {coAuthor.givenName} {coAuthor.familyName}
+                        </Typography>
+                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {coAuthor.email || 'No email'} {coAuthor.orcid && `• ORCID: ${coAuthor.orcid}`}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <IconButton size="small" onClick={() => removeCoAuthor(coAuthor.id)} sx={{ color: 'error.main' }}>
+                      <DeleteIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Paper>
+                ))}
+              </Box>
+            )}
+          </Box>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <Box sx={{ p: { xs: 2, md: 4 } }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box>
+          <Typography sx={{ fontSize: 26, fontWeight: 700, mb: 0.5 }}>Manuscripts</Typography>
+          <Typography sx={{ fontSize: 14, color: 'text.secondary' }}>
+            {manuscripts.length} manuscripts
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setCreateDialogOpen(true)}
+          sx={{ textTransform: 'none', borderRadius: 2, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e7490' } }}
+        >
+          New Manuscript
+        </Button>
+      </Box>
+
+      {/* Manuscripts Table */}
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress sx={{ color: ACCENT }} />
+        </Box>
+      ) : manuscripts.length === 0 ? (
+        <Paper elevation={0} variant="outlined" sx={{ p: 8, textAlign: 'center', borderRadius: 3, borderStyle: 'dashed' }}>
+          <ArticleIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
+          <Typography sx={{ fontSize: 16, fontWeight: 600, mb: 1 }}>No manuscripts yet</Typography>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 3 }}>
+            Create your first manuscript to start writing
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setCreateDialogOpen(true)}
+            sx={{ textTransform: 'none', borderRadius: 2, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e7490' } }}
+          >
+            New Manuscript
+          </Button>
+        </Paper>
+      ) : (
+        <TableContainer component={Paper} elevation={0} variant="outlined" sx={{ borderRadius: 3 }}>
+          <Table>
+            <TableHead>
+              <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
+                <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Title</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Department</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Co-Authors</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Created</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: 12 }} align="center">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {manuscripts.map((manuscript) => (
+                <TableRow key={manuscript.id} hover sx={{ '&:hover': { bgcolor: `${ACCENT}05` } }}>
+                  <TableCell sx={{ maxWidth: 300 }}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{manuscript.title}</Typography>
+                    {manuscript.short_description && (
+                      <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.3 }}>
+                        {manuscript.short_description.substring(0, 80)}...
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 12 }}>{manuscript.department || '—'}</TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${manuscript.co_authors?.length || 0} co-authors`}
+                      size="small"
+                      sx={{ fontSize: 10, bgcolor: `${ACCENT}15`, color: ACCENT }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={manuscript.status}
+                      size="small"
+                      sx={{ fontSize: 10, textTransform: 'capitalize' }}
+                    />
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>
+                    {new Date(manuscript.created_at).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell align="center">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        setAnchorEl(e.currentTarget);
+                        setCurrentManuscript(manuscript);
+                      }}
+                    >
+                      <MoreIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      {/* Create Manuscript Dialog */}
+      <Dialog
+        open={createDialogOpen}
+        onClose={handleCloseDialog}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          Create New Manuscript
+          <IconButton onClick={handleCloseDialog} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <Stepper activeStep={activeStep} sx={{ pt: 2, pb: 3 }}>
+            {STEPS.map((label) => (
+              <Step key={label}>
+                <StepLabel>{label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+          {getStepContent(activeStep)}
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, gap: 1 }}>
+          <Button onClick={handleCloseDialog} sx={{ textTransform: 'none' }}>
+            Cancel
+          </Button>
+          {activeStep > 0 && (
+            <Button onClick={handleBack} sx={{ textTransform: 'none' }}>
+              Back
+            </Button>
+          )}
+          {activeStep < STEPS.length - 1 ? (
+            <Button
+              variant="contained"
+              onClick={handleNext}
+              sx={{ textTransform: 'none', bgcolor: ACCENT, '&:hover': { bgcolor: '#0e7490' } }}
+            >
+              Next
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              onClick={handleSubmit}
+              sx={{ textTransform: 'none', bgcolor: ACCENT, '&:hover': { bgcolor: '#0e7490' } }}
+            >
+              Create Manuscript
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Action Menu */}
+      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
+        <MenuItem onClick={() => { 
+          router.push(`/researcher/manuscripts/${currentManuscript?.id}/editor`);
+          setAnchorEl(null); 
+        }}>
+          <EditIcon sx={{ fontSize: 16, mr: 1.5 }} /> Start Writing
+        </MenuItem>
+        <MenuItem onClick={() => deleteManuscript(currentManuscript?.id)} sx={{ color: 'error.main' }}>
+          <DeleteIcon sx={{ fontSize: 16, mr: 1.5 }} /> Delete
+        </MenuItem>
+      </Menu>
+    </Box>
+  );
+}

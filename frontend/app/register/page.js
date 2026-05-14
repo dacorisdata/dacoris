@@ -140,10 +140,11 @@ export default function RegisterPage() {
     const givenName = urlParams.get('given_name');
     const affiliation = urlParams.get('affiliation');
     const orcidToken = urlParams.get('orcid_token');
-    const isOrcidFlow = sessionStorage.getItem('orcid_registration_flow');
 
-    // Check if we have ORCID callback data
-    if (orcidId && isOrcidFlow) {
+    // Check if we have ORCID callback data (even without session storage check)
+    if (orcidId) {
+      console.log('ORCID callback detected:', { orcidId, firstName, givenName, affiliation });
+      
       // Set tier to researcher and populate ORCID data
       setTier('researcher');
       setFormData(prev => ({
@@ -154,7 +155,8 @@ export default function RegisterPage() {
         affiliation: affiliation || '',
       }));
       
-      // Move to step 1 (ORCID Details) - user can review/edit the data
+      // Move to step 1 (ORCID Details step for researcher)
+      // Step 0: Select Type, Step 1: ORCID Details, Step 2: Institution Email, Step 3: Password
       setActiveStep(1);
       
       // Clean up session storage and URL

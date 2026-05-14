@@ -1,6 +1,6 @@
 'use client';
 
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, Chip } from '@mui/material';
 import {
   Dashboard as DashIcon, Person as PersonIcon,
   Search as DiscoverIcon, Description as ProposalIcon,
@@ -10,8 +10,8 @@ import {
   Summarize as ReportsIcon, DynamicForm as FormsIcon,
   Groups as CollabIcon, PersonAdd as InviteIcon,
   ExitToApp as LogoutIcon,
-  EmojiEvents as AwardIcon,
-  UploadFile as UploadIcon,
+  EmojiEvents as AwardIcon, FolderSpecial as DmpIcon,
+  Create as ManuscriptIcon, Storage,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
@@ -35,26 +35,37 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    section: 'Research Projects',
-    items: [
-      { icon: ProjectIcon,   label: 'My Projects',         path: '/researcher/projects' },
-      { icon: EthicsIcon,    label: 'Ethics Applications', path: '/researcher/ethics' },
-      { icon: UploadIcon,    label: 'Data Imports',        path: '/researcher/projects/data-imports' },
-    ],
-  },
-  {
-    section: 'Research Outputs',
-    items: [
-      { icon: PublicationsIcon, label: 'Research Outputs', path: '/researcher/publications' },
-      { icon: DatasetsIcon,     label: 'My Datasets',   path: '/researcher/data/datasets' },
-      { icon: ReportsIcon,      label: 'Reports',       path: '/researcher/data/reports' },
+    section: 'Research',
+    subsections: [
+      {
+        title: '1. Projects',
+        items: [
+          { icon: ProjectIcon, label: 'My Projects',           path: '/researcher/projects' },
+          { icon: EthicsIcon,  label: 'Ethics Applications',   path: '/researcher/ethics' },
+          { icon: DmpIcon,     label: 'Data Mgmt Plans',       path: '/researcher/dmp' },
+        ],
+      },
+      {
+        title: '2. Research Discovery',
+        items: [
+          { icon: DiscoverIcon,     label: 'Import Publications',  path: '/researcher/publications' },
+          { icon: PublicationsIcon, label: 'My Library',           path: '/researcher/publications/library' },
+        ],
+      },
+      {
+        title: '3. Writing Phase',
+        items: [
+          { icon: ManuscriptIcon, label: 'Manuscripts', path: '/researcher/manuscripts' },
+        ],
+      },
     ],
   },
   {
     section: 'Data Collection',
     items: [
-      { icon: FormsIcon,    label: 'Capture Forms',   path: '/researcher/data/forms' },
-      { icon: DatasetsIcon, label: 'Submissions',     path: '/researcher/data/submissions' },
+      { icon: FormsIcon,    label: 'Data Import',   path: '/researcher/data/import' },
+      { icon: DatasetsIcon, label: 'Data Sources',  path: '/researcher/data/sources' },
+      { icon: Storage,      label: 'Data Lakes',    path: '/researcher/data/lakes' },
     ],
   },
   {
@@ -76,29 +87,31 @@ export default function ResearcherSidebar() {
   const handleLogout = () => { logout(); router.push('/login'); };
 
   const NavItem = ({ icon: Icon, label, path }) => {
-    const active = pathname === path || pathname.startsWith(path + '/');
+    const isActive = pathname === path || pathname.startsWith(path + '/');
     return (
       <Box onClick={() => router.push(path)} sx={{
         display: 'flex', alignItems: 'center', gap: 1.5,
-        px: 1.5, py: 1.1, cursor: 'pointer', borderRadius: 2,
-        bgcolor: active ? accent : 'transparent',
-        color: active ? '#fff' : 'text.secondary',
+        px: 1.5, py: 1, cursor: 'pointer', borderRadius: 2,
+        bgcolor: isActive ? `${accent}18` : 'transparent',
+        borderLeft: isActive ? `3px solid ${accent}` : '3px solid transparent',
+        color: isActive ? accent : 'text.secondary',
         transition: 'all 0.15s',
-        '&:hover': { bgcolor: active ? accent : 'action.hover', color: active ? '#fff' : 'text.primary' },
+        '&:hover': { bgcolor: isActive ? `${accent}18` : 'action.hover', color: isActive ? accent : 'text.primary' },
       }}>
-        <Icon sx={{ fontSize: 16, flexShrink: 0 }} />
-        <Typography sx={{ fontSize: 13, fontWeight: active ? 600 : 500 }}>{label}</Typography>
+        <Icon sx={{ fontSize: 15, flexShrink: 0 }} />
+        <Typography sx={{ fontSize: 12.5, fontWeight: isActive ? 700 : 500 }}>{label}</Typography>
       </Box>
     );
   };
 
   const SectionLabel = ({ label }) => (
-    <Typography sx={{
-      color: 'text.disabled', fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8,
-      textTransform: 'uppercase', px: 1.5, pt: 2, pb: 0.3,
-    }}>
-      {label}
-    </Typography>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, pt: 2.5, pb: 0.5 }}>
+      <Box sx={{ height: '1px', flex: 1, bgcolor: 'divider' }} />
+      <Typography sx={{ color: 'text.disabled', fontSize: 9, fontWeight: 800, letterSpacing: 1.1, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+        {label}
+      </Typography>
+      <Box sx={{ height: '1px', flex: 1, bgcolor: 'divider' }} />
+    </Box>
   );
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'R';
@@ -108,9 +121,34 @@ export default function ResearcherSidebar() {
       width: 230, bgcolor: 'background.paper',
       borderRight: 1, borderColor: 'divider',
       display: 'flex', flexDirection: 'column',
-      minHeight: '100vh', flexShrink: 0,
+      height: '100vh', position: 'sticky', top: 0,
+      flexShrink: 0,
     }}>
       <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+        {/* Institution Name Badge */}
+        {user?.institution_name && (
+          <Box sx={{ mb: 1.5 }}>
+            <Chip
+              label={user.institution_name}
+              size="small"
+              sx={{
+                width: '100%',
+                bgcolor: accent,
+                color: '#fff',
+                fontWeight: 600,
+                fontSize: 11,
+                height: 24,
+                '& .MuiChip-label': {
+                  px: 1.5,
+                  whiteSpace: 'normal',
+                  textAlign: 'center',
+                },
+              }}
+            />
+          </Box>
+        )}
+        
+        {/* User Info */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Box sx={{
             width: 38, height: 38, borderRadius: 2, flexShrink: 0,
@@ -131,13 +169,56 @@ export default function ResearcherSidebar() {
         </Box>
       </Box>
 
-      <Box sx={{ flex: 1, overflowY: 'auto', py: 0.5, px: 0.75 }}>
-        {NAV_SECTIONS.map(({ section, items }) => (
+      <Box sx={{ 
+        flex: 1, 
+        overflowY: 'auto', 
+        py: 0.5, 
+        px: 0.75,
+        '&::-webkit-scrollbar': {
+          width: '6px',
+        },
+        '&::-webkit-scrollbar-track': {
+          bgcolor: 'transparent',
+        },
+        '&::-webkit-scrollbar-thumb': {
+          bgcolor: 'rgba(0,0,0,0.2)',
+          borderRadius: '3px',
+          '&:hover': {
+            bgcolor: 'rgba(0,0,0,0.3)',
+          },
+        },
+      }}>
+        {NAV_SECTIONS.map(({ section, items, subsections }) => (
           <Box key={section}>
             <SectionLabel label={section} />
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
-              {items.map(item => <NavItem key={item.path} {...item} />)}
-            </Box>
+            {subsections ? (
+              // Render subsections
+              subsections.map((subsection, idx) => (
+                <Box key={idx}>
+                  <Typography
+                    sx={{
+                      px: 1.5,
+                      pt: idx === 0 ? 0.5 : 2,
+                      pb: 0.5,
+                      color: 'text.secondary',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    {subsection.title}
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                    {subsection.items.map(item => <NavItem key={item.path} {...item} />)}
+                  </Box>
+                </Box>
+              ))
+            ) : (
+              // Render regular items
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                {items.map(item => <NavItem key={item.path} {...item} />)}
+              </Box>
+            )}
           </Box>
         ))}
       </Box>

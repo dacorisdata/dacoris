@@ -27,12 +27,17 @@ from routes.research.projects import router as research_projects_router
 from routes.research.ethics import router as research_ethics_router
 from routes.research.outputs import router as research_outputs_router
 from routes.research.data_import import router as research_data_import_router
+from routes.research.lakehouse_imports import router as lakehouse_imports_router
+from routes.research.data_sources import router as data_sources_router
+from routes.ingest.queue import router as ingest_queue_router
 from routes.admin.data_import import router as admin_data_import_router
 from routes.data.forms import router as forms_router
 from routes.data.datasets import router as datasets_router
 from routes.data.qa import router as qa_router
 from routes.public_research import router as public_research_router
 from routes.scholarly_works import router as scholarly_works_router
+from routes.publications import router as publications_router
+from routes.manuscripts import router as manuscripts_router
 
 load_dotenv()
 
@@ -52,7 +57,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost",
         "http://frontend:3000",
-        "http://192.168.100.90",
+        "http://192.168.0.103",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -77,12 +82,17 @@ app.include_router(research_projects_router)
 app.include_router(research_ethics_router)
 app.include_router(research_outputs_router)
 app.include_router(research_data_import_router)
+app.include_router(lakehouse_imports_router)
+app.include_router(data_sources_router)
+app.include_router(ingest_queue_router)
 app.include_router(admin_data_import_router)
 app.include_router(forms_router)
 app.include_router(datasets_router)
 app.include_router(qa_router)
 app.include_router(public_research_router)
 app.include_router(scholarly_works_router)
+app.include_router(publications_router)
+app.include_router(manuscripts_router)
 
 class UserCreate(BaseModel):
     email: str

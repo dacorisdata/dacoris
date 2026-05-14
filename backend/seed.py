@@ -42,6 +42,7 @@ async def seed():
         # ── Users ───────────────────────────────────────────────────────────
         users = {}
         user_data = [
+            {"email": "admin@ascensiondynamics.com",      "name": "Global Admin",         "role": "global_admin", "is_global_admin": True},
             {"email": "pi@ascensiondynamics.com",        "name": "Dr. Amina Odhiambo",  "role": "pi"},
             {"email": "grant@ascensiondynamics.com",      "name": "James Kariuki",        "role": "grant_officer"},
             {"email": "finance@ascensiondynamics.com",    "name": "Grace Waweru",         "role": "finance_officer"},
@@ -64,6 +65,7 @@ async def seed():
                     account_type=AccountType.ORCID,
                     status=UserStatus.ACTIVE,
                     primary_institution_id=inst.id,
+                    is_global_admin=u.get("is_global_admin", False),
                 )
                 db.add(user)
                 await db.flush()

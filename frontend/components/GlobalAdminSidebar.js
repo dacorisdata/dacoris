@@ -6,6 +6,8 @@ import {
   Business as BusinessIcon,
   People as PeopleIcon,
   Analytics as AnalyticsIcon,
+  WorkOutline as OpportunitiesIcon,
+  Category as CategoryIcon,
   ExitToApp as LogoutIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
@@ -99,12 +101,40 @@ export default function GlobalAdminSidebar() {
       </Box>
 
       {/* Navigation */}
-      <Box sx={{ flex: 1, p: 2 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-          <NavItem icon={DashboardIcon} label="Overview"     path="/global-admin/overview" />
-          <NavItem icon={BusinessIcon}  label="Institutions" path="/global-admin/institutions" />
-          <NavItem icon={PeopleIcon}    label="All Users"    path="/global-admin/users" />
-          <NavItem icon={AnalyticsIcon} label="Analytics"    path="/global-admin/analytics" />
+      <Box sx={{ flex: 1, p: 2, overflowY: 'auto' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {/* Dashboard Section */}
+          <Box>
+            <Typography sx={{ px: 2, mb: 1, fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Dashboard
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <NavItem icon={DashboardIcon} label="Overview" path="/global-admin/overview" />
+              <NavItem icon={AnalyticsIcon} label="Analytics" path="/global-admin/analytics" />
+            </Box>
+          </Box>
+
+          {/* Platform Management Section */}
+          <Box>
+            <Typography sx={{ px: 2, mb: 1, fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Platform Management
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <NavItem icon={BusinessIcon} label="Institutions" path="/global-admin/institutions" />
+              <NavItem icon={PeopleIcon} label="All Users" path="/global-admin/users" />
+            </Box>
+          </Box>
+
+          {/* Opportunity Curation Section */}
+          <Box>
+            <Typography sx={{ px: 2, mb: 1, fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Opportunity Curation
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <NavItem icon={OpportunitiesIcon} label="Opportunities" path="/global-admin/opportunities" />
+              <NavItem icon={CategoryIcon} label="Categories" path="/global-admin/categories" />
+            </Box>
+          </Box>
         </Box>
       </Box>
 

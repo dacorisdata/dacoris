@@ -120,6 +120,11 @@ function AssignReviewerDialog({ open, proposal, reviewers, onClose, onAssigned }
         </FormControl>
 
         {/* Reviewer autocomplete */}
+        {reviewers.length === 1 && (
+          <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>
+            No users with reviewer roles found. Defaulting to you as the reviewer.
+          </Alert>
+        )}
         <Autocomplete
           options={reviewers}
           getOptionLabel={r => `${r.name} (${r.email})`}
@@ -139,7 +144,7 @@ function AssignReviewerDialog({ open, proposal, reviewers, onClose, onAssigned }
           renderInput={(params) => (
             <TextField {...params} label="Select Reviewer" size="small" sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
           )}
-          noOptionsText="No reviewers found. Ensure users have reviewer roles."
+          noOptionsText="No reviewers available."
         />
 
         <TextField fullWidth size="small" multiline rows={2} label="Assignment notes (optional)"

@@ -68,6 +68,7 @@ class Institution(Base):
     orcid_client_secret = Column(String, nullable=True)
     orcid_redirect_uri = Column(String, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    primary_admin_id = Column(Integer, ForeignKey('users.id'), nullable=True)
     settings = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -118,6 +119,8 @@ class User(Base):
     institution = relationship("Institution", back_populates="users", foreign_keys=[primary_institution_id])
     orcid_profile = relationship("OrcidProfile", back_populates="user", uselist=False)
     notifications = relationship("Notification", back_populates="recipient", foreign_keys="Notification.recipient_id")
+    publication_libraries = relationship("PublicationLibrary", back_populates="user")
+    manuscripts = relationship("Manuscript", back_populates="user")
 
 class OrcidProfile(Base):
     __tablename__ = "orcid_profiles"
@@ -200,11 +203,11 @@ class GrantOpportunity(Base):
     __tablename__ = "grant_opportunities"
 
     id = Column(Integer, primary_key=True, index=True)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=True)
+    # institution_id removed - opportunities are now platform-wide, filtered by categories
     title = Column(String(500), nullable=False)
     sponsor = Column(String(300))
     description = Column(Text)
-    category = Column(String(200))
+    category = Column(String(200))  # Legacy field, kept for backward compatibility
     geography = Column(String(200))
     applicant_type = Column(String(200))
     funding_type = Column(String(100))
@@ -228,6 +231,7 @@ class GrantOpportunity(Base):
     proposals = relationship("Proposal", back_populates="opportunity")
     created_by = relationship("User", foreign_keys=[created_by_id])
     bookmarks = relationship("OpportunityBookmark", back_populates="opportunity", cascade="all, delete-orphan")
+    category_assignments = relationship("OpportunityCategories", cascade="all, delete-orphan")
 
 
 class OpportunityBookmark(Base):
@@ -244,6 +248,66 @@ class OpportunityBookmark(Base):
     __table_args__ = (
         # Ensure a user can only bookmark an opportunity once
         UniqueConstraint('opportunity_id', 'user_id', name='unique_user_opportunity_bookmark'),
+    )
+
+
+# Opportunity Categories for filtering
+class OpportunityCategory(Base):
+    __tablename__ = "opportunity_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    slug = Column(String(100), nullable=False, unique=True, index=True)
+    color = Column(String(20), default="#3B82F6")  # Tailwind blue-500
+    icon = Column(String(50), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    opportunity_associations = relationship("OpportunityCategories", back_populates="category", cascade="all, delete-orphan")
+    institution_associations = relationship("InstitutionCategory", back_populates="category", cascade="all, delete-orphan")
+
+
+# Junction table: Opportunity <-> Category (many-to-many)
+class OpportunityCategories(Base):
+    __tablename__ = "opportunity_category_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    opportunity_id = Column(Integer, ForeignKey("grant_opportunities.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("opportunity_categories.id"), nullable=False)
+    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    opportunity = relationship("GrantOpportunity")
+    category = relationship("OpportunityCategory", back_populates="opportunity_associations")
+    assigner = relationship("User", foreign_keys=[assigned_by])
+
+    __table_args__ = (
+        UniqueConstraint('opportunity_id', 'category_id', name='unique_opportunity_category'),
+    )
+
+
+# Junction table: Institution <-> Category (many-to-many)
+class InstitutionCategory(Base):
+    __tablename__ = "institution_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("opportunity_categories.id"), nullable=False)
+    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+    notes = Column(Text, nullable=True)
+
+    # Relationships
+    institution = relationship("Institution")
+    category = relationship("OpportunityCategory", back_populates="institution_associations")
+    assigner = relationship("User", foreign_keys=[assigned_by])
+
+    __table_args__ = (
+        UniqueConstraint('institution_id', 'category_id', name='unique_institution_category'),
     )
 
 
@@ -975,3 +1039,232 @@ class DataTransformation(Base):
 
     dataset = relationship("Dataset")
     applied_by = relationship("User", foreign_keys=[applied_by_id])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PUBLICATION LIBRARY MODELS
+# ═══════════════════════════════════════════════════════════════════════════
+
+class PublicationLibrary(Base):
+    __tablename__ = "publication_libraries"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    parent_id = Column(Integer, ForeignKey("publication_libraries.id"), nullable=True)
+    is_folder = Column(Boolean, default=False)
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    user = relationship("User", back_populates="publication_libraries")
+    publications = relationship("Publication", back_populates="library", cascade="all, delete-orphan")
+    parent = relationship("PublicationLibrary", remote_side=[id], backref="children")
+
+
+class Publication(Base):
+    __tablename__ = "publications"
+    id = Column(Integer, primary_key=True, index=True)
+    library_id = Column(Integer, ForeignKey("publication_libraries.id"), nullable=False)
+    
+    # Core metadata
+    title = Column(Text, nullable=False)
+    authors = Column(Text, nullable=False)
+    journal = Column(String(500), nullable=True)
+    year = Column(Integer, nullable=True)
+    doi = Column(String(255), nullable=True, index=True)
+    pmid = Column(String(50), nullable=True, index=True)
+    
+    # Source info
+    source = Column(String(50), nullable=True)  # PubMed, Crossref, OpenAlex, etc.
+    source_id = Column(String(255), nullable=True)
+    
+    # Additional metadata
+    abstract = Column(Text, nullable=True)
+    publication_type = Column(String(100), nullable=True)
+    language = Column(String(50), nullable=True)
+    country = Column(String(100), nullable=True)
+    keywords = Column(Text, nullable=True)  # JSON array
+    
+    # Citation info
+    citation_count = Column(Integer, default=0)
+    
+    # User interaction
+    starred = Column(Boolean, default=False)
+    tags = Column(Text, nullable=True)  # JSON array
+    notes = Column(Text, nullable=True)
+    
+    # AI summary
+    ai_summary = Column(Text, nullable=True)
+    ai_summary_generated_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    library = relationship("PublicationLibrary", back_populates="publications")
+
+
+# Update User model to include publication_libraries relationship
+# This should be added to the User class definition
+# user.publication_libraries = relationship("PublicationLibrary", back_populates="user")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MANUSCRIPT MODELS
+# ═══════════════════════════════════════════════════════════════════════════
+
+class Manuscript(Base):
+    __tablename__ = "manuscripts"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(500), nullable=False)
+    short_description = Column(Text, nullable=True)
+    department = Column(String(255), nullable=True)
+    keywords = Column(Text, nullable=True)  # JSON array
+    
+    # Owner/creator
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Content
+    content = Column(Text, nullable=True)
+    abstract = Column(Text, nullable=True)
+    
+    # Status
+    status = Column(String(50), default='draft')  # draft, in_review, submitted, published
+    version = Column(Integer, default=1)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User", back_populates="manuscripts")
+    co_authors = relationship("ManuscriptCoAuthor", back_populates="manuscript", cascade="all, delete-orphan")
+
+
+class ManuscriptCoAuthor(Base):
+    __tablename__ = "manuscript_co_authors"
+    id = Column(Integer, primary_key=True, index=True)
+    manuscript_id = Column(Integer, ForeignKey("manuscripts.id"), nullable=False)
+    
+    # Co-author details
+    given_name = Column(String(255), nullable=False)
+    family_name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=True)
+    orcid = Column(String(50), nullable=True)
+    
+    # Invitation status
+    status = Column(String(50), default='invited')  # invited, accepted, declined
+    invited_at = Column(DateTime(timezone=True), server_default=func.now())
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Order in author list
+    author_order = Column(Integer, nullable=False)
+    
+    # Relationship
+    manuscript = relationship("Manuscript", back_populates="co_authors")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DATA SOURCE CONNECTIONS (Saved source configurations)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class DataSource(Base):
+    """
+    Saved data source connection configurations.
+    These are reusable connection definitions researchers can import from.
+    """
+    __tablename__ = "data_sources"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False, index=True)
+    researcher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    name = Column(String(255), nullable=False)
+    source_type = Column(String(50), nullable=False)   # kobo_collect | google_sheets | excel
+    url = Column(Text, nullable=True)
+    api_key = Column(Text, nullable=True)               # stored as-is; future: encrypt
+    asset_uid = Column(String(100), nullable=True)      # KoboCollect form UID
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    record_count = Column(Integer, nullable=True)
+    last_sync = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    institution = relationship("Institution")
+    researcher = relationship("User", foreign_keys=[researcher_id])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LAKEHOUSE DATA IMPORT MODELS (Metadata-First Architecture)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class DataImportStatus(str, enum.Enum):
+    PENDING = "pending"
+    QUEUED = "queued"
+    INGESTING = "ingesting"
+    INGESTED = "ingested"
+    FAILED = "failed"
+
+class DataSourceType(str, enum.Enum):
+    URL = "url"
+    FILE_UPLOAD = "file_upload"
+    KOBO_COLLECT = "kobo_collect"
+    GOOGLE_SHEETS = "google_sheets"
+    EXCEL = "excel"
+    API_FEED = "api_feed"
+
+class DataImport(Base):
+    """
+    Metadata-only tracking for data imports.
+    Raw data is stored in MinIO Bronze bucket, not in PostgreSQL.
+    """
+    __tablename__ = "data_imports"
+    
+    id = Column(String(36), primary_key=True, default=lambda: secrets.token_urlsafe(16))
+    
+    # Context IDs
+    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False, index=True)
+    researcher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=True, index=True)
+    
+    # Source metadata
+    source_url = Column(Text, nullable=True)
+    source_type = Column(Enum(DataSourceType), nullable=False)
+    source_tag = Column(String(100), nullable=False)
+    file_name = Column(String(255), nullable=True)
+    file_format = Column(String(20), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    
+    # Ingestion tracking
+    ingest_status = Column(Enum(DataImportStatus), default=DataImportStatus.PENDING, nullable=False, index=True)
+    bronze_path = Column(Text, nullable=True)
+    bronze_bucket = Column(String(100), nullable=True)
+    ingest_triggered_at = Column(DateTime(timezone=True), nullable=True)
+    ingest_completed_at = Column(DateTime(timezone=True), nullable=True)
+    error_message = Column(Text, nullable=True)
+    
+    # Additional metadata
+    record_count = Column(Integer, nullable=True)
+    description = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=True)  # JSON string for flexible metadata
+    
+    # Priority and retry tracking
+    priority = Column(Integer, default=5)  # 1 (low) to 10 (high)
+    retry_count = Column(Integer, default=0)
+    last_retry_at = Column(DateTime(timezone=True), nullable=True)
+    file_size_estimate = Column(Integer, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    institution = relationship("Institution")
+    researcher = relationship("User", foreign_keys=[researcher_id])
+    project = relationship("ResearchProject")
+    creator = relationship("User", foreign_keys=[created_by])

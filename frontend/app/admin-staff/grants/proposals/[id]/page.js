@@ -1016,11 +1016,16 @@ export default function AdminProposalDetailPage() {
           {reviewersLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
           ) : reviewers.length === 0 ? (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              No reviewers found. Ensure staff members have grant reviewer roles.
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              No reviewers available. Please contact your administrator.
             </Alert>
           ) : (
             <Box sx={{ mb: 2 }}>
+              {reviewers.length === 1 && (
+                <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>
+                  No users with reviewer roles found. Defaulting to you as the reviewer.
+                </Alert>
+              )}
               <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1.5 }}>Select Reviewer</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 240, overflow: 'auto' }}>
                 {reviewers.map(r => (
