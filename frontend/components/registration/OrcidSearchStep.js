@@ -21,7 +21,7 @@ export default function OrcidSearchStep({ onOrcidAuthenticated, orcidData }) {
     setError(null);
 
     // Redirect to ORCID OAuth
-    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID || 'APP-S0GZIHBG32PK5HU';
+    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID || 'APP-S0GZISHBG32PK5HU';
     const redirectUri = `${window.location.origin}/api/auth/orcid/callback`;
     const scope = '/authenticate';
     
@@ -31,7 +31,8 @@ export default function OrcidSearchStep({ onOrcidAuthenticated, orcidData }) {
       return;
     }
     
-    const orcidAuthUrl = `https://orcid.org/oauth/authorize?client_id=${clientId}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    const orcidBaseUrl = 'https://orcid.org'; // Production ORCID
+    const orcidAuthUrl = `${orcidBaseUrl}/oauth/authorize?client_id=${clientId}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}`;
     
     // Store registration flow state
     sessionStorage.setItem('orcid_registration_flow', 'true');

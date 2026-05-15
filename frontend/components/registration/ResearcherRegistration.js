@@ -110,7 +110,7 @@ export default function ResearcherRegistration({
 
   const handleOrcidClick = () => {
     sessionStorage.setItem('orcid_registration_flow', 'true');
-    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID || 'APP-S0GZIHBG32PK5HU';
+    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID || 'APP-S0GZISHBG32PK5HU';
     
     if (!clientId) {
       console.error('ORCID Client ID not configured');
@@ -124,7 +124,8 @@ export default function ResearcherRegistration({
     const redirectUri = `${window.location.origin}/api/auth/orcid/callback`;
     const scope = '/authenticate';
     const state = 'registration'; // Tell backend this is a registration flow
-    const orcidAuthUrl = `https://orcid.org/oauth/authorize?client_id=${clientId}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
+    const orcidBaseUrl = 'https://orcid.org'; // Production ORCID
+    const orcidAuthUrl = `${orcidBaseUrl}/oauth/authorize?client_id=${clientId}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
     window.location.href = orcidAuthUrl;
   };
 
