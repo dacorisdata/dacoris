@@ -21,9 +21,15 @@ export default function OrcidSearchStep({ onOrcidAuthenticated, orcidData }) {
     setError(null);
 
     // Redirect to ORCID OAuth
-    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID;
-    const redirectUri = `${process.env.NEXT_PUBLIC_FRONTEND_URL}/auth/orcid/callback`;
+    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID || 'APP-S0GZIHBG32PK5HU';
+    const redirectUri = `${window.location.origin}/api/auth/orcid/callback`;
     const scope = '/authenticate';
+    
+    if (!clientId) {
+      setError('ORCID Client ID not configured');
+      setLoading(false);
+      return;
+    }
     
     const orcidAuthUrl = `https://orcid.org/oauth/authorize?client_id=${clientId}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}`;
     
