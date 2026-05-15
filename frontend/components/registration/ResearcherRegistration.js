@@ -110,7 +110,7 @@ export default function ResearcherRegistration({
 
   const handleOrcidClick = () => {
     sessionStorage.setItem('orcid_registration_flow', 'true');
-    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID;
+    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID || 'APP-S0GZIHBG32PK5HU';
     
     if (!clientId) {
       console.error('ORCID Client ID not configured');
@@ -121,7 +121,7 @@ export default function ResearcherRegistration({
     // Use the exact redirect URI registered with ORCID
     // This should match the ORCID_REDIRECT_URI in backend environment
     // Use window.location.origin to get the current domain dynamically
-    const redirectUri = `http://192.168.0.103/api/auth/orcid/callback`;
+    const redirectUri = `${window.location.origin}/api/auth/orcid/callback`;
     const scope = '/authenticate';
     const state = 'registration'; // Tell backend this is a registration flow
     const orcidAuthUrl = `https://orcid.org/oauth/authorize?client_id=${clientId}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
