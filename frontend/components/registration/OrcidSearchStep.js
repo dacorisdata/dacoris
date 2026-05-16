@@ -16,28 +16,38 @@ export default function OrcidSearchStep({ onOrcidAuthenticated, orcidData }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleOrcidLogin = () => {
+  const handleOrcidLogin = async () => {
     setLoading(true);
     setError(null);
 
-    // Redirect to ORCID OAuth
-    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID || 'APP-S0GZISHBG32PK5HU';
-    const redirectUri = `${window.location.origin}/api/auth/orcid/callback`;
-    const scope = '/authenticate';
-    
-    if (!clientId) {
-      setError('ORCID Client ID not configured');
+    try {
+      // Fetch ORCID configuration from backend
+      const response = await fetch('/api/auth/orcid/config');
+      if (!response.ok) {
+        throw new Error('Failed to fetch ORCID configuration');
+      }
+      
+      const config = await response.json();
+      const { client_id, redirect_uri, authorize_url } = config;
+      
+      if (!client_id || !redirect_uri) {
+        setError('ORCID configuration incomplete');
+        setLoading(false);
+        return;
+      }
+      
+      const scope = '/authenticate';
+      const orcidAuthUrl = `${authorize_url}?client_id=${client_id}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirect_uri)}`;
+      
+      // Store registration flow state
+      sessionStorage.setItem('orcid_registration_flow', 'true');
+      
+      window.location.href = orcidAuthUrl;
+    } catch (err) {
+      console.error('Error fetching ORCID config:', err);
+      setError('Failed to initialize ORCID authentication. Please try again.');
       setLoading(false);
-      return;
     }
-    
-    const orcidBaseUrl = 'https://orcid.org'; // Production ORCID
-    const orcidAuthUrl = `${orcidBaseUrl}/oauth/authorize?client_id=${clientId}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}`;
-    
-    // Store registration flow state
-    sessionStorage.setItem('orcid_registration_flow', 'true');
-    
-    window.location.href = orcidAuthUrl;
   };
 
   if (orcidData) {

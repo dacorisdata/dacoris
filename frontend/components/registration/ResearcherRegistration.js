@@ -108,25 +108,33 @@ export default function ResearcherRegistration({
     verifyEmailDomain(formData.email);
   };
 
-  const handleOrcidClick = () => {
+  const handleOrcidClick = async () => {
     sessionStorage.setItem('orcid_registration_flow', 'true');
-    const clientId = process.env.NEXT_PUBLIC_ORCID_CLIENT_ID || 'APP-S0GZISHBG32PK5HU';
     
-    if (!clientId) {
-      console.error('ORCID Client ID not configured');
-      alert('ORCID authentication is not properly configured. Please contact support.');
-      return;
+    try {
+      // Fetch ORCID configuration from backend
+      const response = await fetch('/api/auth/orcid/config');
+      if (!response.ok) {
+        throw new Error('Failed to fetch ORCID configuration');
+      }
+      
+      const config = await response.json();
+      const { client_id, redirect_uri, authorize_url } = config;
+      
+      if (!client_id || !redirect_uri) {
+        console.error('ORCID configuration incomplete:', config);
+        alert('ORCID authentication is not properly configured. Please contact support.');
+        return;
+      }
+      
+      const scope = '/authenticate';
+      const state = 'registration'; // Tell backend this is a registration flow
+      const orcidAuthUrl = `${authorize_url}?client_id=${client_id}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirect_uri)}&state=${state}`;
+      window.location.href = orcidAuthUrl;
+    } catch (error) {
+      console.error('Error fetching ORCID config:', error);
+      alert('Failed to initialize ORCID authentication. Please try again.');
     }
-    
-    // Use the exact redirect URI registered with ORCID
-    // This should match the ORCID_REDIRECT_URI in backend environment
-    // Use window.location.origin to get the current domain dynamically
-    const redirectUri = `${window.location.origin}/api/auth/orcid/callback`;
-    const scope = '/authenticate';
-    const state = 'registration'; // Tell backend this is a registration flow
-    const orcidBaseUrl = 'https://orcid.org'; // Production ORCID
-    const orcidAuthUrl = `${orcidBaseUrl}/oauth/authorize?client_id=${clientId}&response_type=code&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
-    window.location.href = orcidAuthUrl;
   };
 
   // Step 1: ORCID Details

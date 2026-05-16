@@ -73,6 +73,20 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+class OrcidConfig(BaseModel):
+    client_id: str
+    redirect_uri: str
+    authorize_url: str
+
+@router.get("/orcid/config", response_model=OrcidConfig)
+async def get_orcid_config():
+    """Public endpoint to get ORCID configuration for frontend"""
+    return {
+        "client_id": ORCID_CLIENT_ID,
+        "redirect_uri": ORCID_REDIRECT_URI,
+        "authorize_url": ORCID_AUTHORIZE_URL
+    }
+
 @router.post("/register", response_model=UserResponse)
 async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
     """Register endpoint - deprecated for researchers, use ORCID instead"""

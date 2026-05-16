@@ -14,9 +14,12 @@ COPY . .
 
 RUN mkdir -p /app/uploads
 
-# Make startup script executable
-RUN chmod +x startup.sh
+# Convert line endings and make startup script executable
+RUN apt-get update && apt-get install -y dos2unix && \
+    dos2unix startup.sh && \
+    chmod +x startup.sh && \
+    rm -rf /var/lib/apt/lists/*
 
 EXPOSE 8000
 
-CMD ["./startup.sh"]
+CMD ["/bin/bash", "./startup.sh"]
