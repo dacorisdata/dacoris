@@ -290,7 +290,7 @@ class OpportunityCategories(Base):
     id = Column(String, primary_key=True, index=True, default=generate_uuid)
     opportunity_id = Column(String, ForeignKey("grant_opportunities.id"), nullable=False)
     category_id = Column(String, ForeignKey("opportunity_categories.id"), nullable=False)
-    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_by = Column(String, ForeignKey("users.id"), nullable=True)
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -1278,7 +1278,7 @@ class DataImport(Base):
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(String, ForeignKey("users.id"), nullable=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
