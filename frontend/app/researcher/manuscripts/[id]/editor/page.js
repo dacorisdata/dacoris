@@ -46,6 +46,7 @@ export default function ManuscriptEditorPage() {
   const [manuscript, setManuscript] = useState(null);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([
     { id: 1, name: 'John Doe', avatar: 'JD', color: '#1ca7a1' },
     { id: 2, name: 'Jane Smith', avatar: 'JS', color: '#3b82f6' },
@@ -114,23 +115,54 @@ export default function ManuscriptEditorPage() {
 
       if (response.ok) {
         setLastSaved(new Date());
+        setHasUnsavedChanges(false);
+      } else {
+        console.error('Failed to save manuscript');
       }
     } catch (error) {
       console.error('Error saving manuscript:', error);
+      alert('Failed to save manuscript. Please try again.');
     } finally {
       setSaving(false);
     }
   };
 
+  // Track content changes
+  useEffect(() => {
+    if (!editor) return;
+    
+    const handleUpdate = () => {
+      setHasUnsavedChanges(true);
+    };
+    
+    editor.on('update', handleUpdate);
+    return () => {
+      editor.off('update', handleUpdate);
+    };
+  }, [editor]);
+
+  // Keyboard shortcut: Ctrl+S to save
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editor, saving]);
+
   // Auto-save every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      if (editor && !saving) {
+      if (editor && !saving && hasUnsavedChanges) {
         handleSave();
       }
     }, 30000);
     return () => clearInterval(interval);
-  }, [editor, saving]);
+  }, [editor, saving, hasUnsavedChanges]);
 
   if (!editor) return null;
 
@@ -156,10 +188,20 @@ export default function ManuscriptEditorPage() {
         <Box sx={{ flex: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: 16 }}>
             {manuscript?.title || 'Untitled Manuscript'}
+            {hasUnsavedChanges && (
+              <Typography component="span" sx={{ ml: 1, fontSize: 12, color: 'warning.main', fontWeight: 400 }}>
+                • Unsaved changes
+              </Typography>
+            )}
           </Typography>
-          {lastSaved && (
+          {lastSaved && !hasUnsavedChanges && (
             <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-              Last saved {lastSaved.toLocaleTimeString()}
+              ✓ Saved at {lastSaved.toLocaleTimeString()}
+            </Typography>
+          )}
+          {hasUnsavedChanges && (
+            <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+              Press Ctrl+S to save
             </Typography>
           )}
         </Box>

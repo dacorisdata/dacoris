@@ -22,17 +22,17 @@ class DataImportApproval(BaseModel):
     rejection_reason: Optional[str] = None
 
 class DataImportRequestOut(BaseModel):
-    id: int
-    project_id: int
+    id: str
+    project_id: str
     project_title: str
-    requester_id: int
+    requester_id: str
     requester_name: str
     requester_email: str
     status: DataImportRequestStatus
     justification: str
     requested_datasets: List[str]
     access_duration_months: int
-    approved_by_id: Optional[int] = None
+    approved_by_id: Optional[str] = None
     approved_by_name: Optional[str] = None
     approved_at: Optional[datetime] = None
     rejection_reason: Optional[str] = None
@@ -98,7 +98,7 @@ async def list_data_import_requests(
 
 @router.post("/{request_id}/review", response_model=DataImportRequestOut)
 async def review_data_import_request(
-    request_id: int,
+    request_id: str,
     payload: DataImportApproval,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.INSTITUTIONAL_LEAD, ResearchRole.GRANT_OFFICER]))

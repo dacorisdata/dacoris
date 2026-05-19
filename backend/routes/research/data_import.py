@@ -18,22 +18,22 @@ router = APIRouter(prefix="/api/research/data-import", tags=["data-import"])
 
 # ──── Schemas ────────────────────────────────────────────────────────────────────────
 class DataImportRequestCreate(BaseModel):
-    project_id: int
+    project_id: str
     justification: str
     requested_datasets: List[str]  # List of dataset identifiers/names
     access_duration_months: int
 
 class DataImportRequestOut(BaseModel):
-    id: int
-    project_id: int
+    id: str
+    project_id: str
     project_title: str
-    requester_id: int
+    requester_id: str
     requester_name: str
     status: DataImportRequestStatus
     justification: str
     requested_datasets: List[str]
     access_duration_months: int
-    approved_by_id: Optional[int] = None
+    approved_by_id: Optional[str] = None
     approved_by_name: Optional[str] = None
     approved_at: Optional[datetime] = None
     rejection_reason: Optional[str] = None

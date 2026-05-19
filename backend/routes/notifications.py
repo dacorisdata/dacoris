@@ -12,14 +12,14 @@ from services.notification_service import NotificationService
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 class NotificationResponse(BaseModel):
-    id: int
+    id: str
     type: str
     priority: str
     title: str
     message: str
     action_url: Optional[str]
     related_entity_type: Optional[str]
-    related_entity_id: Optional[int]
+    related_entity_id: Optional[str]
     is_read: bool
     read_at: Optional[datetime]
     created_at: datetime
@@ -32,7 +32,7 @@ class UnreadCountResponse(BaseModel):
     count: int
 
 class MarkAsReadRequest(BaseModel):
-    notification_id: int
+    notification_id: str
 
 @router.get("/", response_model=List[NotificationResponse])
 async def get_notifications(
@@ -84,7 +84,7 @@ async def get_unread_count(
 
 @router.post("/{notification_id}/read")
 async def mark_notification_as_read(
-    notification_id: int,
+    notification_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -120,7 +120,7 @@ async def mark_all_notifications_as_read(
 
 @router.delete("/{notification_id}")
 async def delete_notification(
-    notification_id: int,
+    notification_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):

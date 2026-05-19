@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from database import get_db
 from models import (Proposal, ProposalSection, ProposalSectionVersion, ProposalDocument,
                     ProposalCollaborator, ProposalStatus, GrantOpportunity, User,
-                    ProposalStageHistory, ProposalStageAssignment, STAGE_INTENDED_DAYS)
+                    ProposalStageHistory, ProposalStageAssignment, STAGE_INTENDED_DAYS, Award, BudgetLine)
 from auth import require_roles, ResearchRole, get_current_user
 from services.workflow import can_transition_proposal
 from services.notifications import create_notification
@@ -36,13 +36,13 @@ class CollaboratorInvite(BaseModel):
 
 
 class ProposalCreate(BaseModel):
-    opportunity_id: int
+    opportunity_id: str
     title: str
     collaborators: Optional[List[CollaboratorInvite]] = []
 
 
 class OpportunityBasic(BaseModel):
-    id: int
+    id: str
     title: str
     sponsor: Optional[str] = None
     sponsor_type: Optional[str] = None
@@ -72,7 +72,7 @@ class OpportunityBasic(BaseModel):
 
 
 class UserBasic(BaseModel):
-    id: int
+    id: str
     name: str
     email: str
 
@@ -81,7 +81,7 @@ class UserBasic(BaseModel):
 
 
 class CollaboratorOut(BaseModel):
-    id: int
+    id: str
     role: str
     status: str
     invited_email: Optional[str] = None
@@ -94,7 +94,7 @@ class CollaboratorOut(BaseModel):
 
 
 class SectionSummary(BaseModel):
-    id: int
+    id: str
     title: str
     word_count: int
     section_order: int
@@ -106,7 +106,7 @@ class SectionSummary(BaseModel):
 
 
 class StageHistoryOut(BaseModel):
-    id: int
+    id: str
     stage_step: int
     stage_name: Optional[str]
     entered_at: Optional[datetime]
@@ -119,7 +119,7 @@ class StageHistoryOut(BaseModel):
 
 
 class StageAssignmentOut(BaseModel):
-    id: int
+    id: str
     stage_step: int
     stage_name: Optional[str]
     reviewer: Optional[UserBasic]
@@ -131,12 +131,28 @@ class StageAssignmentOut(BaseModel):
         from_attributes = True
 
 
+class AwardBasic(BaseModel):
+    id: str
+    award_number: Optional[str] = None
+    total_amount: float
+    currency: str
+    funder_name: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    conditions: Optional[str] = None
+    issued_at: Optional[datetime] = None
+    status: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ProposalOut(BaseModel):
-    id: int
+    id: str
     title: str
     status: str
-    opportunity_id: int
-    lead_pi_id: int
+    opportunity_id: str
+    lead_pi_id: str
     current_version: int
     submitted_at: Optional[datetime]
     created_at: datetime
@@ -149,6 +165,7 @@ class ProposalOut(BaseModel):
     sections: Optional[List[SectionSummary]] = []
     stage_history: Optional[List[StageHistoryOut]] = []
     stage_assignments: Optional[List[StageAssignmentOut]] = []
+    award: Optional[AwardBasic] = None
 
     class Config:
         from_attributes = True
@@ -203,8 +220,7 @@ async def create_proposal(
                 
                 # Send notification
                 await create_notification(
-                    db=db,
-                    user_id=user.id,
+                    db, user.id,
                     title="Proposal Collaboration Invite",
                     message=f"{current_user.name} invited you to collaborate on '{data.title}'",
                     link=f"/researcher/grants/proposals/{proposal.id}"
@@ -225,8 +241,20 @@ async def create_proposal(
                 print(f"TODO: Send email to {collab.email} for proposal {proposal.id}")
 
     await db.commit()
-    await db.refresh(proposal)
-    return proposal
+    
+    # Reload with relationships eagerly loaded
+    result = await db.execute(
+        select(Proposal).where(Proposal.id == proposal.id).options(
+            selectinload(Proposal.opportunity),
+            selectinload(Proposal.collaborators).selectinload(ProposalCollaborator.user),
+            selectinload(Proposal.lead_pi),
+            selectinload(Proposal.sections),
+            selectinload(Proposal.stage_history).selectinload(ProposalStageHistory.entered_by),
+            selectinload(Proposal.stage_assignments).selectinload(ProposalStageAssignment.reviewer),
+            selectinload(Proposal.award),
+        )
+    )
+    return result.scalar_one()
 
 
 @router.get("", response_model=List[ProposalOut])
@@ -246,6 +274,7 @@ async def list_proposals(
         selectinload(Proposal.sections),
         selectinload(Proposal.stage_history).selectinload(ProposalStageHistory.entered_by),
         selectinload(Proposal.stage_assignments).selectinload(ProposalStageAssignment.reviewer),
+        selectinload(Proposal.award),
     )
     result = await db.execute(query.order_by(Proposal.created_at.desc()))
     return result.scalars().all()
@@ -253,7 +282,7 @@ async def list_proposals(
 
 @router.get("/{proposal_id}")
 async def get_proposal(
-    proposal_id: int,
+    proposal_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
@@ -271,6 +300,7 @@ async def get_proposal(
             selectinload(Proposal.reviews),
             selectinload(Proposal.stage_history).selectinload(ProposalStageHistory.entered_by),
             selectinload(Proposal.stage_assignments).selectinload(ProposalStageAssignment.reviewer),
+            selectinload(Proposal.award),
         )
         .where(
             Proposal.id == proposal_id,
@@ -290,8 +320,8 @@ async def get_proposal(
 
 @router.put("/{proposal_id}/sections/{section_id}")
 async def update_section(
-    proposal_id: int,
-    section_id: int,
+    proposal_id: str,
+    section_id: str,
     data: SectionUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
@@ -317,7 +347,7 @@ async def update_section(
         # Get user roles from the user_roles table
         from sqlalchemy import text
         roles_result = await db.execute(
-            text("SELECT role FROM user_roles WHERE user_id = :user_id"),
+            text("SELECT role::text FROM user_roles WHERE user_id = :user_id"),
             {"user_id": current_user.id}
         )
         user_roles = [row[0] for row in roles_result.fetchall()]
@@ -346,8 +376,8 @@ async def update_section(
 
 @router.get("/{proposal_id}/sections/{section_id}/versions")
 async def get_section_versions(
-    proposal_id: int,
-    section_id: int,
+    proposal_id: str,
+    section_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
 ):
@@ -374,9 +404,9 @@ async def get_section_versions(
 
 @router.post("/{proposal_id}/sections/{section_id}/restore/{version_id}")
 async def restore_section_version(
-    proposal_id: int,
-    section_id: int,
-    version_id: int,
+    proposal_id: str,
+    section_id: str,
+    version_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
 ):
@@ -413,8 +443,8 @@ class SectionPermissions(BaseModel):
 
 @router.put("/{proposal_id}/sections/{section_id}/permissions")
 async def set_section_permissions(
-    proposal_id: int,
-    section_id: int,
+    proposal_id: str,
+    section_id: str,
     data: SectionPermissions,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
@@ -451,7 +481,7 @@ class SectionRename(BaseModel):
 
 @router.post("/{proposal_id}/sections", status_code=201)
 async def create_section(
-    proposal_id: int,
+    proposal_id: str,
     data: SectionCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
@@ -496,8 +526,8 @@ async def create_section(
 
 @router.put("/{proposal_id}/sections/{section_id}/rename")
 async def rename_section(
-    proposal_id: int,
-    section_id: int,
+    proposal_id: str,
+    section_id: str,
     data: SectionRename,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
@@ -530,8 +560,8 @@ async def rename_section(
 
 @router.delete("/{proposal_id}/sections/{section_id}")
 async def delete_section(
-    proposal_id: int,
-    section_id: int,
+    proposal_id: str,
+    section_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
 ):
@@ -567,7 +597,7 @@ class SectionReorder(BaseModel):
 
 @router.put("/{proposal_id}/sections/reorder")
 async def reorder_sections(
-    proposal_id: int,
+    proposal_id: str,
     data: SectionReorder,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
@@ -600,7 +630,7 @@ async def reorder_sections(
 
 @router.post("/{proposal_id}/documents", status_code=201)
 async def upload_document(
-    proposal_id: int,
+    proposal_id: str,
     document_type: str = Form(...),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -628,7 +658,7 @@ async def upload_document(
 
 @router.patch("/{proposal_id}/status")
 async def transition_proposal_status(
-    proposal_id: int,
+    proposal_id: str,
     target_status: ProposalStatus,
     notes: str = None,
     db: AsyncSession = Depends(get_db),
@@ -653,13 +683,13 @@ async def transition_proposal_status(
         # Must be admin/grant officer
         from routes.auth import get_user_roles
         user_roles_result = await db.execute(
-            text("SELECT role FROM user_roles WHERE user_id = :uid"),
+            text("SELECT role::text FROM user_roles WHERE user_id = :uid"),
             {"uid": current_user.id}
         )
         user_roles = [r[0] for r in user_roles_result.fetchall()]
-        admin_roles = {"grant_officer", "research_admin", "institutional_lead", "system_admin"}
+        admin_roles = {"GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN"}
         if not any(r in admin_roles for r in user_roles) and not current_user.is_institution_admin and not current_user.is_global_admin:
-            raise HTTPException(403, "Only the lead PI or grant staff can change proposal status")
+            raise HTTPException(403, "Only the lead PI, grant staff, or institution admins can change proposal status")
         allowed = ADMIN_TRANSITIONS.get(proposal.status, [])
         if target_status not in allowed:
             raise HTTPException(400, f"Cannot transition from '{proposal.status}' to '{target_status}'")
@@ -727,7 +757,7 @@ async def transition_proposal_status(
 
 @router.delete("/{proposal_id}")
 async def delete_proposal(
-    proposal_id: int,
+    proposal_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
 ):
@@ -757,8 +787,8 @@ async def delete_proposal(
 
 @router.post("/{proposal_id}/collaborators", status_code=201)
 async def add_collaborator(
-    proposal_id: int,
-    user_id: int,
+    proposal_id: str,
+    user_id: str,
     role: str = "co_investigator",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
@@ -805,8 +835,8 @@ async def add_collaborator(
 
 @router.delete("/{proposal_id}/collaborators/{collaborator_id}")
 async def remove_collaborator(
-    proposal_id: int,
-    collaborator_id: int,
+    proposal_id: str,
+    collaborator_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
@@ -830,7 +860,7 @@ async def remove_collaborator(
 
 @router.get("/{proposal_id}/completion")
 async def get_proposal_completion(
-    proposal_id: int,
+    proposal_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER
@@ -885,7 +915,7 @@ WORKFLOW_STAGES = [
 
 @router.get("/{proposal_id}/workflow")
 async def get_proposal_workflow(
-    proposal_id: int,
+    proposal_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -913,7 +943,7 @@ class WorkflowAdvanceRequest(BaseModel):
 
 @router.post("/{proposal_id}/workflow/advance")
 async def advance_proposal_workflow(
-    proposal_id: int,
+    proposal_id: str,
     body: WorkflowAdvanceRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -923,13 +953,13 @@ async def advance_proposal_workflow(
     is_admin = current_user.is_institution_admin or current_user.is_global_admin
     if not is_admin:
         roles_res = await db.execute(
-            text("SELECT role FROM user_roles WHERE user_id = :uid"),
+            text("SELECT role::text FROM user_roles WHERE user_id = :uid"),
             {"uid": current_user.id}
         )
         user_roles = [r[0] for r in roles_res.fetchall()]
-        admin_roles = {"grant_officer", "research_admin", "institutional_lead", "system_admin"}
+        admin_roles = {"GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN"}
         if not any(r in admin_roles for r in user_roles):
-            raise HTTPException(403, "Only grant staff can advance proposals")
+            raise HTTPException(403, "Only grant staff or institution admins can advance proposals")
 
     result = await db.execute(select(Proposal).where(Proposal.id == proposal_id))
     proposal = result.scalar_one_or_none()
@@ -1019,7 +1049,7 @@ async def advance_proposal_workflow(
 
 @router.get("/{proposal_id}/stage-history")
 async def get_stage_history(
-    proposal_id: int,
+    proposal_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1062,7 +1092,7 @@ async def get_stage_history(
 # ─── Stage Reviewer Assignment ──────────────────────────────────
 
 class AssignReviewerBody(BaseModel):
-    reviewer_id: int
+    reviewer_id: str
     stage_step: int
     stage_name: Optional[str] = None
     notes: Optional[str] = None
@@ -1070,7 +1100,7 @@ class AssignReviewerBody(BaseModel):
 
 @router.post("/{proposal_id}/stage-reviewers")
 async def assign_stage_reviewer(
-    proposal_id: int,
+    proposal_id: str,
     body: AssignReviewerBody,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1078,10 +1108,10 @@ async def assign_stage_reviewer(
     """Assign a reviewer to a specific review stage of a proposal."""
     is_admin = current_user.is_institution_admin or current_user.is_global_admin
     if not is_admin:
-        roles_res = await db.execute(text("SELECT role FROM user_roles WHERE user_id = :uid"), {"uid": current_user.id})
+        roles_res = await db.execute(text("SELECT role::text FROM user_roles WHERE user_id = :uid"), {"uid": current_user.id})
         user_roles = [r[0] for r in roles_res.fetchall()]
-        if not any(r in {"grant_officer", "research_admin", "institutional_lead", "system_admin"} for r in user_roles):
-            raise HTTPException(403, "Only grant staff can assign reviewers")
+        if not any(r in {"GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN"} for r in user_roles):
+            raise HTTPException(403, "Only grant staff or institution admins can assign reviewers")
 
     proposal = await db.get(Proposal, proposal_id)
     if not proposal:
@@ -1091,16 +1121,17 @@ async def assign_stage_reviewer(
     if not reviewer:
         raise HTTPException(404, "Reviewer not found")
 
-    # Remove any existing assignment for this stage
+    # Check if this reviewer is already assigned to this stage
     existing = await db.execute(
         select(ProposalStageAssignment).where(
             ProposalStageAssignment.proposal_id == proposal_id,
             ProposalStageAssignment.stage_step == body.stage_step,
+            ProposalStageAssignment.reviewer_id == body.reviewer_id,
             ProposalStageAssignment.status == "active",
         )
     )
-    for old in existing.scalars().all():
-        old.status = "removed"
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "This reviewer is already assigned to this stage")
 
     stage_name = body.stage_name or f"Stage {body.stage_step}"
     assignment = ProposalStageAssignment(
@@ -1113,16 +1144,17 @@ async def assign_stage_reviewer(
         status="active",
     )
     db.add(assignment)
-    await db.commit()
-    await db.refresh(assignment)
-
-    # Notify reviewer
+    
+    # Create notification (will be committed together with assignment)
     await create_notification(
         db, body.reviewer_id,
         title=f"Review assignment: {stage_name}",
         message=f'You have been assigned to review "{proposal.title}" at the {stage_name} stage.',
         entity_type="proposal", entity_id=proposal_id,
     )
+    
+    await db.commit()
+    await db.refresh(assignment)
 
     return {
         "id": assignment.id, "stage_step": body.stage_step, "stage_name": stage_name,
@@ -1132,11 +1164,19 @@ async def assign_stage_reviewer(
 
 @router.delete("/{proposal_id}/stage-reviewers/{assignment_id}")
 async def remove_stage_reviewer(
-    proposal_id: int,
-    assignment_id: int,
+    proposal_id: str,
+    assignment_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Remove a reviewer assignment from a proposal stage."""
+    is_admin = current_user.is_institution_admin or current_user.is_global_admin
+    if not is_admin:
+        roles_res = await db.execute(text("SELECT role::text FROM user_roles WHERE user_id = :uid"), {"uid": current_user.id})
+        user_roles = [r[0] for r in roles_res.fetchall()]
+        if not any(r in {"GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN"} for r in user_roles):
+            raise HTTPException(403, "Only grant staff or institution admins can remove reviewers")
+    
     assignment = await db.get(ProposalStageAssignment, assignment_id)
     if not assignment or assignment.proposal_id != proposal_id:
         raise HTTPException(404, "Assignment not found")
@@ -1154,15 +1194,15 @@ async def list_available_reviewers(
 ):
     """Return users who can act as reviewers (grant_officer, external_reviewer, etc.).
     If no reviewers with reviewer roles are found, defaults to current user."""
-    reviewer_roles = ("grant_officer", "research_admin", "institutional_lead",
-                      "external_reviewer", "ethics_reviewer")
+    reviewer_roles = ("GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD",
+                      "EXTERNAL_REVIEWER", "ETHICS_REVIEWER")
     result = await db.execute(
         text("""
             SELECT DISTINCT u.id, u.name, u.email,
-                string_agg(ur.role, ', ') AS roles
+                string_agg(ur.role::text, ', ') AS roles
             FROM users u
             JOIN user_roles ur ON ur.user_id = u.id
-            WHERE ur.role = ANY(:roles)
+            WHERE ur.role::text = ANY(:roles)
               AND u.primary_institution_id = :inst_id
             GROUP BY u.id, u.name, u.email
             ORDER BY u.name
@@ -1176,7 +1216,7 @@ async def list_available_reviewers(
     if not reviewers:
         # Get current user's roles
         roles_result = await db.execute(
-            text("SELECT string_agg(role, ', ') FROM user_roles WHERE user_id = :uid"),
+            text("SELECT string_agg(role::text, ', ') FROM user_roles WHERE user_id = :uid"),
             {"uid": current_user.id}
         )
         user_roles = roles_result.scalar() or "admin_staff"
@@ -1194,8 +1234,8 @@ async def list_available_reviewers(
 
 @router.get("/{proposal_id}/documents/{doc_id}/preview")
 async def preview_document(
-    proposal_id: int,
-    doc_id: int,
+    proposal_id: str,
+    doc_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

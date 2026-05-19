@@ -19,6 +19,10 @@ import {
   Groups2 as PanelIcon, Verified as FinalIcon,
   UploadFile as DataImportIcon, Grading as ProjectReviewIcon,
   FolderSpecial as DmpReviewIcon,
+  Handshake as MouIcon, Groups as MouPartnersIcon,
+  BarChart as MouAnalyticsIcon, NoteAdd as NewMouIcon,
+  Gavel as LegalIcon, FormatListBulleted as MouListIcon,
+  PendingActions as MouQueueIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
@@ -35,6 +39,9 @@ const ROLE_META = {
   GUEST_COLLABORATOR:       { label: 'Guest Collaborator',     color: '#16a699' },
   EXTERNAL_FUNDER:          { label: 'External Funder',        color: '#16a699' },
   ADMIN_STAFF:              { label: 'Admin Staff',            color: '#16a699' },
+  MOU_ADMIN:                { label: 'MoU Administrator',      color: '#7c3aed' },
+  LEGAL_OFFICER:            { label: 'Legal Officer',           color: '#7c3aed' },
+  PARTNERSHIP_COORDINATOR:  { label: 'Partnership Coordinator', color: '#7c3aed' },
 };
 
 // roles: 'all' | array of PrimaryAccountType values
@@ -112,6 +119,18 @@ const NAV_SECTIONS = [
     roles: ['EXTERNAL_REVIEWER'],
     items: [
       { icon: StarIcon, label: 'Assigned Reviews', path: '/admin-staff/reviews', roles: ['EXTERNAL_REVIEWER'] },
+    ],
+  },
+  {
+    section: 'MoU / Collaboration Tracker',
+    roles: ['MOU_ADMIN','LEGAL_OFFICER','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER','ADMIN_STAFF'],
+    items: [
+      { icon: MouIcon,         label: 'Overview',             path: '/admin-staff/mou',              roles: ['MOU_ADMIN','LEGAL_OFFICER','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER','ADMIN_STAFF'] },
+      { icon: NewMouIcon,      label: 'New Agreement',        path: '/admin-staff/mou/create',       roles: ['MOU_ADMIN','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER','ADMIN_STAFF'] },
+      { icon: MouListIcon,     label: 'All Agreements',       path: '/admin-staff/mou/list',         roles: ['MOU_ADMIN','LEGAL_OFFICER','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER','ADMIN_STAFF'] },
+      { icon: MouPartnersIcon, label: 'Partner Registry',     path: '/admin-staff/mou/partners',     roles: ['MOU_ADMIN','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER','ADMIN_STAFF'] },
+      { icon: MouQueueIcon,    label: 'Approval Queue',       path: '/admin-staff/mou/approvals',    roles: ['MOU_ADMIN','LEGAL_OFFICER','INSTITUTIONAL_LEADERSHIP'] },
+      { icon: MouAnalyticsIcon,label: 'Analytics & Reports',  path: '/admin-staff/mou/analytics',    roles: ['MOU_ADMIN','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER'] },
     ],
   },
 ];

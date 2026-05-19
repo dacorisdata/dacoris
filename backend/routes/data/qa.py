@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/data/qa", tags=["data-qa"])
 
 # ──── Schemas ────────────────────────────────────────────────────────────────
 class QARuleCreate(BaseModel):
-    dataset_id: int
+    dataset_id: str
     rule_type: str  # missing_value, duplicate, range, format, consistency
     field_name: str
     operator: Optional[str] = None
@@ -28,8 +28,8 @@ class QARuleCreate(BaseModel):
     action: str = "flag"
 
 class QARuleOut(BaseModel):
-    id: int
-    dataset_id: int
+    id: str
+    dataset_id: str
     rule_type: str
     field_name: str
     operator: Optional[str]
@@ -42,9 +42,9 @@ class QARuleOut(BaseModel):
         from_attributes = True
 
 class QAResultOut(BaseModel):
-    id: int
-    submission_id: int
-    rule_id: int
+    id: str
+    submission_id: str
+    rule_id: str
     rule_type: Optional[str] = None
     field_name: Optional[str] = None
     status: str
@@ -86,7 +86,7 @@ async def create_qa_rule(
 
 @router.get("/rules/{dataset_id}", response_model=List[QARuleOut])
 async def list_qa_rules(
-    dataset_id: int,
+    dataset_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.DATA_STEWARD, ResearchRole.DATA_ENGINEER
@@ -101,7 +101,7 @@ async def list_qa_rules(
 
 @router.delete("/rules/{rule_id}")
 async def delete_qa_rule(
-    rule_id: int,
+    rule_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.DATA_STEWARD]))
 ):
@@ -155,7 +155,7 @@ def _check_rule(rule: QARule, data: dict) -> Optional[dict]:
 
 @router.post("/run/{dataset_id}")
 async def run_qa_checks(
-    dataset_id: int,
+    dataset_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.DATA_STEWARD]))
 ):
@@ -237,7 +237,7 @@ async def run_qa_checks(
 
 @router.get("/results/{submission_id}", response_model=List[QAResultOut])
 async def get_submission_qa_results(
-    submission_id: int,
+    submission_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.DATA_STEWARD, ResearchRole.DATA_ENGINEER
@@ -267,7 +267,7 @@ async def get_submission_qa_results(
 
 @router.post("/results/{result_id}/override")
 async def override_qa_result(
-    result_id: int,
+    result_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.DATA_STEWARD]))
 ):
@@ -288,7 +288,7 @@ async def override_qa_result(
 
 @router.patch("/submissions/{submission_id}/status")
 async def update_submission_qa_status(
-    submission_id: int,
+    submission_id: str,
     target_status: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.DATA_STEWARD]))
@@ -311,7 +311,7 @@ async def update_submission_qa_status(
 
 @router.get("/dashboard/{dataset_id}")
 async def qa_dashboard(
-    dataset_id: int,
+    dataset_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.DATA_STEWARD, ResearchRole.DATA_ENGINEER,

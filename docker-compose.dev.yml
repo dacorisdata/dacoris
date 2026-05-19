@@ -32,7 +32,7 @@ services:
       - ADMIN_SESSION_EXPIRE_MINUTES=480
       - ORCID_CLIENT_ID=APP-S0GZISHBG32PK5HU
       - ORCID_CLIENT_SECRET=542b22f8-8f65-44a3-a0bd-e5043cc64bbd
-      - ORCID_REDIRECT_URI=http://192.168.0.103/api/auth/orcid/callback
+      - ORCID_REDIRECT_URI=http://192.168.100.87/api/auth/orcid/callback
       - ORCID_SANDBOX_MODE=false
       - ORCID_API_BASE_URL=https://orcid.org
       - GLOBAL_ADMIN_EMAIL=admin@dacoris.org

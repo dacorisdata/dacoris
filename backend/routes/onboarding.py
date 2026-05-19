@@ -12,7 +12,7 @@ from auth import get_current_user
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
 class InstitutionOption(BaseModel):
-    id: int
+    id: str
     name: str
     domain: str
     
@@ -20,14 +20,14 @@ class InstitutionOption(BaseModel):
         from_attributes = True
 
 class InstitutionSelection(BaseModel):
-    institution_id: int
+    institution_id: str
 
 class OnboardingStatus(BaseModel):
     is_complete: bool
     has_institution: bool
     has_roles: bool
     status: str
-    user_id: int
+    user_id: str
     email: str
     name: Optional[str]
 

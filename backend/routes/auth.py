@@ -40,14 +40,14 @@ class UserRegister(BaseModel):
     password: str
 
 class UserResponse(BaseModel):
-    id: int
+    id: str
     email: str
     name: str
     is_global_admin: bool
     is_institution_admin: bool
     account_type: str
     status: str
-    institution_id: int | None = None
+    institution_id: str | None = None
     primary_account_type: str | None = None
     department: str | None = None
     job_title: str | None = None
@@ -55,7 +55,7 @@ class UserResponse(BaseModel):
     expertise_keywords: str | None = None
     orcid_id: str | None = None
     email_verified: bool = False
-    primary_institution_id: int | None = None
+    primary_institution_id: str | None = None
     institution_name: str | None = None
 
     class Config:

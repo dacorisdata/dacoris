@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Box, Typography, Button, CircularProgress, Alert, Paper, Grid,
+  Box, Typography, Button, CircularProgress, Alert, Paper,
   TextField, FormControl, InputLabel, Select, MenuItem, Divider,
   Table, TableBody, TableCell, TableHead, TableRow, IconButton,
 } from '@mui/material';
@@ -113,213 +113,161 @@ function IssueAwardForm() {
   const canSubmit = proposalId && funderName && totalAmount && parseFloat(totalAmount) > 0;
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', p: 3 }}>
-      <Button startIcon={<BackIcon />} onClick={() => router.push('/admin-staff/grants/awards')} sx={{ mb: 3 }}>
+    <Box sx={{ p: { xs: 2, md: 4 } }}>
+      <Button startIcon={<BackIcon />} onClick={() => router.push('/admin-staff/grants/awards')}
+        sx={{ mb: 2.5, color: 'text.secondary', textTransform: 'none', fontWeight: 500 }}>
         Back to Awards
       </Button>
 
-      <Paper elevation={0} sx={{ p: 4, border: '1px solid', borderColor: 'divider', borderRadius: 3, maxWidth: 1000, mx: 'auto' }}>
-        <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-          Issue Award
-        </Typography>
-        <Typography sx={{ color: 'text.secondary', mb: 4 }}>
-          Create an award for an approved proposal
+      <Paper elevation={0} variant="outlined" sx={{ p: { xs: 2.5, md: 3.5 }, borderRadius: 3 }}>
+        <Typography sx={{ fontSize: 21, fontWeight: 800, mb: 0.5 }}>Issue Award</Typography>
+        <Typography sx={{ color: 'text.secondary', mb: 3, fontSize: 13 }}>
+          Record award details for an approved proposal
         </Typography>
 
         {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
         {success && <Alert severity="success" sx={{ mb: 3 }}>{success}</Alert>}
 
-        <Grid container spacing={3}>
-          {/* Basic Information */}
-          <Grid item xs={12}>
-            <Typography sx={{ fontSize: 16, fontWeight: 600, mb: 2 }}>Award Information</Typography>
-          </Grid>
+        {/* Award Information */}
+        <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 2 }}>Award Information</Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+          <TextField
+            label="Proposal ID"
+            type="number"
+            value={proposalId || ''}
+            disabled
+            helperText="The proposal being awarded"
+            sx={{ flex: '1 1 200px' }}
+          />
+          <TextField
+            label="Funder Name"
+            value={funderName}
+            onChange={(e) => setFunderName(e.target.value)}
+            required
+            sx={{ flex: '2 1 300px' }}
+          />
+        </Box>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+          <TextField
+            label="Total Award Amount"
+            type="number"
+            value={totalAmount}
+            onChange={(e) => setTotalAmount(e.target.value)}
+            required
+            sx={{ flex: '1 1 200px' }}
+          />
+          <FormControl sx={{ flex: '1 1 150px' }}>
+            <InputLabel>Currency</InputLabel>
+            <Select value={currency} onChange={(e) => setCurrency(e.target.value)} label="Currency">
+              <MenuItem value="USD">USD</MenuItem>
+              <MenuItem value="KES">KES</MenuItem>
+              <MenuItem value="EUR">EUR</MenuItem>
+              <MenuItem value="GBP">GBP</MenuItem>
+            </Select>
+          </FormControl>
+          <TextField
+            label="Start Date"
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ flex: '1 1 180px' }}
+          />
+          <TextField
+            label="End Date"
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ flex: '1 1 180px' }}
+          />
+        </Box>
+        <TextField
+          fullWidth
+          multiline
+          rows={3}
+          label="Award Conditions"
+          value={conditions}
+          onChange={(e) => setConditions(e.target.value)}
+          helperText="Any special conditions or requirements for this award"
+          sx={{ mb: 3 }}
+        />
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Proposal ID"
-              type="number"
-              value={proposalId || ''}
-              disabled
-              helperText="The proposal being awarded"
-            />
-          </Grid>
+        <Divider sx={{ mb: 3 }} />
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Funder Name"
-              value={funderName}
-              onChange={(e) => setFunderName(e.target.value)}
-              required
-            />
-          </Grid>
+        {/* Budget Lines */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 700 }}>Budget Breakdown</Typography>
+          <Button startIcon={<AddIcon />} onClick={addBudgetLine} size="small" sx={{ textTransform: 'none' }}>
+            Add Line Item
+          </Button>
+        </Box>
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Total Award Amount"
-              type="number"
-              value={totalAmount}
-              onChange={(e) => setTotalAmount(e.target.value)}
-              required
-            />
-          </Grid>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 600 }}>Category</TableCell>
+              <TableCell sx={{ fontWeight: 600 }}>Description</TableCell>
+              <TableCell sx={{ fontWeight: 600 }} align="right">Amount</TableCell>
+              <TableCell width={50} />
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {budgetLines.map((line, index) => (
+              <TableRow key={index}>
+                <TableCell sx={{ minWidth: 160 }}>
+                  <FormControl fullWidth size="small">
+                    <Select value={line.category} onChange={(e) => updateBudgetLine(index, 'category', e.target.value)}>
+                      {BUDGET_CATEGORIES.map(cat => (
+                        <MenuItem key={cat} value={cat}>{cat}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </TableCell>
+                <TableCell>
+                  <TextField fullWidth size="small" value={line.description}
+                    onChange={(e) => updateBudgetLine(index, 'description', e.target.value)}
+                    placeholder="Description" />
+                </TableCell>
+                <TableCell align="right">
+                  <TextField size="small" type="number" value={line.amount}
+                    onChange={(e) => updateBudgetLine(index, 'amount', e.target.value)}
+                    sx={{ width: 130 }} />
+                </TableCell>
+                <TableCell>
+                  <IconButton size="small" onClick={() => removeBudgetLine(index)} disabled={budgetLines.length === 1}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <TableCell colSpan={2} sx={{ fontWeight: 700 }}>Total Budget</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, color: ACCENT }}>
+                {currency} {budgetTotal.toLocaleString()}
+              </TableCell>
+              <TableCell />
+            </TableRow>
+          </TableBody>
+        </Table>
 
-          <Grid item xs={12} sm={6}>
-            <FormControl fullWidth>
-              <InputLabel>Currency</InputLabel>
-              <Select value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                <MenuItem value="USD">USD</MenuItem>
-                <MenuItem value="KES">KES</MenuItem>
-                <MenuItem value="EUR">EUR</MenuItem>
-                <MenuItem value="GBP">GBP</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
+        {budgetTotal !== parseFloat(totalAmount || 0) && totalAmount && (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            Budget breakdown ({currency} {budgetTotal.toLocaleString()}) does not match total award amount ({currency} {parseFloat(totalAmount).toLocaleString()})
+          </Alert>
+        )}
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Start Date"
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-            />
-          </Grid>
+        <Divider sx={{ my: 3 }} />
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="End Date"
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-            />
-          </Grid>
-
-          <Grid item xs={12}>
-            <TextField
-              fullWidth
-              multiline
-              rows={4}
-              label="Award Conditions"
-              value={conditions}
-              onChange={(e) => setConditions(e.target.value)}
-              helperText="Any special conditions or requirements for this award"
-            />
-          </Grid>
-
-          <Grid item xs={12}>
-            <Divider sx={{ my: 2 }} />
-          </Grid>
-
-          {/* Budget Lines */}
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography sx={{ fontSize: 16, fontWeight: 600 }}>Budget Breakdown</Typography>
-              <Button
-                startIcon={<AddIcon />}
-                onClick={addBudgetLine}
-                size="small"
-                sx={{ textTransform: 'none' }}
-              >
-                Add Line Item
-              </Button>
-            </Box>
-
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 600 }}>Category</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Description</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }} align="right">Amount</TableCell>
-                  <TableCell width={50}></TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {budgetLines.map((line, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      <FormControl fullWidth size="small">
-                        <Select
-                          value={line.category}
-                          onChange={(e) => updateBudgetLine(index, 'category', e.target.value)}
-                        >
-                          {BUDGET_CATEGORIES.map(cat => (
-                            <MenuItem key={cat} value={cat}>{cat}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </TableCell>
-                    <TableCell>
-                      <TextField
-                        fullWidth
-                        size="small"
-                        value={line.description}
-                        onChange={(e) => updateBudgetLine(index, 'description', e.target.value)}
-                        placeholder="Description"
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      <TextField
-                        size="small"
-                        type="number"
-                        value={line.amount}
-                        onChange={(e) => updateBudgetLine(index, 'amount', e.target.value)}
-                        sx={{ width: 120 }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        onClick={() => removeBudgetLine(index)}
-                        disabled={budgetLines.length === 1}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                <TableRow>
-                  <TableCell colSpan={2} sx={{ fontWeight: 700 }}>Total Budget</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700, color: ACCENT }}>
-                    {currency} {budgetTotal.toLocaleString()}
-                  </TableCell>
-                  <TableCell></TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-
-            {budgetTotal !== parseFloat(totalAmount || 0) && totalAmount && (
-              <Alert severity="warning" sx={{ mt: 2 }}>
-                Budget breakdown ({currency} {budgetTotal.toLocaleString()}) does not match total award amount ({currency} {parseFloat(totalAmount).toLocaleString()})
-              </Alert>
-            )}
-          </Grid>
-
-          <Grid item xs={12}>
-            <Divider sx={{ my: 2 }} />
-          </Grid>
-
-          {/* Submit */}
-          <Grid item xs={12}>
-            <Button
-              fullWidth
-              variant="contained"
-              size="large"
-              startIcon={submitting ? <CircularProgress size={20} sx={{ color: 'white' }} /> : <SaveIcon />}
-              onClick={issueAward}
-              disabled={!canSubmit || submitting}
-              sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#7c3aed' } }}
-            >
-              {submitting ? 'Issuing Award...' : 'Issue Award'}
-            </Button>
-          </Grid>
-        </Grid>
+        <Button
+          fullWidth variant="contained" size="large"
+          startIcon={submitting ? <CircularProgress size={20} sx={{ color: 'white' }} /> : <SaveIcon />}
+          onClick={issueAward}
+          disabled={!canSubmit || submitting}
+          sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#7c3aed' }, textTransform: 'none', fontWeight: 700, fontSize: 15 }}
+        >
+          {submitting ? 'Issuing Award...' : 'Issue Award'}
+        </Button>
       </Paper>
     </Box>
   );

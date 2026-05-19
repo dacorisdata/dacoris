@@ -135,6 +135,48 @@ const ROLE_CONFIG = {
       { label: 'My Profile', path: '/admin-staff/profile', icon: PersonIcon },
     ],
   },
+  MOU_ADMIN: {
+    label: 'MoU Administrator', color: '#7c3aed',
+    description: 'Manage the full lifecycle of Memoranda of Understanding and institutional partnerships.',
+    modules: [
+      { label: 'Active MoUs',       icon: TeamsIcon,      color: '#7c3aed', bg: 'rgba(124,58,237,0.1)', path: '/admin-staff/mou/list',       stat: 'active_mous' },
+      { label: 'Pending Signing',   icon: PendingIcon,    color: '#3b82f6', bg: 'rgba(59,130,246,0.1)', path: '/admin-staff/mou/approvals',  stat: 'pending_mous' },
+      { label: 'Total Partners',    icon: TeamsIcon,      color: '#10b981', bg: 'rgba(16,185,129,0.1)', path: '/admin-staff/mou/partners',   stat: 'partners' },
+    ],
+    actions: [
+      { label: 'New MoU',            path: '/admin-staff/mou/create',    icon: AssignmentIcon },
+      { label: 'MoU Repository',     path: '/admin-staff/mou/list',      icon: ProjectsIcon },
+      { label: 'Partner Registry',   path: '/admin-staff/mou/partners',  icon: TeamsIcon },
+      { label: 'Approval Console',   path: '/admin-staff/mou/approvals', icon: ComplianceIcon },
+      { label: 'Analytics',          path: '/admin-staff/mou/analytics', icon: AnalyticsIcon },
+    ],
+  },
+  LEGAL_OFFICER: {
+    label: 'Legal Officer', color: '#7c3aed',
+    description: 'Review MoU legal terms, IP clauses, and data-sharing compliance.',
+    modules: [
+      { label: 'Pending Legal Review', icon: ComplianceIcon, color: '#f97316', bg: 'rgba(249,115,22,0.1)', path: '/admin-staff/mou/approvals', stat: 'legal_pending' },
+      { label: 'Active MoUs',          icon: TeamsIcon,      color: '#7c3aed', bg: 'rgba(124,58,237,0.1)', path: '/admin-staff/mou/list',      stat: 'active_mous' },
+    ],
+    actions: [
+      { label: 'Approval Console',   path: '/admin-staff/mou/approvals', icon: ComplianceIcon },
+      { label: 'MoU Repository',     path: '/admin-staff/mou/list',      icon: ProjectsIcon },
+      { label: 'Analytics',          path: '/admin-staff/mou/analytics', icon: AnalyticsIcon },
+    ],
+  },
+  PARTNERSHIP_COORDINATOR: {
+    label: 'Partnership Coordinator', color: '#7c3aed',
+    description: 'Coordinate partnership activities, communications, and deliverables.',
+    modules: [
+      { label: 'Active MoUs',     icon: TeamsIcon,   color: '#7c3aed', bg: 'rgba(124,58,237,0.1)', path: '/admin-staff/mou/list',     stat: 'active_mous' },
+      { label: 'Partner Registry',icon: TeamsIcon,   color: '#10b981', bg: 'rgba(16,185,129,0.1)', path: '/admin-staff/mou/partners', stat: 'partners' },
+    ],
+    actions: [
+      { label: 'MoU Repository',     path: '/admin-staff/mou/list',     icon: ProjectsIcon },
+      { label: 'Partner Registry',   path: '/admin-staff/mou/partners', icon: TeamsIcon },
+      { label: 'Analytics',          path: '/admin-staff/mou/analytics',icon: AnalyticsIcon },
+    ],
+  },
 };
 
 export default function AdminStaffOverview() {
@@ -165,6 +207,13 @@ export default function AdminStaffOverview() {
     try {
       const role = u.primary_account_type;
       const s = {};
+      if (['MOU_ADMIN', 'LEGAL_OFFICER', 'PARTNERSHIP_COORDINATOR'].includes(role)) {
+        const mouDash = await api.get('/mou/analytics/dashboard').catch(() => ({ data: {} }));
+        s.active_mous  = mouDash.data?.active ?? 0;
+        s.pending_mous = mouDash.data?.pending_signing ?? 0;
+        s.partners     = mouDash.data?.total_partners ?? 0;
+        s.legal_pending = (await api.get('/mou/?status=LEGAL_REVIEW').catch(() => ({ data: [] }))).data?.length ?? 0;
+      }
       if (['GRANT_MANAGER', 'INSTITUTIONAL_LEADERSHIP', 'FINANCE_OFFICER'].includes(role)) {
         const oppsRes = await api.get('/grants/opportunities').catch(() => ({ data: [] }));
         s.opportunities = oppsRes.data?.filter(o => o.status === 'open')?.length ?? 0;
@@ -384,6 +433,26 @@ const PERMISSION_CHIPS = {
   ],
   ADMIN_STAFF: [
     { label: 'Platform Access',      color: '#6366f1' },
+  ],
+  MOU_ADMIN: [
+    { label: 'Create & Manage MoUs', color: '#7c3aed' },
+    { label: 'Manage Partners',      color: '#7c3aed' },
+    { label: 'Approve Stages',       color: '#10b981' },
+    { label: 'Workflow Admin',       color: '#3b82f6' },
+    { label: 'Analytics & Reports',  color: '#f59e0b' },
+  ],
+  LEGAL_OFFICER: [
+    { label: 'Legal Review',         color: '#7c3aed' },
+    { label: 'IP & Compliance',      color: '#f97316' },
+    { label: 'Approve Legal Stage',  color: '#10b981' },
+    { label: 'View All MoUs',        color: '#64748b' },
+  ],
+  PARTNERSHIP_COORDINATOR: [
+    { label: 'Manage Partnerships',  color: '#7c3aed' },
+    { label: 'Track Deliverables',   color: '#10b981' },
+    { label: 'Manage Partners',      color: '#3b82f6' },
+    { label: 'Log Communications',   color: '#f59e0b' },
+    { label: 'Analytics',            color: '#06b6d4' },
   ],
   GUEST_COLLABORATOR: [
     { label: 'Time-bounded Access',  color: '#64748b' },

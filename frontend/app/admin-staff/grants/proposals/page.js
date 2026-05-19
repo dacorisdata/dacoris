@@ -240,7 +240,7 @@ export default function GrantProposalsPage() {
 
   const needsReviewerCount = proposals.filter(p =>
     !['draft','awarded','declined'].includes(p.status) &&
-    !(p.stage_assignments || []).some(a => a.status === 'active' && a.stage_step === (p.review_step ?? 0))
+    !(p.stage_assignments || []).filter(a => a.status === 'active' && a.stage_step === (p.review_step ?? 0)).length
   ).length;
 
   return (
@@ -328,8 +328,8 @@ export default function GrantProposalsPage() {
               const stageInfo = WORKFLOW_STAGES[step];
               const isActive = !['draft','awarded','declined'].includes(p.status);
 
-              // Reviewer for current stage
-              const currentAssignment = (p.stage_assignments || []).find(
+              // All reviewers for current stage
+              const currentAssignments = (p.stage_assignments || []).filter(
                 a => a.status === 'active' && a.stage_step === step
               );
 
@@ -421,19 +421,20 @@ export default function GrantProposalsPage() {
 
                   {/* Reviewer */}
                   <TableCell>
-                    {currentAssignment ? (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar sx={{ bgcolor: '#8b5cf6', width: 26, height: 26, fontSize: 11 }}>
-                          {currentAssignment.reviewer?.name?.charAt(0) || '?'}
-                        </Avatar>
-                        <Box>
-                          <Typography sx={{ fontSize: 12, fontWeight: 600 }}>
-                            {currentAssignment.reviewer?.name || 'Reviewer'}
+                    {currentAssignments.length > 0 ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                        {currentAssignments.map((assignment, idx) => (
+                          <Tooltip key={idx} title={`${assignment.reviewer?.name || 'Reviewer'} - Stage ${assignment.stage_step}`}>
+                            <Avatar sx={{ bgcolor: '#8b5cf6', width: 26, height: 26, fontSize: 11 }}>
+                              {assignment.reviewer?.name?.charAt(0) || '?'}
+                            </Avatar>
+                          </Tooltip>
+                        ))}
+                        {currentAssignments.length > 1 && (
+                          <Typography sx={{ fontSize: 10, color: 'text.secondary', ml: 0.5 }}>
+                            ({currentAssignments.length})
                           </Typography>
-                          <Typography sx={{ fontSize: 10, color: 'text.disabled' }}>
-                            Stage {currentAssignment.stage_step}
-                          </Typography>
-                        </Box>
+                        )}
                       </Box>
                     ) : isActive ? (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -470,9 +471,9 @@ export default function GrantProposalsPage() {
                   <TableCell align="right">
                     <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                       {isActive && (
-                        <Tooltip title="Assign Reviewer">
+                        <Tooltip title={currentAssignments.length > 0 ? "Add Another Reviewer" : "Assign Reviewer"}>
                           <IconButton size="small" onClick={() => openAssign(p)}
-                            sx={{ color: currentAssignment ? 'text.secondary' : '#f59e0b',
+                            sx={{ color: currentAssignments.length > 0 ? 'text.secondary' : '#f59e0b',
                               '&:hover': { bgcolor: 'rgba(245,158,11,0.1)' } }}>
                             <AssignIcon sx={{ fontSize: 17 }} />
                           </IconButton>

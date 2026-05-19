@@ -59,7 +59,7 @@ class OpportunityCreate(BaseModel):
 
 
 class OpportunityResponse(BaseModel):
-    id: int
+    id: str
     title: str
     sponsor: Optional[str]
     description: Optional[str]
@@ -75,7 +75,7 @@ class OpportunityResponse(BaseModel):
     contact_email: Optional[str]
     status: str
     created_at: datetime
-    created_by_id: int
+    created_by_id: str
     
     class Config:
         from_attributes = True

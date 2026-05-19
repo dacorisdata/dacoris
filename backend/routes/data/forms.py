@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/data/forms", tags=["data-forms"])
 class FormCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    project_id: Optional[int] = None
+    project_id: Optional[str] = None
     source_system: str = "internal"
     external_form_id: Optional[str] = None
     external_endpoint: Optional[str] = None
@@ -29,7 +29,7 @@ class SubmissionCreate(BaseModel):
 
 
 class FormOut(BaseModel):
-    id: int
+    id: str
     title: str
     description: Optional[str]
     source_system: str
@@ -163,7 +163,7 @@ async def list_all_submissions(
 
 @router.get("/{form_id}")
 async def get_form(
-    form_id: int,
+    form_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.DATA_STEWARD, ResearchRole.PRINCIPAL_INVESTIGATOR
@@ -177,7 +177,7 @@ async def get_form(
 
 @router.post("/{form_id}/submissions", status_code=201)
 async def submit_data(
-    form_id: int,
+    form_id: str,
     data: SubmissionCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
@@ -201,7 +201,7 @@ async def submit_data(
 
 @router.post("/{form_id}/upload-csv", status_code=201)
 async def upload_csv(
-    form_id: int,
+    form_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.DATA_STEWARD]))
@@ -229,7 +229,7 @@ async def upload_csv(
 
 @router.get("/{form_id}/submissions")
 async def list_submissions(
-    form_id: int,
+    form_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.DATA_STEWARD, ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.DATA_ENGINEER

@@ -30,12 +30,12 @@ class InstitutionCreate(BaseModel):
     orcid_redirect_uri: Optional[str] = None
 
 class InstitutionResponse(BaseModel):
-    id: int
+    id: str
     name: str
     domain: str
     verified_domains: Optional[str]
     is_active: bool
-    primary_admin_id: Optional[int]
+    primary_admin_id: Optional[str]
     created_at: datetime
     
     class Config:
@@ -45,15 +45,15 @@ class InstitutionAdminCreate(BaseModel):
     email: EmailStr
     name: str
     password: str
-    institution_id: int
+    institution_id: str
 
 class UserSummary(BaseModel):
-    id: int
+    id: str
     email: str
     name: Optional[str]
     account_type: str
     status: str
-    institution_id: Optional[int] = None
+    institution_id: Optional[str] = None
     is_global_admin: bool
     is_institution_admin: bool
     orcid_id: Optional[str] = None
@@ -138,7 +138,7 @@ async def create_institution(
 
 @router.get("/institutions/{institution_id}", response_model=InstitutionResponse)
 async def get_institution(
-    institution_id: int,
+    institution_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -158,7 +158,7 @@ async def get_institution(
 
 @router.put("/institutions/{institution_id}", response_model=InstitutionResponse)
 async def update_institution(
-    institution_id: int,
+    institution_id: str,
     institution_data: InstitutionCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
@@ -189,7 +189,7 @@ async def update_institution(
 
 @router.post("/institutions/{institution_id}/toggle-status")
 async def toggle_institution_status(
-    institution_id: int,
+    institution_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -212,7 +212,7 @@ async def toggle_institution_status(
 
 @router.post("/institutions/{institution_id}/admin", response_model=UserSummary)
 async def create_institution_admin(
-    institution_id: int,
+    institution_id: str,
     admin_data: InstitutionAdminCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
@@ -321,7 +321,7 @@ async def get_platform_analytics(
 
 @router.get("/institutions/{institution_id}/users", response_model=List[UserSummary])
 async def get_institution_users(
-    institution_id: int,
+    institution_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -334,8 +334,8 @@ async def get_institution_users(
 
 @router.delete("/institutions/{institution_id}/users/{user_id}")
 async def delete_institution_user(
-    institution_id: int,
-    user_id: int,
+    institution_id: str,
+    user_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -386,8 +386,8 @@ async def delete_institution_user(
 
 @router.post("/institutions/{institution_id}/set-primary-admin/{user_id}")
 async def set_primary_admin(
-    institution_id: int,
-    user_id: int,
+    institution_id: str,
+    user_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -447,7 +447,7 @@ class CategoryUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 class CategoryResponse(BaseModel):
-    id: int
+    id: str
     name: str
     description: Optional[str]
     slug: str
@@ -498,7 +498,7 @@ async def create_category(
 
 @router.get("/categories/{category_id}", response_model=CategoryResponse)
 async def get_category(
-    category_id: int,
+    category_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -518,7 +518,7 @@ async def get_category(
 
 @router.put("/categories/{category_id}", response_model=CategoryResponse)
 async def update_category(
-    category_id: int,
+    category_id: str,
     category_data: CategoryUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
@@ -547,7 +547,7 @@ async def update_category(
 
 @router.delete("/categories/{category_id}")
 async def delete_category(
-    category_id: int,
+    category_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -896,9 +896,9 @@ class InstitutionCategoryAssign(BaseModel):
     notes: Optional[str] = None
 
 class InstitutionCategoryResponse(BaseModel):
-    id: int
-    institution_id: int
-    category_id: int
+    id: str
+    institution_id: str
+    category_id: str
     category_name: str
     category_slug: str
     category_color: str
@@ -910,7 +910,7 @@ class InstitutionCategoryResponse(BaseModel):
 
 @router.get("/institutions/{institution_id}/categories")
 async def get_institution_categories(
-    institution_id: int,
+    institution_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -938,7 +938,7 @@ async def get_institution_categories(
 
 @router.post("/institutions/{institution_id}/categories")
 async def assign_categories_to_institution(
-    institution_id: int,
+    institution_id: str,
     assignment_data: InstitutionCategoryAssign,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
@@ -982,8 +982,8 @@ async def assign_categories_to_institution(
 
 @router.delete("/institutions/{institution_id}/categories/{category_id}")
 async def remove_category_from_institution(
-    institution_id: int,
-    category_id: int,
+    institution_id: str,
+    category_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -1013,7 +1013,7 @@ async def remove_category_from_institution(
 # ═══════════════════════════════════════════════════════════════════════════
 
 class OpportunityResponse(BaseModel):
-    id: int
+    id: str
     title: str
     sponsor: Optional[str]
     description: Optional[str]
@@ -1084,7 +1084,7 @@ async def list_all_opportunities(
 
 @router.patch("/opportunities/{opportunity_id}/curate")
 async def toggle_opportunity_curation(
-    opportunity_id: int,
+    opportunity_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):
@@ -1110,7 +1110,7 @@ async def toggle_opportunity_curation(
 
 @router.post("/opportunities/{opportunity_id}/categories")
 async def assign_categories_to_opportunity(
-    opportunity_id: int,
+    opportunity_id: str,
     assignment_data: OpportunityCategoryAssign,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
@@ -1157,8 +1157,8 @@ async def assign_categories_to_opportunity(
 
 @router.delete("/opportunities/{opportunity_id}/categories/{category_id}")
 async def remove_category_from_opportunity(
-    opportunity_id: int,
-    category_id: int,
+    opportunity_id: str,
+    category_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
 ):

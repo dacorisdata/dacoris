@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/public/research", tags=["public-research"])
 # ==================== RESPONSE MODELS ====================
 
 class InstitutionPublic(BaseModel):
-    id: int
+    id: str
     name: str
     domain: Optional[str]
     
@@ -24,7 +24,7 @@ class InstitutionPublic(BaseModel):
 
 
 class FunderPublic(BaseModel):
-    id: int
+    id: str
     name: str
     total_opportunities: int
     total_funding: Optional[float]
@@ -32,7 +32,7 @@ class FunderPublic(BaseModel):
 
 
 class ProjectPublic(BaseModel):
-    id: int
+    id: str
     title: str
     description: Optional[str]
     institution_name: Optional[str]
@@ -43,7 +43,7 @@ class ProjectPublic(BaseModel):
 
 
 class PublicationPublic(BaseModel):
-    id: int
+    id: str
     title: str
     authors: Optional[str]
     publication_date: Optional[date]
@@ -53,7 +53,7 @@ class PublicationPublic(BaseModel):
 
 
 class OpportunityPublic(BaseModel):
-    id: int
+    id: str
     title: str
     sponsor: Optional[str]
     description: Optional[str]
@@ -213,7 +213,7 @@ async def list_public_funders(
 
 @router.get("/opportunities/{opportunity_id}", response_model=OpportunityPublic)
 async def get_public_opportunity(
-    opportunity_id: int,
+    opportunity_id: str,
     db: AsyncSession = Depends(get_db)
 ):
     """Get single opportunity details - FAIR: Accessible, Interoperable"""

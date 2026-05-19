@@ -100,7 +100,7 @@ class RegistrationStep4PasswordRequest(BaseModel):
 class RegistrationResponse(BaseModel):
     success: bool
     message: str
-    user_id: Optional[int] = None
+    user_id: Optional[str] = None
     status: Optional[str] = None
     requires_approval: bool = True
 
@@ -326,7 +326,7 @@ class ResearcherRegistrationRequest(BaseModel):
     affiliation: Optional[str] = None
     email: EmailStr
     institution: str
-    institution_id: Optional[int] = None
+    institution_id: Optional[str] = None
     orcid_id: Optional[str] = None
     password: str
     confirm_password: str

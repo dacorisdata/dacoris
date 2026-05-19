@@ -18,7 +18,7 @@ class EmailVerificationRequest(BaseModel):
 
 class EmailVerificationResponse(BaseModel):
     valid: bool
-    institution_id: int | None = None
+    institution_id: str | None = None
     institution_name: str | None = None
     message: str
 

@@ -4,8 +4,13 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
 import secrets
+import uuid
 
 Base = declarative_base()
+
+def generate_uuid():
+    """Generate a URL-safe UUID string for primary keys"""
+    return str(uuid.uuid4())
 
 class AccountType(str, enum.Enum):
     ORCID = "orcid"
@@ -29,6 +34,10 @@ class PrimaryAccountType(str, enum.Enum):
     EXTERNAL_REVIEWER = "EXTERNAL_REVIEWER"
     GUEST_COLLABORATOR = "GUEST_COLLABORATOR"
     EXTERNAL_FUNDER = "EXTERNAL_FUNDER"
+    MOU_ADMIN = "MOU_ADMIN"
+    LEGAL_OFFICER = "LEGAL_OFFICER"
+    PARTNERSHIP_COORDINATOR = "PARTNERSHIP_COORDINATOR"
+    EXTERNAL_PARTNER = "EXTERNAL_PARTNER"
 
 class ResearchRole(str, enum.Enum):
     RESEARCHER = "researcher"
@@ -47,20 +56,24 @@ class ResearchRole(str, enum.Enum):
     GUEST_COLLABORATOR = "guest_collaborator"
     EXTERNAL_FUNDER = "external_funder"
     APPLICANT = "applicant"
+    MOU_ADMIN = "mou_admin"
+    LEGAL_OFFICER = "legal_officer"
+    PARTNERSHIP_COORDINATOR = "partnership_coordinator"
+    EXTERNAL_PARTNER = "external_partner"
 
 user_roles = Table(
     'user_roles',
     Base.metadata,
-    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+    Column('user_id', String, ForeignKey('users.id'), primary_key=True),
     Column('role', Enum(ResearchRole), primary_key=True),
     Column('assigned_at', DateTime(timezone=True), server_default=func.now()),
-    Column('assigned_by', Integer, ForeignKey('users.id'), nullable=True)
+    Column('assigned_by', String, ForeignKey('users.id'), nullable=True)
 )
 
 class Institution(Base):
     __tablename__ = "institutions"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
     name = Column(String, nullable=False, unique=True)
     domain = Column(String, nullable=False, unique=True)
     verified_domains = Column(Text, nullable=True)
@@ -68,7 +81,7 @@ class Institution(Base):
     orcid_client_secret = Column(String, nullable=True)
     orcid_redirect_uri = Column(String, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    primary_admin_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    primary_admin_id = Column(String, ForeignKey('users.id'), nullable=True)
     settings = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -82,7 +95,7 @@ class User(Base):
         UniqueConstraint('email', 'primary_institution_id', name='uix_email_institution'),
     )
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
     email = Column(String, index=True, nullable=False)
     name = Column(String, nullable=True)
     password_hash = Column(String, nullable=True)
@@ -97,7 +110,7 @@ class User(Base):
     orcid_token_expires_at = Column(DateTime(timezone=True), nullable=True)
     orcid_profile_last_sync = Column(DateTime(timezone=True), nullable=True)
     
-    primary_institution_id = Column(Integer, ForeignKey('institutions.id'), nullable=True, index=True)
+    primary_institution_id = Column(String, ForeignKey('institutions.id'), nullable=True, index=True)
     is_global_admin = Column(Boolean, default=False, nullable=False)
     is_institution_admin = Column(Boolean, default=False, nullable=False)
     
@@ -109,7 +122,7 @@ class User(Base):
     
     is_guest = Column(Boolean, default=False, nullable=False)
     access_expires_at = Column(DateTime(timezone=True), nullable=True)
-    invited_by_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    invited_by_id = Column(String, ForeignKey('users.id'), nullable=True)
     invitation_context = Column(Text, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -125,9 +138,9 @@ class User(Base):
 class OrcidProfile(Base):
     __tablename__ = "orcid_profiles"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey('users.id'), unique=True, nullable=False)
-    institution_id = Column(Integer, ForeignKey('institutions.id'), nullable=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey('users.id'), unique=True, nullable=False)
+    institution_id = Column(String, ForeignKey('institutions.id'), nullable=True)
     
     orcid_id = Column(String, nullable=False, index=True)
     given_names = Column(String, nullable=True)
@@ -202,7 +215,7 @@ class QAStatus(str, enum.Enum):
 class GrantOpportunity(Base):
     __tablename__ = "grant_opportunities"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
     # institution_id removed - opportunities are now platform-wide, filtered by categories
     title = Column(String(500), nullable=False)
     sponsor = Column(String(300))
@@ -224,7 +237,7 @@ class GrantOpportunity(Base):
     source_id = Column(String(200))
     status = Column(String(50), default="open", index=True)
     is_curated = Column(Boolean, default=False, index=True)  # Published to researchers
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -237,9 +250,9 @@ class GrantOpportunity(Base):
 class OpportunityBookmark(Base):
     __tablename__ = "opportunity_bookmarks"
 
-    id = Column(Integer, primary_key=True, index=True)
-    opportunity_id = Column(Integer, ForeignKey("grant_opportunities.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    opportunity_id = Column(String, ForeignKey("grant_opportunities.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     opportunity = relationship("GrantOpportunity", back_populates="bookmarks")
@@ -255,7 +268,7 @@ class OpportunityBookmark(Base):
 class OpportunityCategory(Base):
     __tablename__ = "opportunity_categories"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     slug = Column(String(100), nullable=False, unique=True, index=True)
@@ -274,9 +287,9 @@ class OpportunityCategory(Base):
 class OpportunityCategories(Base):
     __tablename__ = "opportunity_category_assignments"
 
-    id = Column(Integer, primary_key=True, index=True)
-    opportunity_id = Column(Integer, ForeignKey("grant_opportunities.id"), nullable=False)
-    category_id = Column(Integer, ForeignKey("opportunity_categories.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    opportunity_id = Column(String, ForeignKey("grant_opportunities.id"), nullable=False)
+    category_id = Column(String, ForeignKey("opportunity_categories.id"), nullable=False)
     assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -294,9 +307,9 @@ class OpportunityCategories(Base):
 class InstitutionCategory(Base):
     __tablename__ = "institution_categories"
 
-    id = Column(Integer, primary_key=True, index=True)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
-    category_id = Column(Integer, ForeignKey("opportunity_categories.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
+    category_id = Column(String, ForeignKey("opportunity_categories.id"), nullable=False)
     assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
     notes = Column(Text, nullable=True)
@@ -314,10 +327,10 @@ class InstitutionCategory(Base):
 class Proposal(Base):
     __tablename__ = "proposals"
 
-    id = Column(Integer, primary_key=True, index=True)
-    opportunity_id = Column(Integer, ForeignKey("grant_opportunities.id"), nullable=False)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
-    lead_pi_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    opportunity_id = Column(String, ForeignKey("grant_opportunities.id"), nullable=False)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
+    lead_pi_id = Column(String, ForeignKey("users.id"), nullable=False)
     title = Column(String(500), nullable=False)
     status = Column(Enum(ProposalStatus), default=ProposalStatus.DRAFT)
     submitted_at = Column(DateTime(timezone=True))
@@ -351,8 +364,8 @@ class Proposal(Base):
 class ProposalSection(Base):
     __tablename__ = "proposal_sections"
 
-    id = Column(Integer, primary_key=True, index=True)
-    proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False)
     section_type = Column(String(100), nullable=False)
     title = Column(String(300), nullable=False)
     content_html = Column(Text, default="")
@@ -360,7 +373,7 @@ class ProposalSection(Base):
     version = Column(Integer, default=1)
     section_order = Column(Integer, default=0)
     allowed_roles = Column(String(500), default="")  # comma-separated roles, empty = all
-    last_edited_by_id = Column(Integer, ForeignKey("users.id"))
+    last_edited_by_id = Column(String, ForeignKey("users.id"))
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     proposal = relationship("Proposal", back_populates="sections")
@@ -371,12 +384,12 @@ class ProposalSection(Base):
 class ProposalSectionVersion(Base):
     __tablename__ = "proposal_section_versions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    section_id = Column(Integer, ForeignKey("proposal_sections.id", ondelete="CASCADE"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    section_id = Column(String, ForeignKey("proposal_sections.id", ondelete="CASCADE"), nullable=False)
     version_number = Column(Integer, nullable=False)
     content_html = Column(Text, default="")
     word_count = Column(Integer, default=0)
-    saved_by_id = Column(Integer, ForeignKey("users.id"))
+    saved_by_id = Column(String, ForeignKey("users.id"))
     saved_at = Column(DateTime(timezone=True), server_default=func.now())
 
     section = relationship("ProposalSection", back_populates="versions")
@@ -386,14 +399,14 @@ class ProposalSectionVersion(Base):
 class ProposalDocument(Base):
     __tablename__ = "proposal_documents"
 
-    id = Column(Integer, primary_key=True, index=True)
-    proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False)
     document_type = Column(String(100))
     original_filename = Column(String(500))
     stored_filename = Column(String(500))
     file_size_bytes = Column(Integer)
     mime_type = Column(String(200))
-    uploaded_by_id = Column(Integer, ForeignKey("users.id"))
+    uploaded_by_id = Column(String, ForeignKey("users.id"))
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     proposal = relationship("Proposal", back_populates="documents")
@@ -403,9 +416,9 @@ class ProposalDocument(Base):
 class ProposalCollaborator(Base):
     __tablename__ = "proposal_collaborators"
 
-    id = Column(Integer, primary_key=True, index=True)
-    proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Nullable for pending invites
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)  # Nullable for pending invites
     role = Column(String(100), default="co_investigator")
     can_edit = Column(Boolean, default=True)
     status = Column(String(50), default="pending")  # pending, accepted, declined
@@ -422,9 +435,9 @@ class ProposalCollaborator(Base):
 class ProposalReview(Base):
     __tablename__ = "proposal_reviews"
 
-    id = Column(Integer, primary_key=True, index=True)
-    proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False)
-    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False)
+    reviewer_id = Column(String, ForeignKey("users.id"), nullable=False)
     status = Column(Enum(ReviewStatus), default=ReviewStatus.ASSIGNED)
     has_coi = Column(Boolean, default=False)
     coi_reason = Column(Text)
@@ -447,14 +460,14 @@ class ProposalStageHistory(Base):
     """Tracks when a proposal enters and exits each review stage."""
     __tablename__ = "proposal_stage_history"
 
-    id = Column(Integer, primary_key=True, index=True)
-    proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False)
     stage_step = Column(Integer, nullable=False)       # 0-5
     stage_name = Column(String(100))
     entered_at = Column(DateTime(timezone=True), server_default=func.now())
     intended_days = Column(Integer)                    # expected duration
     exited_at = Column(DateTime(timezone=True))        # null = still active
-    entered_by_id = Column(Integer, ForeignKey("users.id"))
+    entered_by_id = Column(String, ForeignKey("users.id"))
 
     proposal = relationship("Proposal", back_populates="stage_history")
     entered_by = relationship("User", foreign_keys=[entered_by_id])
@@ -464,13 +477,13 @@ class ProposalStageAssignment(Base):
     """Tracks which reviewer is assigned to review a specific stage of a proposal."""
     __tablename__ = "proposal_stage_assignments"
 
-    id = Column(Integer, primary_key=True, index=True)
-    proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False)
     stage_step = Column(Integer, nullable=False)
     stage_name = Column(String(100))
-    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reviewer_id = Column(String, ForeignKey("users.id"), nullable=False)
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
-    assigned_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    assigned_by_id = Column(String, ForeignKey("users.id"), nullable=False)
     notes = Column(Text)
     status = Column(String(50), default="active")      # active | removed
 
@@ -487,9 +500,9 @@ class ProposalStageAssignment(Base):
 class Award(Base):
     __tablename__ = "awards"
 
-    id = Column(Integer, primary_key=True, index=True)
-    proposal_id = Column(Integer, ForeignKey("proposals.id"), nullable=False, unique=True)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False, unique=True)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
     award_number = Column(String(100), unique=True)
     funder_name = Column(String(300))
     total_amount = Column(Integer, nullable=False)
@@ -498,7 +511,7 @@ class Award(Base):
     end_date = Column(DateTime(timezone=True))
     status = Column(Enum(AwardStatus), default=AwardStatus.ACTIVE)
     conditions = Column(Text)
-    issued_by_id = Column(Integer, ForeignKey("users.id"))
+    issued_by_id = Column(String, ForeignKey("users.id"))
     issued_at = Column(DateTime(timezone=True), server_default=func.now())
 
     proposal = relationship("Proposal", back_populates="award")
@@ -512,8 +525,8 @@ class Award(Base):
 class BudgetLine(Base):
     __tablename__ = "budget_lines"
 
-    id = Column(Integer, primary_key=True, index=True)
-    award_id = Column(Integer, ForeignKey("awards.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    award_id = Column(String, ForeignKey("awards.id"), nullable=False)
     category = Column(String(200), nullable=False)
     description = Column(String(500))
     amount = Column(Integer, nullable=False)
@@ -528,10 +541,10 @@ class BudgetLine(Base):
 class ResearchProject(Base):
     __tablename__ = "research_projects"
 
-    id = Column(Integer, primary_key=True, index=True)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
-    award_id = Column(Integer, ForeignKey("awards.id"), nullable=True)
-    pi_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
+    award_id = Column(String, ForeignKey("awards.id"), nullable=True)
+    pi_id = Column(String, ForeignKey("users.id"), nullable=False)
     title = Column(String(500), nullable=False)
     description = Column(Text)
     project_type = Column(String(100), default="funded")
@@ -562,9 +575,9 @@ class ResearchProject(Base):
 class EthicsApplication(Base):
     __tablename__ = "ethics_applications"
 
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=False)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
     application_type = Column(String(100), default="full_review")
     status = Column(Enum(EthicsStatus), default=EthicsStatus.DRAFT)
     title = Column(String(500))
@@ -572,7 +585,7 @@ class EthicsApplication(Base):
     methodology = Column(Text)
     risk_assessment = Column(Text)
     data_handling = Column(Text)
-    submitted_by_id = Column(Integer, ForeignKey("users.id"))
+    submitted_by_id = Column(String, ForeignKey("users.id"))
     submitted_at = Column(DateTime(timezone=True))
     decision_notes = Column(Text)
     approved_until = Column(DateTime(timezone=True))
@@ -590,9 +603,9 @@ class EthicsApplication(Base):
 class CaptureForm(Base):
     __tablename__ = "capture_forms"
 
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=True)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=True)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
     title = Column(String(500), nullable=False)
     description = Column(Text)
     form_schema = Column(Text, default='{"fields": []}')
@@ -600,7 +613,7 @@ class CaptureForm(Base):
     external_form_id = Column(String(200))
     external_endpoint = Column(String(500))
     is_active = Column(Boolean, default=True)
-    created_by_id = Column(Integer, ForeignKey("users.id"))
+    created_by_id = Column(String, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     project = relationship("ResearchProject", back_populates="capture_forms")
@@ -612,10 +625,10 @@ class CaptureForm(Base):
 class FormSubmission(Base):
     __tablename__ = "form_submissions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    form_id = Column(Integer, ForeignKey("capture_forms.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    form_id = Column(String, ForeignKey("capture_forms.id"), nullable=False)
     data = Column(Text, nullable=False)
-    submitted_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    submitted_by_id = Column(String, ForeignKey("users.id"), nullable=True)
     source_system = Column(String(50), default="internal")
     external_submission_id = Column(String(200))
     qa_status = Column(Enum(QAStatus), default=QAStatus.STAGED)
@@ -630,7 +643,7 @@ class FormSubmission(Base):
 class EmailVerification(Base):
     __tablename__ = "email_verifications"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
     email = Column(String, nullable=False, index=True)
     verification_code = Column(String(6), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
@@ -660,8 +673,8 @@ class NotificationPriority(str, enum.Enum):
 class Notification(Base):
     __tablename__ = "notifications"
     
-    id = Column(Integer, primary_key=True, index=True)
-    recipient_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    recipient_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
     type = Column(Enum(NotificationType), nullable=False)
     priority = Column(Enum(NotificationPriority), default=NotificationPriority.MEDIUM)
     
@@ -671,7 +684,7 @@ class Notification(Base):
     action_url = Column(String, nullable=True)
     
     related_entity_type = Column(String, nullable=True)
-    related_entity_id = Column(Integer, nullable=True)
+    related_entity_id = Column(String, nullable=True)
     
     is_read = Column(Boolean, default=False, nullable=False, index=True)
     read_at = Column(DateTime(timezone=True), nullable=True)
@@ -687,7 +700,7 @@ class Notification(Base):
 class ScholarlyWork(Base):
     __tablename__ = "scholarly_works"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
     title = Column(String, nullable=False, index=True)
     abstract = Column(Text, nullable=True)
     publication_year = Column(Integer, nullable=True, index=True)
@@ -732,8 +745,8 @@ class ScholarlyWork(Base):
 class WorkAuthor(Base):
     __tablename__ = "work_authors"
     
-    id = Column(Integer, primary_key=True, index=True)
-    work_id = Column(Integer, ForeignKey('scholarly_works.id', ondelete='CASCADE'), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    work_id = Column(String, ForeignKey('scholarly_works.id', ondelete='CASCADE'), nullable=False)
     
     author_name = Column(String, nullable=False)
     author_position = Column(Integer, nullable=False)  # 1 = first author, etc.
@@ -741,7 +754,7 @@ class WorkAuthor(Base):
     
     # Author identifiers
     orcid = Column(String, nullable=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # Link to system user if exists
+    user_id = Column(String, ForeignKey('users.id'), nullable=True)  # Link to system user if exists
     
     # Affiliation at time of publication
     affiliation_name = Column(String, nullable=True)
@@ -754,9 +767,9 @@ class WorkAuthor(Base):
 class WorkInstitution(Base):
     __tablename__ = "work_institutions"
     
-    id = Column(Integer, primary_key=True, index=True)
-    work_id = Column(Integer, ForeignKey('scholarly_works.id', ondelete='CASCADE'), nullable=False)
-    institution_id = Column(Integer, ForeignKey('institutions.id'), nullable=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    work_id = Column(String, ForeignKey('scholarly_works.id', ondelete='CASCADE'), nullable=False)
+    institution_id = Column(String, ForeignKey('institutions.id'), nullable=True)
     
     institution_name = Column(String, nullable=False)
     institution_country = Column(String, nullable=True)
@@ -769,8 +782,8 @@ class WorkInstitution(Base):
 class WorkFunder(Base):
     __tablename__ = "work_funders"
     
-    id = Column(Integer, primary_key=True, index=True)
-    work_id = Column(Integer, ForeignKey('scholarly_works.id', ondelete='CASCADE'), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    work_id = Column(String, ForeignKey('scholarly_works.id', ondelete='CASCADE'), nullable=False)
     
     funder_name = Column(String, nullable=False)
     funder_country = Column(String, nullable=True)
@@ -786,9 +799,9 @@ class WorkFunder(Base):
 class ProjectMember(Base):
     __tablename__ = "project_members"
 
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
     role = Column(String(100), default="co_investigator")
     status = Column(String(50), default="pending")   # pending | accepted | declined
     invited_email = Column(String(200))
@@ -807,13 +820,13 @@ class ProjectMember(Base):
 class ProjectMilestone(Base):
     __tablename__ = "project_milestones"
 
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
     title = Column(String(500), nullable=False)
     description = Column(Text)
     due_date = Column(DateTime(timezone=True))
     completed_at = Column(DateTime(timezone=True))
-    assigned_to_id = Column(Integer, ForeignKey("users.id"))
+    assigned_to_id = Column(String, ForeignKey("users.id"))
     status = Column(String(50), default="pending")    # pending | in_progress | completed | overdue
     priority = Column(String(20), default="medium")   # low | medium | high | critical
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -827,10 +840,10 @@ class ProjectMilestone(Base):
 class ProjectTask(Base):
     __tablename__ = "project_tasks"
 
-    id = Column(Integer, primary_key=True, index=True)
-    milestone_id = Column(Integer, ForeignKey("project_milestones.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    milestone_id = Column(String, ForeignKey("project_milestones.id"), nullable=False)
     title = Column(String(500), nullable=False)
-    assigned_to_id = Column(Integer, ForeignKey("users.id"))
+    assigned_to_id = Column(String, ForeignKey("users.id"))
     due_date = Column(DateTime(timezone=True))
     status = Column(String(50), default="todo")       # todo | in_progress | done
     priority = Column(String(20), default="medium")
@@ -843,14 +856,14 @@ class ProjectTask(Base):
 class ProjectDocument(Base):
     __tablename__ = "project_documents"
 
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
     document_type = Column(String(100))
     original_filename = Column(String(500))
     stored_filename = Column(String(500))
     file_size_bytes = Column(Integer)
     mime_type = Column(String(200))
-    uploaded_by_id = Column(Integer, ForeignKey("users.id"))
+    uploaded_by_id = Column(String, ForeignKey("users.id"))
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     project = relationship("ResearchProject", back_populates="project_documents")
@@ -860,9 +873,9 @@ class ProjectDocument(Base):
 class ResearchOutput(Base):
     __tablename__ = "research_outputs"
 
-    id = Column(Integer, primary_key=True, index=True)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
-    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=True)
     output_type = Column(String(100), default="journal_article")
     title = Column(String(500), nullable=False)
     abstract = Column(Text)
@@ -872,8 +885,8 @@ class ResearchOutput(Base):
     journal_name = Column(String(300))
     status = Column(String(50), default="draft")   # draft | in_review | published
     version = Column(Integer, default=1)
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    last_edited_by_id = Column(Integer, ForeignKey("users.id"))
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=False)
+    last_edited_by_id = Column(String, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -884,15 +897,15 @@ class ResearchOutput(Base):
 
 class EthicsDocument(Base):
     __tablename__ = "ethics_documents"
-    id = Column(Integer, primary_key=True, index=True)
-    ethics_application_id = Column(Integer, ForeignKey("ethics_applications.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    ethics_application_id = Column(String, ForeignKey("ethics_applications.id"), nullable=False)
     document_type = Column(String(50), nullable=False)  # protocol, consent_form, data_management_plan, site_permission, other
     original_filename = Column(String(300), nullable=False)
     stored_filename = Column(String(300), nullable=False)
     file_path = Column(String(500), nullable=False)
     file_size_bytes = Column(Integer, nullable=False)
     mime_type = Column(String(100), nullable=False)
-    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    uploaded_by_id = Column(String, ForeignKey("users.id"), nullable=False)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     ethics_application = relationship("EthicsApplication", back_populates="documents")
@@ -908,14 +921,14 @@ class DataImportRequestStatus(str, enum.Enum):
 
 class DataImportRequest(Base):
     __tablename__ = "data_import_requests"
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=False)
-    requester_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
+    requester_id = Column(String, ForeignKey("users.id"), nullable=False)
     status = Column(Enum(DataImportRequestStatus), default=DataImportRequestStatus.PENDING, nullable=False)
     justification = Column(Text, nullable=False)
     requested_datasets = Column(Text, nullable=False)  # JSON array of dataset identifiers/names
     access_duration_months = Column(Integer, nullable=False)  # Duration of access in months
-    approved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_by_id = Column(String, ForeignKey("users.id"), nullable=True)
     approved_at = Column(DateTime(timezone=True), nullable=True)
     rejection_reason = Column(Text, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
@@ -954,17 +967,17 @@ class QAResultStatus(str, enum.Enum):
 
 class Dataset(Base):
     __tablename__ = "datasets"
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=True)
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False)
-    source_form_id = Column(Integer, ForeignKey("capture_forms.id"), nullable=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=True)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
+    source_form_id = Column(String, ForeignKey("capture_forms.id"), nullable=True)
     title = Column(String(500), nullable=False)
     description = Column(Text)
     status = Column(Enum(DatasetStatus), default=DatasetStatus.DRAFT)
     access_level = Column(Enum(AccessLevel), default=AccessLevel.RESTRICTED)
     record_count = Column(Integer, default=0)
     current_version = Column(Integer, default=1)
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -980,14 +993,14 @@ class Dataset(Base):
 
 class DatasetVersion(Base):
     __tablename__ = "dataset_versions"
-    id = Column(Integer, primary_key=True, index=True)
-    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    dataset_id = Column(String, ForeignKey("datasets.id"), nullable=False)
     version_number = Column(Integer, nullable=False)
     checksum = Column(String(128))
     storage_path = Column(String(500))
     row_count = Column(Integer, default=0)
     change_summary = Column(Text)
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     dataset = relationship("Dataset", back_populates="versions")
@@ -996,15 +1009,15 @@ class DatasetVersion(Base):
 
 class QARule(Base):
     __tablename__ = "qa_rules"
-    id = Column(Integer, primary_key=True, index=True)
-    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    dataset_id = Column(String, ForeignKey("datasets.id"), nullable=False)
     rule_type = Column(String(50), nullable=False)  # missing_value, duplicate, range, format, consistency
     field_name = Column(String(200), nullable=False)
     operator = Column(String(50))  # gt, lt, eq, between, regex, not_null, unique
     threshold = Column(String(200))
     action = Column(Enum(QARuleAction), default=QARuleAction.FLAG)
     is_active = Column(Boolean, default=True)
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     dataset = relationship("Dataset", back_populates="qa_rules")
@@ -1013,12 +1026,12 @@ class QARule(Base):
 
 class QAResult(Base):
     __tablename__ = "qa_results"
-    id = Column(Integer, primary_key=True, index=True)
-    submission_id = Column(Integer, ForeignKey("form_submissions.id"), nullable=False)
-    rule_id = Column(Integer, ForeignKey("qa_rules.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    submission_id = Column(String, ForeignKey("form_submissions.id"), nullable=False)
+    rule_id = Column(String, ForeignKey("qa_rules.id"), nullable=False)
     status = Column(Enum(QAResultStatus), nullable=False)
     details = Column(Text)
-    reviewed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_by_id = Column(String, ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -1029,11 +1042,11 @@ class QAResult(Base):
 
 class DataTransformation(Base):
     __tablename__ = "data_transformations"
-    id = Column(Integer, primary_key=True, index=True)
-    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    dataset_id = Column(String, ForeignKey("datasets.id"), nullable=False)
     transformation_type = Column(String(100), nullable=False)  # recode, standardize, derive, clean
     parameters = Column(Text)  # JSON
-    applied_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    applied_by_id = Column(String, ForeignKey("users.id"), nullable=False)
     applied_at = Column(DateTime(timezone=True), server_default=func.now())
     reversible = Column(Boolean, default=True)
 
@@ -1047,11 +1060,11 @@ class DataTransformation(Base):
 
 class PublicationLibrary(Base):
     __tablename__ = "publication_libraries"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    parent_id = Column(Integer, ForeignKey("publication_libraries.id"), nullable=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    parent_id = Column(String, ForeignKey("publication_libraries.id"), nullable=True)
     is_folder = Column(Boolean, default=False)
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -1064,8 +1077,8 @@ class PublicationLibrary(Base):
 
 class Publication(Base):
     __tablename__ = "publications"
-    id = Column(Integer, primary_key=True, index=True)
-    library_id = Column(Integer, ForeignKey("publication_libraries.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    library_id = Column(String, ForeignKey("publication_libraries.id"), nullable=False)
     
     # Core metadata
     title = Column(Text, nullable=False)
@@ -1116,14 +1129,14 @@ class Publication(Base):
 
 class Manuscript(Base):
     __tablename__ = "manuscripts"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
     title = Column(String(500), nullable=False)
     short_description = Column(Text, nullable=True)
     department = Column(String(255), nullable=True)
     keywords = Column(Text, nullable=True)  # JSON array
     
     # Owner/creator
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
     
     # Content
     content = Column(Text, nullable=True)
@@ -1141,18 +1154,23 @@ class Manuscript(Base):
     user = relationship("User", back_populates="manuscripts")
     co_authors = relationship("ManuscriptCoAuthor", back_populates="manuscript", cascade="all, delete-orphan")
 
+    @property
+    def creator(self):
+        return self.user
+
 
 class ManuscriptCoAuthor(Base):
     __tablename__ = "manuscript_co_authors"
-    id = Column(Integer, primary_key=True, index=True)
-    manuscript_id = Column(Integer, ForeignKey("manuscripts.id"), nullable=False)
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    manuscript_id = Column(String, ForeignKey("manuscripts.id"), nullable=False)
     
     # Co-author details
     given_name = Column(String(255), nullable=False)
     family_name = Column(String(255), nullable=False)
     email = Column(String(255), nullable=True)
     orcid = Column(String(50), nullable=True)
-    
+    role = Column(String(50), default='author', server_default='author')  # author, editor, reviewer, admin
+
     # Invitation status
     status = Column(String(50), default='invited')  # invited, accepted, declined
     invited_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -1176,10 +1194,10 @@ class DataSource(Base):
     """
     __tablename__ = "data_sources"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String, primary_key=True, default=generate_uuid)
 
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False, index=True)
-    researcher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    researcher_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
 
     name = Column(String(255), nullable=False)
     source_type = Column(String(50), nullable=False)   # kobo_collect | google_sheets | excel
@@ -1227,9 +1245,9 @@ class DataImport(Base):
     id = Column(String(36), primary_key=True, default=lambda: secrets.token_urlsafe(16))
     
     # Context IDs
-    institution_id = Column(Integer, ForeignKey("institutions.id"), nullable=False, index=True)
-    researcher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    project_id = Column(Integer, ForeignKey("research_projects.id"), nullable=True, index=True)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    researcher_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=True, index=True)
     
     # Source metadata
     source_url = Column(Text, nullable=True)
@@ -1268,3 +1286,338 @@ class DataImport(Base):
     researcher = relationship("User", foreign_keys=[researcher_id])
     project = relationship("ResearchProject")
     creator = relationship("User", foreign_keys=[created_by])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MODULE 7 – MoU & PARTNERSHIPS
+# ═══════════════════════════════════════════════════════════════════════════
+
+class MouStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    INTERNAL_REVIEW = "INTERNAL_REVIEW"
+    LEGAL_REVIEW = "LEGAL_REVIEW"
+    EXEC_APPROVAL = "EXEC_APPROVAL"
+    PENDING_SIGNING = "PENDING_SIGNING"
+    ACTIVE = "ACTIVE"
+    MID_TERM_REVIEW = "MID_TERM_REVIEW"
+    PENDING_RENEWAL = "PENDING_RENEWAL"
+    SUSPENDED = "SUSPENDED"
+    EXPIRED = "EXPIRED"
+    CLOSED = "CLOSED"
+    ARCHIVED = "ARCHIVED"
+
+class MouType(str, enum.Enum):
+    GENERAL_COLLABORATION = "GENERAL_COLLABORATION"
+    ACADEMIC_EXCHANGE = "ACADEMIC_EXCHANGE"
+    RESEARCH_PARTNERSHIP = "RESEARCH_PARTNERSHIP"
+    DATA_SHARING = "DATA_SHARING"
+    JOINT_DEGREE = "JOINT_DEGREE"
+    CLINICAL = "CLINICAL"
+    INDUSTRY = "INDUSTRY"
+    CONSORTIUM = "CONSORTIUM"
+    CO_FUNDING = "CO_FUNDING"
+
+class MouConfidentiality(str, enum.Enum):
+    PUBLIC = "PUBLIC"
+    INTERNAL = "INTERNAL"
+    RESTRICTED = "RESTRICTED"
+    CONFIDENTIAL = "CONFIDENTIAL"
+
+class MouRiskRating(str, enum.Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+class MouPartnerType(str, enum.Enum):
+    UNIVERSITY = "UNIVERSITY"
+    RESEARCH_INSTITUTE = "RESEARCH_INSTITUTE"
+    GOVERNMENT = "GOVERNMENT"
+    NGO = "NGO"
+    HOSPITAL = "HOSPITAL"
+    INDUSTRY = "INDUSTRY"
+    FUNDER = "FUNDER"
+    INTERNATIONAL_ORG = "INTERNATIONAL_ORG"
+
+class MouPartnerTier(str, enum.Enum):
+    STRATEGIC = "STRATEGIC"
+    ACTIVE = "ACTIVE"
+    DORMANT = "DORMANT"
+
+class MouParticipantRole(str, enum.Enum):
+    LEAD = "LEAD"
+    CO_SIGNATORY = "CO_SIGNATORY"
+    BENEFICIARY = "BENEFICIARY"
+    OBSERVER = "OBSERVER"
+
+class MouApprovalStageType(str, enum.Enum):
+    INTERNAL_REVIEW = "INTERNAL_REVIEW"
+    LEGAL_REVIEW = "LEGAL_REVIEW"
+    EXEC_APPROVAL = "EXEC_APPROVAL"
+    SIGNING = "SIGNING"
+
+class MouApprovalStageStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    APPROVED = "APPROVED"
+    RETURNED = "RETURNED"
+    SKIPPED = "SKIPPED"
+
+class MouActivityType(str, enum.Enum):
+    JOINT_TRAINING = "JOINT_TRAINING"
+    RESEARCH_PROJECT = "RESEARCH_PROJECT"
+    STUDENT_EXCHANGE = "STUDENT_EXCHANGE"
+    PUBLICATION = "PUBLICATION"
+    GRANT_APPLICATION = "GRANT_APPLICATION"
+    TECHNOLOGY_TRANSFER = "TECHNOLOGY_TRANSFER"
+    POLICY_BRIEF = "POLICY_BRIEF"
+    EVENT_WORKSHOP = "EVENT_WORKSHOP"
+    CONSULTANCY = "CONSULTANCY"
+    EQUIPMENT_SHARING = "EQUIPMENT_SHARING"
+    OTHER = "OTHER"
+
+class MouActivityStatus(str, enum.Enum):
+    PLANNED = "PLANNED"
+    IN_PROGRESS = "IN_PROGRESS"
+    DELAYED = "DELAYED"
+    EVIDENCE_SUBMITTED = "EVIDENCE_SUBMITTED"
+    VERIFIED = "VERIFIED"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+class MouVersionType(str, enum.Enum):
+    ORIGINAL = "ORIGINAL"
+    AMENDMENT = "AMENDMENT"
+    RENEWAL = "RENEWAL"
+    ADDENDUM = "ADDENDUM"
+
+class MouCommunicationType(str, enum.Enum):
+    EMAIL = "EMAIL"
+    MEETING = "MEETING"
+    CALL = "CALL"
+    SITE_VISIT = "SITE_VISIT"
+    REPORT = "REPORT"
+    OTHER = "OTHER"
+
+class MouBudgetStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    APPROVED = "APPROVED"
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+
+class MouComplianceStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    COMPLIANT = "COMPLIANT"
+    NON_COMPLIANT = "NON_COMPLIANT"
+    WAIVED = "WAIVED"
+
+
+class Mou(Base):
+    __tablename__ = "mous"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    mou_number = Column(String(50), unique=True, nullable=True)
+    title = Column(String(500), nullable=False)
+    mou_type = Column(Enum(MouType), nullable=False)
+    status = Column(Enum(MouStatus), nullable=False, default=MouStatus.DRAFT, index=True)
+    thematic_area = Column(Text, nullable=True)
+    lead_department = Column(String(200), nullable=True)
+    coordinator_id = Column(String, ForeignKey("users.id"), nullable=True)
+    legal_officer_id = Column(String, ForeignKey("users.id"), nullable=True)
+    scope_objectives = Column(Text, nullable=True)
+    obligations_institution = Column(Text, nullable=True)
+    obligations_partner = Column(Text, nullable=True)
+    governing_law = Column(String(100), nullable=True)
+    confidentiality_level = Column(Enum(MouConfidentiality), default=MouConfidentiality.INTERNAL)
+    effective_date = Column(Date, nullable=True)
+    expiry_date = Column(Date, nullable=True)
+    signed_date = Column(Date, nullable=True)
+    duration_years = Column(Float, nullable=True)
+    auto_renew = Column(Boolean, default=False)
+    renewal_notice_days = Column(Integer, default=90)
+    risk_rating = Column(Enum(MouRiskRating), nullable=True)
+    financial_commitment = Column(Boolean, default=False)
+    ip_clauses = Column(Boolean, default=False)
+    data_sharing = Column(Boolean, default=False)
+    parent_mou_id = Column(String, ForeignKey("mous.id"), nullable=True)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    institution = relationship("Institution")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    coordinator = relationship("User", foreign_keys=[coordinator_id])
+    legal_officer = relationship("User", foreign_keys=[legal_officer_id])
+    participants = relationship("MouParticipant", back_populates="mou", cascade="all, delete-orphan")
+    approval_stages = relationship("MouApprovalStage", back_populates="mou", cascade="all, delete-orphan")
+    activities = relationship("MouActivity", back_populates="mou", cascade="all, delete-orphan")
+    versions = relationship("MouVersion", back_populates="mou", cascade="all, delete-orphan")
+    budgets = relationship("MouBudget", back_populates="mou", cascade="all, delete-orphan")
+    compliance_items = relationship("MouComplianceItem", back_populates="mou", cascade="all, delete-orphan")
+    communications = relationship("MouCommunication", back_populates="mou", cascade="all, delete-orphan")
+
+
+class MouVersion(Base):
+    __tablename__ = "mou_versions"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    mou_id = Column(String, ForeignKey("mous.id"), nullable=False, index=True)
+    version_number = Column(Integer, nullable=False, default=1)
+    document_path = Column(String(500), nullable=True)
+    document_checksum = Column(String(64), nullable=True)
+    version_type = Column(Enum(MouVersionType), default=MouVersionType.ORIGINAL)
+    change_summary = Column(Text, nullable=True)
+    uploaded_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    mou = relationship("Mou", back_populates="versions")
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+
+
+class MouPartner(Base):
+    __tablename__ = "mou_partners"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    organisation_name = Column(String(300), nullable=False)
+    organisation_type = Column(Enum(MouPartnerType), nullable=True)
+    country = Column(String(5), nullable=True)
+    region = Column(String(100), nullable=True)
+    city = Column(String(100), nullable=True)
+    website = Column(String(300), nullable=True)
+    accreditation_status = Column(String(100), nullable=True)
+    partnership_tier = Column(Enum(MouPartnerTier), default=MouPartnerTier.ACTIVE)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    institution = relationship("Institution")
+    contacts = relationship("MouPartnerContact", back_populates="partner", cascade="all, delete-orphan")
+    participants = relationship("MouParticipant", back_populates="partner")
+    communications = relationship("MouCommunication", back_populates="partner")
+
+
+class MouPartnerContact(Base):
+    __tablename__ = "mou_partner_contacts"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    partner_id = Column(String, ForeignKey("mou_partners.id"), nullable=False, index=True)
+    mou_id = Column(String, ForeignKey("mous.id"), nullable=True)
+    full_name = Column(String(200), nullable=False)
+    title = Column(String(100), nullable=True)
+    email = Column(String(200), nullable=True)
+    phone = Column(String(50), nullable=True)
+    orcid_id = Column(String(100), nullable=True)
+    is_primary = Column(Boolean, default=False)
+    role_at_partner = Column(String(200), nullable=True)
+
+    partner = relationship("MouPartner", back_populates="contacts")
+
+
+class MouParticipant(Base):
+    __tablename__ = "mou_participants"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    mou_id = Column(String, ForeignKey("mous.id"), nullable=False, index=True)
+    partner_id = Column(String, ForeignKey("mou_partners.id"), nullable=False)
+    role = Column(Enum(MouParticipantRole), default=MouParticipantRole.CO_SIGNATORY)
+    signatory_name = Column(String(200), nullable=True)
+    signatory_title = Column(String(200), nullable=True)
+    signed_date = Column(Date, nullable=True)
+
+    mou = relationship("Mou", back_populates="participants")
+    partner = relationship("MouPartner", back_populates="participants")
+
+
+class MouCommunication(Base):
+    __tablename__ = "mou_communications"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    mou_id = Column(String, ForeignKey("mous.id"), nullable=False, index=True)
+    partner_id = Column(String, ForeignKey("mou_partners.id"), nullable=True)
+    communication_type = Column(Enum(MouCommunicationType), default=MouCommunicationType.OTHER)
+    date = Column(Date, nullable=True)
+    summary = Column(Text, nullable=True)
+    outcome = Column(Text, nullable=True)
+    next_action = Column(Text, nullable=True)
+    logged_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    mou = relationship("Mou", back_populates="communications")
+    partner = relationship("MouPartner", back_populates="communications")
+    logged_by = relationship("User", foreign_keys=[logged_by_id])
+
+
+class MouApprovalStage(Base):
+    __tablename__ = "mou_approval_stages"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    mou_id = Column(String, ForeignKey("mous.id"), nullable=False, index=True)
+    stage_type = Column(Enum(MouApprovalStageType), nullable=False)
+    stage_order = Column(Integer, nullable=False, default=1)
+    assigned_to_id = Column(String, ForeignKey("users.id"), nullable=True)
+    status = Column(Enum(MouApprovalStageStatus), default=MouApprovalStageStatus.PENDING)
+    comments = Column(Text, nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    decided_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    sla_days = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    mou = relationship("Mou", back_populates="approval_stages")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    decided_by = relationship("User", foreign_keys=[decided_by_id])
+
+
+class MouActivity(Base):
+    __tablename__ = "mou_activities"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    mou_id = Column(String, ForeignKey("mous.id"), nullable=False, index=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text, nullable=True)
+    activity_type = Column(Enum(MouActivityType), default=MouActivityType.OTHER)
+    assigned_to_id = Column(String, ForeignKey("users.id"), nullable=True)
+    planned_start_date = Column(Date, nullable=True)
+    planned_end_date = Column(Date, nullable=True)
+    status = Column(Enum(MouActivityStatus), default=MouActivityStatus.PLANNED)
+    completion_percentage = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    mou = relationship("Mou", back_populates="activities")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+
+
+class MouBudget(Base):
+    __tablename__ = "mou_budgets"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    mou_id = Column(String, ForeignKey("mous.id"), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    currency = Column(String(3), default="KES")
+    committed_by_institution = Column(Float, default=0)
+    committed_by_partner = Column(Float, default=0)
+    total_budget = Column(Float, default=0)
+    status = Column(Enum(MouBudgetStatus), default=MouBudgetStatus.DRAFT)
+    approved_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    mou = relationship("Mou", back_populates="budgets")
+    approved_by = relationship("User", foreign_keys=[approved_by_id])
+
+
+class MouComplianceItem(Base):
+    __tablename__ = "mou_compliance_items"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    mou_id = Column(String, ForeignKey("mous.id"), nullable=False, index=True)
+    check_type = Column(String(200), nullable=False)
+    required = Column(Boolean, default=True)
+    status = Column(Enum(MouComplianceStatus), default=MouComplianceStatus.PENDING)
+    notes = Column(Text, nullable=True)
+    verified_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+
+    mou = relationship("Mou", back_populates="compliance_items")
+    verified_by = relationship("User", foreign_keys=[verified_by_id])

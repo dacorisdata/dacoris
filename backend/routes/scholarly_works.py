@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/public/works", tags=["scholarly-works"])
 # ==================== RESPONSE MODELS ====================
 
 class AuthorPublic(BaseModel):
-    id: int
+    id: str
     author_name: str
     author_position: int
     is_corresponding: bool
@@ -28,7 +28,7 @@ class AuthorPublic(BaseModel):
 
 
 class InstitutionPublic(BaseModel):
-    id: int
+    id: str
     institution_name: str
     institution_country: Optional[str]
     institution_type: Optional[str]
@@ -38,7 +38,7 @@ class InstitutionPublic(BaseModel):
 
 
 class FunderPublic(BaseModel):
-    id: int
+    id: str
     funder_name: str
     funder_country: Optional[str]
     grant_number: Optional[str]
@@ -50,7 +50,7 @@ class FunderPublic(BaseModel):
 
 
 class ScholarlyWorkPublic(BaseModel):
-    id: int
+    id: str
     title: str
     abstract: Optional[str]
     publication_year: Optional[int]
@@ -563,7 +563,7 @@ async def list_works(
 
 
 @router.get("/{work_id}", response_model=ScholarlyWorkPublic)
-async def get_work(work_id: int, db: AsyncSession = Depends(get_db)):
+async def get_work(work_id: str, db: AsyncSession = Depends(get_db)):
     """Get single work details - FAIR: Accessible, Interoperable"""
     result = await db.execute(
         select(ScholarlyWork)

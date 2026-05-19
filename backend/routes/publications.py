@@ -21,16 +21,16 @@ router = APIRouter(prefix="/api/publications", tags=["publications"])
 class LibraryCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    parent_id: Optional[int] = None
+    parent_id: Optional[str] = None
     is_folder: bool = False
     is_default: bool = False
 
 
 class LibraryResponse(BaseModel):
-    id: int
+    id: str
     name: str
     description: Optional[str]
-    parent_id: Optional[int]
+    parent_id: Optional[str]
     is_folder: bool
     is_default: bool
     publication_count: int
@@ -41,11 +41,11 @@ class LibraryResponse(BaseModel):
 
 class LibraryUpdate(BaseModel):
     name: Optional[str] = None
-    parent_id: Optional[int] = None
+    parent_id: Optional[str] = None
 
 
 class PublicationCreate(BaseModel):
-    library_id: int
+    library_id: str
     title: str
     authors: str
     journal: Optional[str] = None
@@ -69,12 +69,13 @@ class PublicationUpdate(BaseModel):
     starred: Optional[bool] = None
     tags: Optional[str] = None
     notes: Optional[str] = None
-    library_id: Optional[int] = None
+    library_id: Optional[str] = None
 
 
 class PublicationResponse(BaseModel):
-    id: int
-    library_id: int
+    id: str
+    library_id: str
+    library_name: Optional[str] = None
     title: str
     authors: str
     journal: Optional[str]
@@ -97,7 +98,7 @@ class PublicationResponse(BaseModel):
 
 
 class AISummaryRequest(BaseModel):
-    publication_id: int
+    publication_id: str
 
 
 class PubMedSearchRequest(BaseModel):
@@ -196,7 +197,7 @@ async def get_libraries(
 
 @router.patch("/libraries/{library_id}", response_model=LibraryResponse)
 async def update_library(
-    library_id: int,
+    library_id: str,
     update: LibraryUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -254,7 +255,7 @@ async def update_library(
 
 @router.delete("/libraries/{library_id}")
 async def delete_library(
-    library_id: int,
+    library_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -333,12 +334,14 @@ async def create_publication(
 
 @router.get("", response_model=List[PublicationResponse])
 async def get_publications(
-    library_id: Optional[int] = None,
+    library_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get all publications for current user, optionally filtered by library"""
-    stmt = select(Publication).join(PublicationLibrary).where(
+    stmt = select(Publication).join(
+        PublicationLibrary, Publication.library_id == PublicationLibrary.id
+    ).where(
         PublicationLibrary.user_id == current_user.id
     )
     
@@ -348,12 +351,43 @@ async def get_publications(
     stmt = stmt.order_by(Publication.created_at.desc())
     result = await db.execute(stmt)
     publications = result.scalars().all()
-    return publications
+    
+    # Fetch all libraries to build hierarchy
+    libs_result = await db.execute(
+        select(PublicationLibrary).where(PublicationLibrary.user_id == current_user.id)
+    )
+    all_libraries = {lib.id: lib for lib in libs_result.scalars().all()}
+    
+    # Helper function to build full path
+    def get_library_path(lib_id):
+        if lib_id not in all_libraries:
+            return "Uncategorized"
+        
+        path = []
+        current = all_libraries[lib_id]
+        while current:
+            path.insert(0, current.name)
+            if current.parent_id and current.parent_id in all_libraries:
+                current = all_libraries[current.parent_id]
+            else:
+                break
+        return " > ".join(path)
+    
+    # Transform results to include library_name with full path
+    result_list = []
+    for pub in publications:
+        pub_dict = {
+            **{c.name: getattr(pub, c.name) for c in pub.__table__.columns},
+            'library_name': get_library_path(pub.library_id)
+        }
+        result_list.append(pub_dict)
+    
+    return result_list
 
 
 @router.get("/{publication_id}", response_model=PublicationResponse)
 async def get_publication(
-    publication_id: int,
+    publication_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -374,7 +408,7 @@ async def get_publication(
 
 @router.patch("/{publication_id}", response_model=PublicationResponse)
 async def update_publication(
-    publication_id: int,
+    publication_id: str,
     update: PublicationUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -414,7 +448,7 @@ async def update_publication(
 
 @router.delete("/{publication_id}")
 async def delete_publication(
-    publication_id: int,
+    publication_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -442,7 +476,7 @@ async def delete_publication(
 
 @router.post("/{publication_id}/ai-summary")
 async def generate_ai_summary(
-    publication_id: int,
+    publication_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

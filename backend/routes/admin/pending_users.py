@@ -13,7 +13,7 @@ from services.notification_service import NotificationService
 router = APIRouter(prefix="/api/institution-admin/pending-users", tags=["institution-admin"])
 
 class PendingUserResponse(BaseModel):
-    id: int
+    id: str
     email: str
     name: str
     department: Optional[str]
@@ -28,15 +28,15 @@ class PendingUserResponse(BaseModel):
         from_attributes = True
 
 class ApproveUserRequest(BaseModel):
-    user_id: int
+    user_id: str
     roles: Optional[List[str]] = None
 
 class RejectUserRequest(BaseModel):
-    user_id: int
+    user_id: str
     reason: Optional[str] = None
 
 class AssignRoleRequest(BaseModel):
-    user_id: int
+    user_id: str
     role: str
 
 @router.get("/", response_model=List[PendingUserResponse])
@@ -83,7 +83,7 @@ async def get_pending_users(
 
 @router.get("/{user_id}", response_model=PendingUserResponse)
 async def get_pending_user(
-    user_id: int,
+    user_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):

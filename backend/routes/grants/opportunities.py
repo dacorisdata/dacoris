@@ -32,7 +32,7 @@ class OpportunityCreate(BaseModel):
 
 
 class OpportunityOut(BaseModel):
-    id: int
+    id: str
     title: str
     sponsor: Optional[str]
     description: Optional[str]
@@ -192,7 +192,7 @@ async def get_opportunities_from_excel(
 
 @router.get("/{opp_id}", response_model=OpportunityOut)
 async def get_opportunity(
-    opp_id: int,
+    opp_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.GRANT_OFFICER, ResearchRole.PRINCIPAL_INVESTIGATOR,
@@ -213,7 +213,7 @@ async def get_opportunity(
 
 @router.patch("/{opp_id}/status")
 async def update_opportunity_status(
-    opp_id: int,
+    opp_id: str,
     status: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.GRANT_OFFICER]))
@@ -232,7 +232,7 @@ async def update_opportunity_status(
 
 @router.delete("/{opp_id}")
 async def delete_opportunity(
-    opp_id: int,
+    opp_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -556,7 +556,7 @@ async def mock_external_api():
 
 @router.patch("/{opportunity_id}/curate")
 async def toggle_curation(
-    opportunity_id: int,
+    opportunity_id: str,
     curate: bool = Query(..., description="True to publish, False to unpublish"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -612,7 +612,7 @@ async def bulk_curate_opportunities(
 
 @router.post("/{opportunity_id}/bookmark")
 async def bookmark_opportunity(
-    opportunity_id: int,
+    opportunity_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -652,7 +652,7 @@ async def bookmark_opportunity(
 
 @router.delete("/{opportunity_id}/bookmark")
 async def remove_bookmark(
-    opportunity_id: int,
+    opportunity_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

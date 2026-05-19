@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import {
   Box, Typography, Button, TextField, Dialog, DialogContent, DialogTitle, DialogActions,
-  Paper, IconButton, Menu, MenuItem, Divider, Tooltip,
+  Paper, IconButton, Menu, MenuItem, Divider, Tooltip, Select, FormControl, InputLabel,
+  Autocomplete,
 } from '@mui/material';
 import {
   Folder as FolderIcon, FolderOpen as FolderOpenIcon, LibraryBooks as LibraryIcon,
@@ -207,6 +208,26 @@ export default function LibraryManagerDialog({
                   onKeyPress={(e) => e.key === 'Enter' && createLibrary(newFolderParent, newFolderParent !== null)}
                   sx={{ mb: 1 }}
                 />
+                <Autocomplete
+                  size="small"
+                  options={[{ id: null, name: 'Root Level', isFolder: false }, ...libraries]}
+                  value={libraries.find(lib => lib.id === newFolderParent) || { id: null, name: 'Root Level', isFolder: false }}
+                  onChange={(e, newValue) => setNewFolderParent(newValue?.id || null)}
+                  getOptionLabel={(option) => option.name || ''}
+                  renderOption={(props, option) => (
+                    <Box component="li" {...props} sx={{ fontSize: 13 }}>
+                      {option.id === null ? '📂 ' : option.isFolder ? '📁 ' : '📚 '}{option.name}
+                    </Box>
+                  )}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Parent Folder (Optional)"
+                      placeholder="Search or select..."
+                    />
+                  )}
+                  sx={{ mb: 1 }}
+                />
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <Button
                     size="small"
@@ -295,21 +316,36 @@ export default function LibraryManagerDialog({
         
         <DialogActions sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
           <Button onClick={onClose} sx={{ textTransform: 'none' }}>
-            Cancel
+            {currentImportPub ? 'Cancel' : 'Close'}
           </Button>
-          <Button
-            variant="contained"
-            onClick={onConfirmImport}
-            disabled={!selectedLibrary}
-            sx={{
-              textTransform: 'none',
-              borderRadius: 2,
-              bgcolor: ACCENT,
-              '&:hover': { bgcolor: '#0e7490' },
-            }}
-          >
-            Import to Selected Library
-          </Button>
+          {currentImportPub ? (
+            <Button
+              variant="contained"
+              onClick={onConfirmImport}
+              disabled={!selectedLibrary}
+              sx={{
+                textTransform: 'none',
+                borderRadius: 2,
+                bgcolor: ACCENT,
+                '&:hover': { bgcolor: '#0e7490' },
+              }}
+            >
+              Import to Selected Library
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              onClick={() => window.location.href = '/researcher/publications'}
+              sx={{
+                textTransform: 'none',
+                borderRadius: 2,
+                bgcolor: ACCENT,
+                '&:hover': { bgcolor: '#0e7490' },
+              }}
+            >
+              Import Publications
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 

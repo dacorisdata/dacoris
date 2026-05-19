@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/grants/awards", tags=["awards"])
 
 
 class AwardCreate(BaseModel):
-    proposal_id: int
+    proposal_id: str
     funder_name: Optional[str] = None
     total_amount: float
     currency: str = "KES"
@@ -34,7 +34,7 @@ class BudgetLineCreate(BaseModel):
 
 
 class BudgetLineSummary(BaseModel):
-    id: int
+    id: str
     category: str
     description: Optional[str] = None
     amount: float
@@ -45,9 +45,9 @@ class BudgetLineSummary(BaseModel):
 
 
 class AwardOut(BaseModel):
-    id: int
+    id: str
     award_number: str
-    proposal_id: int
+    proposal_id: str
     funder_name: Optional[str] = None
     total_amount: float
     currency: str
@@ -59,7 +59,7 @@ class AwardOut(BaseModel):
     proposal_title: Optional[str] = None
     opportunity_title: Optional[str] = None
     opportunity_sponsor: Optional[str] = None
-    project_id: Optional[int] = None
+    project_id: Optional[str] = None
     budget_lines: List[BudgetLineSummary] = []
 
     class Config:
@@ -137,7 +137,7 @@ async def issue_award(
     proposal = await db.get(Proposal, data.proposal_id)
     if not proposal or proposal.institution_id != current_user.primary_institution_id:
         raise HTTPException(404, "Proposal not found")
-    if proposal.status not in [ProposalStatus.UNDER_REVIEW, ProposalStatus.SUBMITTED]:
+    if proposal.status not in [ProposalStatus.UNDER_REVIEW, ProposalStatus.SUBMITTED, ProposalStatus.AWARDED]:
         raise HTTPException(400, f"Proposal in status {proposal.status} cannot be awarded")
 
     award = Award(
@@ -165,9 +165,6 @@ async def issue_award(
     )
     db.add(project)
 
-    await db.commit()
-    await db.refresh(award)
-
     await create_notification(
         db, proposal.lead_pi_id,
         title="🎉 Award issued",
@@ -175,12 +172,15 @@ async def issue_award(
         entity_type="award", entity_id=award.id
     )
 
+    await db.commit()
+    await db.refresh(award)
+
     return _enrich(award)
 
 
 @router.get("/{award_id}", response_model=AwardOut)
 async def get_award(
-    award_id: int,
+    award_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.GRANT_OFFICER, ResearchRole.PRINCIPAL_INVESTIGATOR,
@@ -198,7 +198,7 @@ async def get_award(
 
 @router.post("/{award_id}/budget", status_code=201)
 async def add_budget_lines(
-    award_id: int,
+    award_id: str,
     lines: List[BudgetLineCreate],
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.GRANT_OFFICER]))
@@ -218,7 +218,7 @@ async def add_budget_lines(
 
 @router.get("/{award_id}/budget")
 async def get_budget(
-    award_id: int,
+    award_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.GRANT_OFFICER,

@@ -32,9 +32,9 @@ router = APIRouter(prefix="/api/research/lakehouse-imports", tags=["lakehouse-im
 # ──── Schemas ────────────────────────────────────────────────────────────────
 
 class DataImportCreate(BaseModel):
-    institution_id: int
-    researcher_id: int
-    project_id: Optional[int] = None
+    institution_id: str
+    researcher_id: str
+    project_id: Optional[str] = None
     source_url: Optional[str] = None
     source_type: DataSourceType
     source_tag: str = Field(..., description="Human-readable label for this import")
@@ -46,9 +46,9 @@ class DataImportCreate(BaseModel):
 
 class DataImportResponse(BaseModel):
     id: str
-    institution_id: int
-    researcher_id: int
-    project_id: Optional[int]
+    institution_id: str
+    researcher_id: str
+    project_id: Optional[str]
     source_url: Optional[str]
     source_type: str
     source_tag: str
@@ -219,8 +219,8 @@ async def register_data_import(
 @router.post("/upload-csv", response_model=DataImportResponse, status_code=status.HTTP_201_CREATED)
 async def upload_csv_file(
     file: UploadFile = File(...),
-    institution_id: int = None,
-    project_id: Optional[int] = None,
+    institution_id: str = None,
+    project_id: Optional[str] = None,
     source_tag: str = None,
     description: Optional[str] = None,
     priority: int = 5,
@@ -294,7 +294,7 @@ async def upload_csv_file(
 
 @router.get("", response_model=DataImportListResponse)
 async def list_data_imports(
-    project_id: Optional[int] = None,
+    project_id: Optional[str] = None,
     status_filter: Optional[str] = None,
     source_type: Optional[str] = None,
     page: int = 1,
@@ -433,8 +433,8 @@ async def retry_failed_import(
 @router.post("/upload-excel", response_model=DataImportResponse, status_code=status.HTTP_201_CREATED)
 async def upload_excel_file(
     file: UploadFile = File(...),
-    institution_id: int = None,
-    project_id: Optional[int] = None,
+    institution_id: str = None,
+    project_id: Optional[str] = None,
     source_tag: str = None,
     description: Optional[str] = None,
     priority: int = 5,

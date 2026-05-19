@@ -21,8 +21,8 @@ router = APIRouter(prefix="/api/data/datasets", tags=["data-datasets"])
 class DatasetCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    project_id: Optional[int] = None
-    source_form_id: Optional[int] = None
+    project_id: Optional[str] = None
+    source_form_id: Optional[str] = None
     access_level: str = "restricted"
 
 class DatasetUpdate(BaseModel):
@@ -32,12 +32,12 @@ class DatasetUpdate(BaseModel):
     access_level: Optional[str] = None
 
 class DatasetOut(BaseModel):
-    id: int
+    id: str
     title: str
     description: Optional[str]
-    project_id: Optional[int]
+    project_id: Optional[str]
     project_title: Optional[str] = None
-    source_form_id: Optional[int]
+    source_form_id: Optional[str]
     source_form_title: Optional[str] = None
     status: str
     access_level: str
@@ -141,7 +141,7 @@ async def list_datasets(
 
 @router.get("/{dataset_id}", response_model=DatasetOut)
 async def get_dataset(
-    dataset_id: int,
+    dataset_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.DATA_STEWARD, ResearchRole.PRINCIPAL_INVESTIGATOR,
@@ -159,7 +159,7 @@ async def get_dataset(
 
 @router.patch("/{dataset_id}", response_model=DatasetOut)
 async def update_dataset(
-    dataset_id: int,
+    dataset_id: str,
     payload: DatasetUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
@@ -181,7 +181,7 @@ async def update_dataset(
 
 @router.post("/{dataset_id}/promote-submissions")
 async def promote_submissions(
-    dataset_id: int,
+    dataset_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.DATA_STEWARD]))
 ):
@@ -225,7 +225,7 @@ async def promote_submissions(
 
 @router.get("/{dataset_id}/versions")
 async def list_versions(
-    dataset_id: int,
+    dataset_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.DATA_STEWARD, ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.DATA_ENGINEER

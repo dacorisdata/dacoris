@@ -7,10 +7,11 @@ These endpoints are used by the MinIO ingest service to:
 - Report errors
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 import os
@@ -23,24 +24,26 @@ router = APIRouter(prefix="/api/ingest", tags=["ingest-queue"])
 # ──── Schemas ────────────────────────────────────────────────────────────────
 
 class QueuedImportResponse(BaseModel):
-    import_id: str
-    institution_id: int
-    researcher_id: int
-    project_id: Optional[int]
-    source_url: str
+    import_id: str = Field(alias='id')
+    institution_id: str
+    researcher_id: str
+    project_id: Optional[str]
+    source_url: Optional[str]
     source_type: str
     source_tag: str
     file_name: Optional[str]
     file_format: Optional[str]
-    bronze_path: str
-    bronze_bucket: str
+    bronze_path: Optional[str]
+    bronze_bucket: Optional[str]
     priority: int
-    file_size_estimate: Optional[int]
+    file_size_bytes: Optional[int]
+    status: str = Field(validation_alias='ingest_status')
     created_at: datetime
     retry_count: int
     
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 class QueuedImportsListResponse(BaseModel):
     imports: List[QueuedImportResponse]
@@ -62,28 +65,13 @@ class IngestStatusResponse(BaseModel):
 
 # ──── Authentication ─────────────────────────────────────────────────────────
 
-def verify_ingest_api_key(authorization: str = Header(None)):
+_bearer = HTTPBearer()
+
+def verify_ingest_api_key(credentials: HTTPAuthorizationCredentials = Depends(_bearer)):
     """Verify API key for MinIO ingest service"""
     expected_key = os.getenv("INGEST_API_KEY", "dev-ingest-key-change-in-production")
     
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header"
-        )
-    
-    # Extract token from "Bearer <token>" format
-    try:
-        scheme, token = authorization.split()
-        if scheme.lower() != "bearer":
-            raise ValueError("Invalid scheme")
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization header format. Use: Bearer <token>"
-        )
-    
-    if token != expected_key:
+    if credentials.credentials != expected_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key"

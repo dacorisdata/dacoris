@@ -50,7 +50,7 @@ class MilestoneCreate(BaseModel):
     description: Optional[str] = None
     due_date: Optional[datetime] = None
     priority: str = "medium"
-    assigned_to_id: Optional[int] = None
+    assigned_to_id: Optional[str] = None
 
 
 class MilestoneUpdate(BaseModel):
@@ -66,11 +66,11 @@ class TaskCreate(BaseModel):
     title: str
     due_date: Optional[datetime] = None
     priority: str = "medium"
-    assigned_to_id: Optional[int] = None
+    assigned_to_id: Optional[str] = None
 
 
 class MemberOut(BaseModel):
-    id: int
+    id: str
     role: str
     status: str
     invited_email: Optional[str]
@@ -78,21 +78,21 @@ class MemberOut(BaseModel):
     invited_at: datetime
     joined_at: Optional[datetime]
     user_name: Optional[str] = None
-    user_id: Optional[int] = None
+    user_id: Optional[str] = None
 
     class Config:
         from_attributes = True
 
 
 class MilestoneOut(BaseModel):
-    id: int
+    id: str
     title: str
     description: Optional[str]
     due_date: Optional[datetime]
     completed_at: Optional[datetime]
     status: str
     priority: str
-    assigned_to_id: Optional[int]
+    assigned_to_id: Optional[str]
     assigned_to_name: Optional[str] = None
     task_count: int = 0
     done_count: int = 0
@@ -102,7 +102,7 @@ class MilestoneOut(BaseModel):
 
 
 class DocumentOut(BaseModel):
-    id: int
+    id: str
     document_type: Optional[str]
     original_filename: Optional[str]
     file_size_bytes: Optional[int]
@@ -115,7 +115,7 @@ class DocumentOut(BaseModel):
 
 
 class EthicsBasic(BaseModel):
-    id: int
+    id: str
     title: Optional[str]
     status: str
     application_type: str
@@ -127,14 +127,14 @@ class EthicsBasic(BaseModel):
 
 
 class ProjectOut(BaseModel):
-    id: int
+    id: str
     title: str
     description: Optional[str]
     project_type: str
     status: str
     involves_human_subjects: bool
-    award_id: Optional[int]
-    pi_id: int
+    award_id: Optional[str]
+    pi_id: str
     pi_name: Optional[str] = None
     start_date: Optional[datetime]
     end_date: Optional[datetime]
@@ -234,7 +234,7 @@ async def create_project(
 
 @router.get("/{project_id}")
 async def get_project(
-    project_id: int,
+    project_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.ETHICS_REVIEWER,
@@ -297,7 +297,7 @@ async def get_project(
 
 @router.patch("/{project_id}")
 async def update_project(
-    project_id: int,
+    project_id: str,
     data: ProjectUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
@@ -319,7 +319,7 @@ async def update_project(
 
 @router.get("/{project_id}/members")
 async def list_members(
-    project_id: int,
+    project_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR,
                                                  ResearchRole.GRANT_OFFICER]))
@@ -343,7 +343,7 @@ async def list_members(
 
 @router.post("/{project_id}/members", status_code=201)
 async def invite_member(
-    project_id: int,
+    project_id: str,
     data: MemberInvite,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
@@ -381,8 +381,8 @@ async def invite_member(
 
 @router.delete("/{project_id}/members/{member_id}", status_code=204)
 async def remove_member(
-    project_id: int,
-    member_id: int,
+    project_id: str,
+    member_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
@@ -403,7 +403,7 @@ async def remove_member(
 
 @router.get("/{project_id}/milestones")
 async def list_milestones(
-    project_id: int,
+    project_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
@@ -438,7 +438,7 @@ async def list_milestones(
 
 @router.post("/{project_id}/milestones", status_code=201)
 async def create_milestone(
-    project_id: int,
+    project_id: str,
     data: MilestoneCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
@@ -457,8 +457,8 @@ async def create_milestone(
 
 @router.patch("/{project_id}/milestones/{milestone_id}")
 async def update_milestone(
-    project_id: int,
-    milestone_id: int,
+    project_id: str,
+    milestone_id: str,
     data: MilestoneUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
@@ -483,8 +483,8 @@ async def update_milestone(
 
 @router.post("/{project_id}/milestones/{milestone_id}/tasks", status_code=201)
 async def add_task(
-    project_id: int,
-    milestone_id: int,
+    project_id: str,
+    milestone_id: str,
     data: TaskCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
@@ -500,7 +500,7 @@ async def add_task(
 
 @router.get("/{project_id}/documents")
 async def list_documents(
-    project_id: int,
+    project_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
@@ -528,7 +528,7 @@ async def list_documents(
 
 @router.post("/{project_id}/documents", status_code=201)
 async def upload_document(
-    project_id: int,
+    project_id: str,
     document_type: str = Form("general"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),

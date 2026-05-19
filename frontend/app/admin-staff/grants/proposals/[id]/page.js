@@ -604,6 +604,25 @@ export default function AdminProposalDetailPage() {
         </Box>
       </Paper>
 
+      {/* ── AWARD AMOUNT NOT SET ALERT ───────────────────────── */}
+      {proposal.status === 'awarded' && !proposal.award && (
+        <Alert
+          severity="success"
+          icon={<AwardIcon2 />}
+          sx={{ mb: 3, borderRadius: 2.5, bgcolor: '#10b98111', border: '1px solid #10b98144', '& .MuiAlert-message': { width: '100%' } }}
+          action={
+            <Button size="small" variant="contained"
+              onClick={() => router.push(`/admin-staff/grants/awards/issue?proposal_id=${params.id}`)}
+              sx={{ bgcolor: '#10b981', '&:hover': { bgcolor: '#059669' }, textTransform: 'none', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', ml: 1 }}>
+              Set Award Amount
+            </Button>
+          }
+        >
+          <strong>Proposal marked as Awarded.</strong>
+          {' '}No award amount has been recorded yet. Set the award amount so the researcher can see it.
+        </Alert>
+      )}
+
       {/* ── REVIEWER MISSING ALERT ───────────────────────────── */}
       {reviewerMissing && (
         <Alert
@@ -756,6 +775,56 @@ export default function AdminProposalDetailPage() {
                 </Button>
               )}
             </Box>
+          )}
+
+          {/* Award Details — shown when awarded */}
+          {proposal.status === 'awarded' && proposal.award && (
+            <Paper elevation={0} variant="outlined" sx={{ p: 3, borderRadius: 3, borderColor: '#10b98155', bgcolor: dark ? 'rgba(16,185,129,0.05)' : 'rgba(16,185,129,0.03)' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <AwardIcon2 sx={{ fontSize: 17, color: '#10b981' }} />
+                <Typography sx={{ fontSize: 14, fontWeight: 700, color: '#10b981' }}>Award Issued</Typography>
+                <Chip label={proposal.award.award_number || `AWD-${proposal.award.id}`} size="small"
+                  sx={{ ml: 'auto', bgcolor: '#10b98122', color: '#10b981', fontWeight: 700, fontSize: 10 }} />
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5, mb: 1.5 }}>
+                <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(16,185,129,0.1)' : 'rgba(16,185,129,0.08)' }}>
+                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Total Award</Typography>
+                  <Typography sx={{ fontSize: 16, fontWeight: 800, color: '#10b981' }}>
+                    {proposal.award.currency} {new Intl.NumberFormat().format(proposal.award.total_amount)}
+                  </Typography>
+                </Box>
+                <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(16,185,129,0.1)' : 'rgba(16,185,129,0.08)' }}>
+                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Date Issued</Typography>
+                  <Typography sx={{ fontSize: 13, fontWeight: 700 }}>{fmtDate(proposal.award.issued_at)}</Typography>
+                </Box>
+              </Box>
+              {proposal.award.funder_name && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Funder</Typography>
+                  <Typography sx={{ fontSize: 13 }}>{proposal.award.funder_name}</Typography>
+                </Box>
+              )}
+              {(proposal.award.start_date || proposal.award.end_date) && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Period</Typography>
+                  <Typography sx={{ fontSize: 13 }}>
+                    {fmtDate(proposal.award.start_date)} → {fmtDate(proposal.award.end_date)}
+                  </Typography>
+                </Box>
+              )}
+              {proposal.award.conditions && (
+                <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 1.5, bgcolor: '#fff8e1', border: '1px solid #f59e0b44' }}>
+                  <Typography sx={{ fontSize: 10, color: '#92400e', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, mb: 0.5 }}>Conditions</Typography>
+                  <Typography sx={{ fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>{proposal.award.conditions}</Typography>
+                </Box>
+              )}
+              <Button
+                fullWidth size="small" variant="outlined"
+                onClick={() => router.push(`/admin-staff/grants/awards`)}
+                sx={{ mt: 2, textTransform: 'none', fontSize: 12, borderRadius: 2, borderColor: '#10b98144', color: '#10b981', '&:hover': { borderColor: '#10b981', bgcolor: '#10b98111' } }}>
+                View in Awards Manager
+              </Button>
+            </Paper>
           )}
 
           {/* Research Team */}

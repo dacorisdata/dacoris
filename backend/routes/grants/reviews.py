@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/grants/reviews", tags=["reviews"])
 
 
 class AssignReviewerRequest(BaseModel):
-    reviewer_id: int
+    reviewer_id: str
 
 
 class SubmitReviewRequest(BaseModel):
@@ -28,7 +28,7 @@ class SubmitReviewRequest(BaseModel):
 
 @router.post("/proposals/{proposal_id}/assign")
 async def assign_reviewer(
-    proposal_id: int,
+    proposal_id: str,
     data: AssignReviewerRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.GRANT_OFFICER]))
@@ -65,7 +65,7 @@ async def assign_reviewer(
 
 @router.post("/{review_id}/submit")
 async def submit_review(
-    review_id: int,
+    review_id: str,
     data: SubmitReviewRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
@@ -90,7 +90,7 @@ async def submit_review(
 
 @router.get("/proposals/{proposal_id}")
 async def get_proposal_reviews(
-    proposal_id: int,
+    proposal_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.GRANT_OFFICER]))
 ):

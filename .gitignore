@@ -1,0 +1,60 @@
+# Environment files
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Keep example files
+!.env.production.example
+
+# Docker
+docker-compose.override.yml
+
+# Database backups
+*.sql
+backup_*.sql
+
+# Uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Node
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# SSL Certificates
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+
+# Secrets
+secrets/
+*.secret

@@ -31,7 +31,7 @@ ETHICS_STAGES = [
 
 
 class EthicsCreate(BaseModel):
-    project_id: int
+    project_id: str
     application_type: str = "full_review"
     title: str
     lay_summary: Optional[str] = None
@@ -41,8 +41,8 @@ class EthicsCreate(BaseModel):
 
 
 class EthicsOut(BaseModel):
-    id: int
-    project_id: int
+    id: str
+    project_id: str
     application_type: str
     status: str
     title: Optional[str]
@@ -134,7 +134,7 @@ async def submit_ethics_application(
 
 @router.get("/project/{project_id}")
 async def get_project_ethics(
-    project_id: int,
+    project_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.ETHICS_REVIEWER
@@ -151,7 +151,7 @@ async def get_project_ethics(
 
 @router.post("/{app_id}/documents", status_code=201)
 async def upload_ethics_document(
-    app_id: int,
+    app_id: str,
     document_type: str = Form("protocol"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -185,7 +185,7 @@ async def upload_ethics_document(
 
 @router.patch("/{app_id}/decision")
 async def update_ethics_decision(
-    app_id: int,
+    app_id: str,
     target_status: EthicsStatus,
     decision_notes: Optional[str] = None,
     approved_until: Optional[datetime] = None,

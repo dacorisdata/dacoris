@@ -31,9 +31,9 @@ class DataSourceUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 class DataSourceResponse(BaseModel):
-    id: int
-    institution_id: int
-    researcher_id: int
+    id: str
+    institution_id: str
+    researcher_id: str
     name: str
     source_type: str
     url: Optional[str]
@@ -107,7 +107,7 @@ async def create_data_source(
 
 @router.put("/{source_id}", response_model=DataSourceResponse)
 async def update_data_source(
-    source_id: int,
+    source_id: str,
     payload: DataSourceUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -129,7 +129,7 @@ async def update_data_source(
 
 @router.post("/{source_id}/sync", response_model=DataSourceResponse)
 async def sync_data_source(
-    source_id: int,
+    source_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -149,7 +149,7 @@ async def sync_data_source(
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_data_source(
-    source_id: int,
+    source_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

@@ -19,7 +19,7 @@ class RoleAssignment(BaseModel):
     primary_account_type: Optional[str] = None
 
 class UserResponse(BaseModel):
-    id: int
+    id: str
     email: str
     name: Optional[str]
     account_type: str
@@ -158,7 +158,7 @@ async def list_pending_users(
 
 @router.post("/users/{user_id}/approve")
 async def approve_user(
-    user_id: int,
+    user_id: str,
     approval: UserApproval,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_institution_admin)
@@ -204,7 +204,7 @@ async def approve_user(
 
 @router.post("/users/{user_id}/reject")
 async def reject_user(
-    user_id: int,
+    user_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_institution_admin)
 ):
@@ -241,7 +241,7 @@ async def reject_user(
 
 @router.post("/users/{user_id}/roles")
 async def assign_roles(
-    user_id: int,
+    user_id: str,
     role_data: RoleAssignment,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_institution_admin)
@@ -308,7 +308,7 @@ async def assign_roles(
 
 @router.get("/users/{user_id}/roles")
 async def get_user_roles(
-    user_id: int,
+    user_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_institution_admin)
 ):

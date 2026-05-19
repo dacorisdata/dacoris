@@ -21,7 +21,7 @@ _PRESENCE_TTL = 30  # seconds
 class OutputCreate(BaseModel):
     title: str
     output_type: str = "journal_article"
-    project_id: Optional[int] = None
+    project_id: Optional[str] = None
     abstract: Optional[str] = None
     doi: Optional[str] = None
     year: Optional[int] = None
@@ -40,19 +40,19 @@ class OutputUpdate(BaseModel):
 
 
 class OutputOut(BaseModel):
-    id: int
+    id: str
     title: str
     output_type: str
-    project_id: Optional[int]
+    project_id: Optional[str]
     abstract: Optional[str]
     doi: Optional[str]
     year: Optional[int]
     journal_name: Optional[str]
     status: str
     version: int
-    created_by_id: int
+    created_by_id: str
     created_by_name: Optional[str] = None
-    last_edited_by_id: Optional[int]
+    last_edited_by_id: Optional[str]
     last_edited_by_name: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime]
@@ -93,7 +93,7 @@ def _serialize_output(o: ResearchOutput) -> dict:
 
 @router.get("", response_model=List[OutputOut])
 async def list_outputs(
-    project_id: Optional[int] = None,
+    project_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
@@ -137,7 +137,7 @@ async def create_output(
 
 @router.get("/{output_id}")
 async def get_output(
-    output_id: int,
+    output_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
@@ -157,7 +157,7 @@ async def get_output(
 
 @router.patch("/{output_id}")
 async def update_output(
-    output_id: int,
+    output_id: str,
     data: OutputUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
@@ -178,7 +178,7 @@ async def update_output(
 
 @router.delete("/{output_id}", status_code=204)
 async def delete_output(
-    output_id: int,
+    output_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
@@ -194,7 +194,7 @@ async def delete_output(
 
 @router.post("/{output_id}/presence")
 async def register_presence(
-    output_id: int,
+    output_id: str,
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
     now = datetime.now(timezone.utc).timestamp()
@@ -215,7 +215,7 @@ async def register_presence(
 
 @router.get("/{output_id}/presence")
 async def get_presence(
-    output_id: int,
+    output_id: str,
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
     now = datetime.now(timezone.utc).timestamp()

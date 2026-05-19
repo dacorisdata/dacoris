@@ -363,11 +363,14 @@ export default function PublicationsPage() {
   };
 
   const confirmImport = async () => {
-    if (!selectedLibrary || !currentImportPub) return;
+    if (!selectedLibrary || !currentImportPub) {
+      setSnackbar({ open: true, message: 'Please select a library or folder first', severity: 'warning' });
+      return;
+    }
     
     try {
       const token = localStorage.getItem('token');
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/publications`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/publications`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -379,17 +382,25 @@ export default function PublicationsPage() {
         }),
       });
       
+      if (!response.ok) {
+        throw new Error('Failed to import publication');
+      }
+      
       // Update local state - add publication to library
       setLibrary(prev => [...prev, currentImportPub]);
       setLibraries(libs => libs.map(lib => 
         lib.id === selectedLibrary ? { ...lib, publications: [...lib.publications, currentImportPub] } : lib
       ));
       
+      // Get the library/folder name for the confirmation message
+      const selectedLib = libraries.find(lib => lib.id === selectedLibrary);
+      const libName = selectedLib?.name || 'library';
+      
       setLibraryDialogOpen(false);
       setCurrentImportPub(null);
       setSelectedLibrary(null);
       setSelectedFolder(null);
-      setSnackbar({ open: true, message: 'Publication imported successfully!', severity: 'success' });
+      setSnackbar({ open: true, message: `Publication imported to "${libName}" successfully!`, severity: 'success' });
     } catch (error) {
       console.error('Import error:', error);
       setSnackbar({ open: true, message: 'Failed to import publication', severity: 'error' });
@@ -412,12 +423,21 @@ export default function PublicationsPage() {
         }),
       });
       
-      if (response.ok) {
-        await fetchLibraries(); // Refresh libraries list
+      // Always refresh libraries to show the created item
+      await fetchLibraries();
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Error creating library:', errorData);
+        setSnackbar({ open: true, message: errorData.detail || 'Failed to create library', severity: 'error' });
+      } else {
+        setSnackbar({ open: true, message: `${isFolder ? 'Folder' : 'Library'} created successfully`, severity: 'success' });
       }
     } catch (error) {
       console.error('Error creating library:', error);
-      alert('Failed to create library');
+      // Still refresh to check if it was created
+      await fetchLibraries();
+      setSnackbar({ open: true, message: 'Network error, but item may have been created', severity: 'warning' });
     }
   };
 

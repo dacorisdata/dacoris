@@ -725,6 +725,53 @@ export default function ProposalWorkspacePage() {
           );
         })()}
 
+        {/* ── Award Details Card ── */}
+        {proposal.status === 'awarded' && proposal.award && (() => {
+          const aw = proposal.award;
+          const fmtNum = v => v ? new Intl.NumberFormat().format(v) : '—';
+          const fmtD = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+          return (
+            <Paper variant="outlined" sx={{ p: 2.5, mb: 2, borderRadius: 2.5, borderColor: '#10b98155', bgcolor: 'rgba(16,185,129,0.04)' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography sx={{ fontSize: 18 }}>🏆</Typography>
+                  <Typography sx={{ fontSize: 14, fontWeight: 800, color: '#10b981' }}>Award Details</Typography>
+                </Box>
+                <Chip label={aw.award_number || `AWD-${aw.id}`} size="small"
+                  sx={{ bgcolor: '#10b98122', color: '#10b981', fontWeight: 700, fontSize: 10.5 }} />
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 1.5, mb: aw.conditions ? 2 : 0 }}>
+                <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.08)' }}>
+                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Total Award</Typography>
+                  <Typography sx={{ fontSize: 18, fontWeight: 800, color: '#10b981' }}>{aw.currency} {fmtNum(aw.total_amount)}</Typography>
+                </Box>
+                {aw.funder_name && (
+                  <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.08)' }}>
+                    <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Funder</Typography>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{aw.funder_name}</Typography>
+                  </Box>
+                )}
+                {(aw.start_date || aw.end_date) && (
+                  <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.08)' }}>
+                    <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Period</Typography>
+                    <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{fmtD(aw.start_date)} → {fmtD(aw.end_date)}</Typography>
+                  </Box>
+                )}
+                <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.08)' }}>
+                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Date Awarded</Typography>
+                  <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{fmtD(aw.issued_at)}</Typography>
+                </Box>
+              </Box>
+              {aw.conditions && (
+                <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 1.5, bgcolor: '#fff8e1', border: '1px solid #f59e0b44' }}>
+                  <Typography sx={{ fontSize: 10, color: '#92400e', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, mb: 0.5 }}>Award Conditions</Typography>
+                  <Typography sx={{ fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>{aw.conditions}</Typography>
+                </Box>
+              )}
+            </Paper>
+          );
+        })()}
+
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box sx={{ flex: 1 }}>
             <Typography sx={{ fontSize: 24, fontWeight: 700, mb: 0.5 }}>{proposal.title}</Typography>
