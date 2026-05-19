@@ -2,6 +2,8 @@ services:
   db:
     image: postgres:15-alpine
     container_name: dacoris-db-prod
+    env_file:
+      - .env.production
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -41,6 +43,8 @@ services:
         NEXT_PUBLIC_API_URL: /api
         NEXT_PUBLIC_ORCID_CLIENT_ID: ${ORCID_CLIENT_ID}
     container_name: dacoris-frontend-prod
+    env_file:
+      - .env.production
     environment:
       - NEXT_PUBLIC_API_URL=/api
       - NEXT_PUBLIC_ORCID_CLIENT_ID=${ORCID_CLIENT_ID}
