@@ -310,7 +310,7 @@ class InstitutionCategory(Base):
     id = Column(String, primary_key=True, index=True, default=generate_uuid)
     institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
     category_id = Column(String, ForeignKey("opportunity_categories.id"), nullable=False)
-    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_by = Column(String, ForeignKey("users.id"), nullable=True)
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
     notes = Column(Text, nullable=True)
 
