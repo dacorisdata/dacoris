@@ -584,7 +584,7 @@ async def toggle_curation(
 
 @router.post("/bulk-curate")
 async def bulk_curate_opportunities(
-    opportunity_ids: List[int],
+    opportunity_ids: List[str],
     curate: bool = Query(..., description="True to publish, False to unpublish"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)

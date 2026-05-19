@@ -592,7 +592,7 @@ async def delete_section(
 
 
 class SectionReorder(BaseModel):
-    section_ids: List[int]
+    section_ids: List[str]
 
 
 @router.put("/{proposal_id}/sections/reorder")

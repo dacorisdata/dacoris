@@ -892,7 +892,7 @@ async def import_categories_csv(
 # ═══════════════════════════════════════════════════════════════════════════
 
 class InstitutionCategoryAssign(BaseModel):
-    category_ids: List[int]
+    category_ids: List[str]
     notes: Optional[str] = None
 
 class InstitutionCategoryResponse(BaseModel):
@@ -1032,7 +1032,7 @@ class OpportunityResponse(BaseModel):
         from_attributes = True
 
 class OpportunityCategoryAssign(BaseModel):
-    category_ids: List[int]
+    category_ids: List[str]
 
 @router.get("/opportunities")
 async def list_all_opportunities(
@@ -1184,7 +1184,7 @@ async def remove_category_from_opportunity(
 
 @router.post("/opportunities/bulk-curate")
 async def bulk_curate_opportunities(
-    opportunity_ids: List[int],
+    opportunity_ids: List[str],
     curate: bool = True,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_global_admin)
