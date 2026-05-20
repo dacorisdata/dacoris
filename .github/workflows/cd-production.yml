@@ -24,9 +24,19 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -p 22000 -H 41.89.92.140 >> ~/.ssh/known_hosts
+          
+          # Create SSH config for custom port
+          cat >> ~/.ssh/config << EOF
+          Host 41.89.92.140
+            Port 22000
+            User dacoris
+            IdentityFile ~/.ssh/id_ed25519
+            StrictHostKeyChecking no
+          EOF
+          chmod 600 ~/.ssh/config
       
       - name: Backup database
         if: ${{ !inputs.skip_backup }}
