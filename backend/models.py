@@ -1153,6 +1153,7 @@ class Manuscript(Base):
     # Relationships
     user = relationship("User", back_populates="manuscripts")
     co_authors = relationship("ManuscriptCoAuthor", back_populates="manuscript", cascade="all, delete-orphan")
+    citations = relationship("ManuscriptCitation", back_populates="manuscript", cascade="all, delete-orphan")
 
     @property
     def creator(self):
@@ -1181,6 +1182,26 @@ class ManuscriptCoAuthor(Base):
     
     # Relationship
     manuscript = relationship("Manuscript", back_populates="co_authors")
+
+
+class ManuscriptCitation(Base):
+    __tablename__ = "manuscript_citations"
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    manuscript_id = Column(String, ForeignKey("manuscripts.id"), nullable=False)
+    publication_id = Column(String, ForeignKey("publications.id"), nullable=False)
+    
+    # Citation metadata
+    citation_key = Column(String(100), nullable=False)  # e.g., "Smith2023", "Smith2023a"
+    order = Column(Integer, nullable=False)  # Order of appearance in document
+    citation_style = Column(String(50), default='APA')  # APA, MLA, Chicago, Harvard
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    manuscript = relationship("Manuscript", back_populates="citations")
+    publication = relationship("Publication")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

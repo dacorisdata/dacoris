@@ -6,6 +6,9 @@ import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import Highlight from '@tiptap/extension-highlight';
+import Citation from '@/lib/tiptap-citation-extension';
+import CitationSidebar from '@/components/CitationSidebar';
+import BibliographyManager from '@/components/BibliographyManager';
 import './editor.css';
 import {
   Box, Paper, IconButton, Typography, Avatar, AvatarGroup, Tooltip, Button,
@@ -21,6 +24,7 @@ import {
   FormatListNumbered as NumberedListIcon,
   FormatQuote as QuoteIcon,
   Code as CodeIcon,
+  FormatQuote as CitationIcon,
   Undo as UndoIcon,
   Redo as RedoIcon,
   FormatAlignLeft as AlignLeftIcon,
@@ -52,6 +56,9 @@ export default function ManuscriptEditorPage() {
     { id: 2, name: 'Jane Smith', avatar: 'JS', color: '#3b82f6' },
   ]);
   const [menuAnchor, setMenuAnchor] = useState(null);
+  const [citationSidebarOpen, setCitationSidebarOpen] = useState(false);
+  const [citationStyle, setCitationStyle] = useState('APA');
+  const [citations, setCitations] = useState([]);
 
   const editor = useEditor({
     extensions: [
@@ -63,6 +70,7 @@ export default function ManuscriptEditorPage() {
       Highlight.configure({
         multicolor: true,
       }),
+      Citation,
     ],
     content: '<h1>Start writing your manuscript...</h1><p>Begin typing here.</p>',
     editorProps: {
@@ -74,6 +82,7 @@ export default function ManuscriptEditorPage() {
 
   useEffect(() => {
     fetchManuscript();
+    fetchCitations();
   }, [params.id]);
 
   const fetchManuscript = async () => {
@@ -125,6 +134,68 @@ export default function ManuscriptEditorPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const fetchCitations = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}/citations`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setCitations(data);
+      }
+    } catch (error) {
+      console.error('Error fetching citations:', error);
+    }
+  };
+
+  const handleInsertCitation = (citation) => {
+    if (!editor) return;
+
+    const inlineText = formatInlineCitation(citation);
+    
+    editor
+      .chain()
+      .focus()
+      .insertCitation({
+        citationId: citation.id,
+        citationKey: citation.citation_key,
+        publicationId: citation.publication_id,
+        inlineText: inlineText,
+      })
+      .run();
+
+    setCitations((prev) => [...prev, citation]);
+    setHasUnsavedChanges(true);
+  };
+
+  const formatInlineCitation = (citation) => {
+    const pub = citation.publication;
+    if (!pub) return '[Citation]';
+
+    const style = citationStyle.toUpperCase();
+    const authors = pub.authors || 'Unknown';
+    const year = pub.year || 'n.d.';
+    const lastName = authors.split(';')[0].split(',')[0].trim();
+
+    if (style === 'APA') {
+      return `(${lastName}, ${year})`;
+    } else if (style === 'MLA') {
+      return `(${lastName})`;
+    } else if (style === 'CHICAGO') {
+      return `[${citation.order}]`;
+    } else if (style === 'HARVARD') {
+      return `(${lastName} ${year})`;
+    }
+
+    return `[${citation.order}]`;
   };
 
   // Track content changes
@@ -461,6 +532,22 @@ export default function ManuscriptEditorPage() {
             <DividerIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Box>
+
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+        {/* Citations */}
+        <Tooltip title="Toggle Citation Library">
+          <IconButton
+            size="small"
+            onClick={() => setCitationSidebarOpen(!citationSidebarOpen)}
+            sx={{ 
+              bgcolor: citationSidebarOpen ? `${ACCENT}20` : 'transparent',
+              color: citationSidebarOpen ? ACCENT : 'inherit',
+            }}
+          >
+            <CitationIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
       </Paper>
 
       {/* Editor Content */}
@@ -513,6 +600,25 @@ export default function ManuscriptEditorPage() {
           Share & Collaborate
         </MenuItem>
       </Menu>
+
+      {/* Citation Sidebar */}
+      <CitationSidebar
+        open={citationSidebarOpen}
+        onClose={() => setCitationSidebarOpen(false)}
+        manuscriptId={params.id}
+        onInsertCitation={handleInsertCitation}
+        citationStyle={citationStyle}
+        onStyleChange={setCitationStyle}
+        existingCitations={citations}
+      />
+
+      {/* Bibliography Manager */}
+      <BibliographyManager
+        editor={editor}
+        manuscriptId={params.id}
+        citationStyle={citationStyle}
+        citations={citations}
+      />
     </Box>
   );
 }

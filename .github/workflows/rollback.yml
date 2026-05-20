@@ -1,0 +1,100 @@
+name: Rollback Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to rollback'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  BACKEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/dacoris-backend
+  FRONTEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/dacoris-frontend
+  NGINX_IMAGE: ${{ secrets.DOCKER_USERNAME }}/dacoris-nginx
+
+jobs:
+  rollback:
+    name: Rollback ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+            echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/id_rsa
+            HOST="${{ secrets.PRODUCTION_HOST }}"
+            USER="${{ secrets.PRODUCTION_USER }}"
+            URL="${{ secrets.PRODUCTION_URL }}"
+          else
+            echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_rsa
+            HOST="${{ secrets.STAGING_HOST }}"
+            USER="${{ secrets.STAGING_USER }}"
+            URL="${{ secrets.STAGING_URL }}"
+          fi
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H $HOST >> ~/.ssh/known_hosts
+          echo "SSH_HOST=$HOST" >> $GITHUB_ENV
+          echo "SSH_USER=$USER" >> $GITHUB_ENV
+          echo "HEALTH_URL=$URL" >> $GITHUB_ENV
+      
+      - name: Perform rollback
+        run: |
+          ssh ${{ env.SSH_USER }}@${{ env.SSH_HOST }} '
+            cd /home/dacoris
+            
+            echo "🔄 Starting rollback process..."
+            
+            # Restore previous docker-compose
+            if [ -f docker-compose.yml.backup ]; then
+              mv docker-compose.yml.backup docker-compose.yml
+              echo "✅ Restored previous docker-compose.yml"
+            else
+              echo "⚠️  No backup docker-compose.yml found"
+            fi
+            
+            # Rollback to previous images
+            docker tag ${{ env.BACKEND_IMAGE }}:rollback ${{ env.BACKEND_IMAGE }}:latest || echo "No rollback tag for backend"
+            docker tag ${{ env.FRONTEND_IMAGE }}:rollback ${{ env.FRONTEND_IMAGE }}:latest || echo "No rollback tag for frontend"
+            docker tag ${{ env.NGINX_IMAGE }}:rollback ${{ env.NGINX_IMAGE }}:latest || echo "No rollback tag for nginx"
+            
+            # Restart with previous version
+            docker-compose down
+            docker-compose up -d
+            
+            echo "✅ Rollback completed"
+          '
+      
+      - name: Verify rollback
+        run: |
+          sleep 20
+          max_attempts=5
+          attempt=1
+          
+          while [ $attempt -le $max_attempts ]; do
+            response=$(curl -s -o /dev/null -w "%{http_code}" ${{ env.HEALTH_URL }}/api/health || echo "000")
+            if [ "$response" = "200" ]; then
+              echo "✅ Rollback successful! Application is healthy."
+              exit 0
+            fi
+            echo "Attempt $attempt/$max_attempts: Health check returned $response. Retrying..."
+            sleep 10
+            attempt=$((attempt + 1))
+          done
+          
+          echo "❌ Rollback verification failed - application not responding"
+          exit 1
+      
+      - name: Notify rollback status
+        if: always()
+        uses: 8398a7/action-slack@v3
+        continue-on-error: true
+        with:
+          status: ${{ job.status }}
+          text: 'Rollback of ${{ github.event.inputs.environment }} ${{ job.status }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}

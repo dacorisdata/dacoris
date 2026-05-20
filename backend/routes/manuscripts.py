@@ -8,9 +8,15 @@ from datetime import datetime
 import json
 
 from database import get_db
-from models import User, Manuscript, ManuscriptCoAuthor, NotificationType, NotificationPriority
+from models import User, Manuscript, ManuscriptCoAuthor, ManuscriptCitation, Publication, PublicationLibrary, NotificationType, NotificationPriority
 from auth import get_current_user
 from services.notification_service import NotificationService
+from services.citation_service import (
+    format_inline_citation,
+    format_bibliography_entry,
+    generate_bibliography,
+    generate_citation_key
+)
 
 router = APIRouter(prefix="/api/manuscripts", tags=["manuscripts"])
 
@@ -45,6 +51,29 @@ class CoAuthorResponse(BaseModel):
 
 class CoAuthorUpdate(BaseModel):
     role: Optional[str] = None
+
+
+class CitationCreate(BaseModel):
+    publication_id: str
+    citation_style: Optional[str] = 'APA'
+
+
+class CitationResponse(BaseModel):
+    id: str
+    manuscript_id: str
+    publication_id: str
+    citation_key: str
+    order: int
+    citation_style: str
+    created_at: datetime
+    publication: Optional[dict] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class CitationReorder(BaseModel):
+    citation_orders: List[dict]  # [{"citation_id": "...", "order": 1}, ...]
 
 
 class CreatorResponse(BaseModel):
@@ -387,3 +416,286 @@ async def remove_co_author(
     await db.commit()
     
     return {"message": "Co-author removed successfully"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CITATION ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.post("/{manuscript_id}/citations", response_model=CitationResponse)
+async def add_citation(
+    manuscript_id: str,
+    citation: CitationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a citation to a manuscript"""
+    # Verify manuscript belongs to user
+    result = await db.execute(
+        select(Manuscript).where(
+            Manuscript.id == manuscript_id,
+            Manuscript.user_id == current_user.id
+        )
+    )
+    manuscript = result.scalar_one_or_none()
+    
+    if not manuscript:
+        raise HTTPException(status_code=404, detail="Manuscript not found")
+    
+    # Verify publication exists and belongs to user
+    pub_result = await db.execute(
+        select(Publication).join(PublicationLibrary).where(
+            Publication.id == citation.publication_id,
+            PublicationLibrary.user_id == current_user.id
+        )
+    )
+    publication = pub_result.scalar_one_or_none()
+    
+    if not publication:
+        raise HTTPException(status_code=404, detail="Publication not found")
+    
+    # Check if citation already exists
+    existing = await db.execute(
+        select(ManuscriptCitation).where(
+            ManuscriptCitation.manuscript_id == manuscript_id,
+            ManuscriptCitation.publication_id == citation.publication_id
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Citation already exists")
+    
+    # Get existing citation keys to avoid duplicates
+    existing_citations = await db.execute(
+        select(ManuscriptCitation).where(
+            ManuscriptCitation.manuscript_id == manuscript_id
+        )
+    )
+    existing_keys = [c.citation_key for c in existing_citations.scalars().all()]
+    
+    # Generate unique citation key
+    citation_key = generate_citation_key(
+        publication.authors or "Unknown",
+        publication.year or 0,
+        existing_keys
+    )
+    
+    # Get next order number
+    max_order_result = await db.execute(
+        select(ManuscriptCitation).where(
+            ManuscriptCitation.manuscript_id == manuscript_id
+        ).order_by(ManuscriptCitation.order.desc())
+    )
+    max_citation = max_order_result.scalar_one_or_none()
+    next_order = (max_citation.order + 1) if max_citation else 1
+    
+    # Create citation
+    new_citation = ManuscriptCitation(
+        manuscript_id=manuscript_id,
+        publication_id=citation.publication_id,
+        citation_key=citation_key,
+        order=next_order,
+        citation_style=citation.citation_style or 'APA'
+    )
+    db.add(new_citation)
+    await db.commit()
+    await db.refresh(new_citation)
+    
+    # Attach publication data
+    response = CitationResponse.from_orm(new_citation)
+    response.publication = {
+        'id': publication.id,
+        'title': publication.title,
+        'authors': publication.authors,
+        'year': publication.year,
+        'journal': publication.journal,
+        'doi': publication.doi
+    }
+    
+    return response
+
+
+@router.get("/{manuscript_id}/citations", response_model=List[CitationResponse])
+async def get_citations(
+    manuscript_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all citations for a manuscript"""
+    # Verify manuscript belongs to user
+    result = await db.execute(
+        select(Manuscript).where(
+            Manuscript.id == manuscript_id,
+            Manuscript.user_id == current_user.id
+        )
+    )
+    manuscript = result.scalar_one_or_none()
+    
+    if not manuscript:
+        raise HTTPException(status_code=404, detail="Manuscript not found")
+    
+    # Get citations with publications
+    citations_result = await db.execute(
+        select(ManuscriptCitation).where(
+            ManuscriptCitation.manuscript_id == manuscript_id
+        ).order_by(ManuscriptCitation.order)
+    )
+    citations = citations_result.scalars().all()
+    
+    # Fetch publications
+    responses = []
+    for citation in citations:
+        pub_result = await db.execute(
+            select(Publication).where(Publication.id == citation.publication_id)
+        )
+        publication = pub_result.scalar_one_or_none()
+        
+        response = CitationResponse.from_orm(citation)
+        if publication:
+            response.publication = {
+                'id': publication.id,
+                'title': publication.title,
+                'authors': publication.authors,
+                'year': publication.year,
+                'journal': publication.journal,
+                'doi': publication.doi
+            }
+        responses.append(response)
+    
+    return responses
+
+
+@router.delete("/{manuscript_id}/citations/{citation_id}")
+async def delete_citation(
+    manuscript_id: str,
+    citation_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a citation from a manuscript"""
+    # Verify manuscript belongs to user
+    result = await db.execute(
+        select(Manuscript).where(
+            Manuscript.id == manuscript_id,
+            Manuscript.user_id == current_user.id
+        )
+    )
+    manuscript = result.scalar_one_or_none()
+    
+    if not manuscript:
+        raise HTTPException(status_code=404, detail="Manuscript not found")
+    
+    # Get citation
+    citation_result = await db.execute(
+        select(ManuscriptCitation).where(
+            ManuscriptCitation.id == citation_id,
+            ManuscriptCitation.manuscript_id == manuscript_id
+        )
+    )
+    citation = citation_result.scalar_one_or_none()
+    
+    if not citation:
+        raise HTTPException(status_code=404, detail="Citation not found")
+    
+    await db.delete(citation)
+    await db.commit()
+    
+    return {"message": "Citation deleted successfully"}
+
+
+@router.patch("/{manuscript_id}/citations/reorder")
+async def reorder_citations(
+    manuscript_id: str,
+    reorder: CitationReorder,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Reorder citations in a manuscript"""
+    # Verify manuscript belongs to user
+    result = await db.execute(
+        select(Manuscript).where(
+            Manuscript.id == manuscript_id,
+            Manuscript.user_id == current_user.id
+        )
+    )
+    manuscript = result.scalar_one_or_none()
+    
+    if not manuscript:
+        raise HTTPException(status_code=404, detail="Manuscript not found")
+    
+    # Update citation orders
+    for item in reorder.citation_orders:
+        citation_id = item.get('citation_id')
+        new_order = item.get('order')
+        
+        if citation_id and new_order is not None:
+            await db.execute(
+                update(ManuscriptCitation)
+                .where(
+                    ManuscriptCitation.id == citation_id,
+                    ManuscriptCitation.manuscript_id == manuscript_id
+                )
+                .values(order=new_order)
+            )
+    
+    await db.commit()
+    
+    return {"message": "Citations reordered successfully"}
+
+
+@router.get("/{manuscript_id}/bibliography")
+async def get_bibliography(
+    manuscript_id: str,
+    style: Optional[str] = 'APA',
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate formatted bibliography for a manuscript"""
+    # Verify manuscript belongs to user
+    result = await db.execute(
+        select(Manuscript).where(
+            Manuscript.id == manuscript_id,
+            Manuscript.user_id == current_user.id
+        )
+    )
+    manuscript = result.scalar_one_or_none()
+    
+    if not manuscript:
+        raise HTTPException(status_code=404, detail="Manuscript not found")
+    
+    # Get citations with publications
+    citations_result = await db.execute(
+        select(ManuscriptCitation).where(
+            ManuscriptCitation.manuscript_id == manuscript_id
+        ).order_by(ManuscriptCitation.order)
+    )
+    citations = citations_result.scalars().all()
+    
+    # Build citation data with publications
+    citation_data = []
+    for citation in citations:
+        pub_result = await db.execute(
+            select(Publication).where(Publication.id == citation.publication_id)
+        )
+        publication = pub_result.scalar_one_or_none()
+        
+        if publication:
+            citation_data.append({
+                'order': citation.order,
+                'citation_key': citation.citation_key,
+                'publication': {
+                    'title': publication.title,
+                    'authors': publication.authors,
+                    'year': publication.year,
+                    'journal': publication.journal,
+                    'doi': publication.doi
+                }
+            })
+    
+    # Generate bibliography HTML
+    bibliography_html = generate_bibliography(citation_data, style or 'APA')
+    
+    return {
+        'html': bibliography_html,
+        'style': style,
+        'citation_count': len(citation_data)
+    }

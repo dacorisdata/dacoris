@@ -1,0 +1,194 @@
+name: CD - Deploy to Production
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  REGISTRY: docker.io
+  BACKEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/dacoris-backend
+  FRONTEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/dacoris-frontend
+  NGINX_IMAGE: ${{ secrets.DOCKER_USERNAME }}/dacoris-nginx
+
+jobs:
+  deploy-production:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ secrets.PRODUCTION_URL }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.event.release.tag_name }}
+      
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.PRODUCTION_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Backup current deployment
+        run: |
+          ssh ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }} '
+            cd /home/dacoris
+            
+            # Create backup directory
+            mkdir -p /var/backups/dacoris
+            
+            # Backup database
+            docker exec dacoris-db-prod pg_dump -U postgres dacoris | gzip > /var/backups/dacoris/pre-deploy-$(date +%Y%m%d_%H%M%S).sql.gz || echo "Database backup failed"
+            
+            # Save current docker-compose for rollback
+            cp docker-compose.yml docker-compose.yml.backup || echo "No previous docker-compose.yml"
+            
+            # Tag current images for rollback
+            docker tag ${{ env.BACKEND_IMAGE }}:latest ${{ env.BACKEND_IMAGE }}:rollback || true
+            docker tag ${{ env.FRONTEND_IMAGE }}:latest ${{ env.FRONTEND_IMAGE }}:rollback || true
+            docker tag ${{ env.NGINX_IMAGE }}:latest ${{ env.NGINX_IMAGE }}:rollback || true
+          '
+      
+      - name: Copy deployment files
+        run: |
+          scp docker-compose.prod.yml ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }}:/home/dacoris/docker-compose.yml
+          scp -r nginx ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }}:/home/dacoris/
+      
+      - name: Create environment file
+        run: |
+          ssh ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }} '
+            cat > /home/dacoris/.env.production << EOF
+          PORT=8000
+          FRONTEND_URL=${{ secrets.PRODUCTION_URL }}
+          
+          DB_USER=postgres
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_NAME=dacoris
+          DATABASE_URL=postgresql+asyncpg://postgres:${{ secrets.DB_PASSWORD }}@db:5432/dacoris
+          
+          JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+          JWT_ALGORITHM=HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES=30
+          ADMIN_SESSION_EXPIRE_MINUTES=480
+          
+          ORCID_CLIENT_ID=${{ secrets.ORCID_CLIENT_ID }}
+          ORCID_CLIENT_SECRET=${{ secrets.ORCID_CLIENT_SECRET }}
+          ORCID_REDIRECT_URI=${{ secrets.PRODUCTION_URL }}/api/auth/orcid/callback
+          ORCID_SANDBOX_MODE=false
+          ORCID_API_BASE_URL=https://orcid.org
+          
+          GLOBAL_ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+          UPLOAD_DIR=/app/uploads
+          MAX_FILE_SIZE_MB=50
+          NOTIFICATION_MODE=email
+          
+          SMTP_HOST=${{ secrets.SMTP_HOST }}
+          SMTP_PORT=${{ secrets.SMTP_PORT }}
+          SMTP_USER=${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}
+          FROM_EMAIL="${{ secrets.FROM_EMAIL }}"
+          
+          KOBO_API_BASE_URL=https://kf.kobotoolbox.org/api/v2
+          
+          MINIO_ACCESS_KEY=${{ secrets.MINIO_ACCESS_KEY }}
+          MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY }}
+          MINIO_BRONZE_BUCKET=dacoris-bronze
+          MINIO_USE_SSL=false
+          INGEST_API_KEY=${{ secrets.INGEST_API_KEY }}
+          MINIO_INGEST_URL=${{ secrets.MINIO_INGEST_URL }}
+          EOF
+          '
+      
+      - name: Deploy application
+        run: |
+          ssh ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }} '
+            cd /home/dacoris
+            
+            # Login to Docker Hub
+            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+            
+            # Pull latest images
+            docker pull ${{ env.BACKEND_IMAGE }}:latest
+            docker pull ${{ env.FRONTEND_IMAGE }}:latest
+            docker pull ${{ env.NGINX_IMAGE }}:latest
+            
+            # Deploy with zero-downtime rolling update
+            docker-compose up -d --no-deps backend
+            sleep 15
+            docker-compose up -d --no-deps frontend
+            sleep 10
+            docker-compose up -d --no-deps nginx
+            
+            # Run database migrations
+            docker exec dacoris-backend-prod alembic upgrade head
+            
+            # Clean up old containers and images
+            docker system prune -f
+          '
+      
+      - name: Health check
+        run: |
+          sleep 30
+          max_attempts=10
+          attempt=1
+          
+          while [ $attempt -le $max_attempts ]; do
+            response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.PRODUCTION_URL }}/api/health || echo "000")
+            if [ "$response" = "200" ]; then
+              echo "✅ Production deployment successful!"
+              exit 0
+            fi
+            echo "Attempt $attempt/$max_attempts: Health check returned $response. Retrying..."
+            sleep 15
+            attempt=$((attempt + 1))
+          done
+          
+          echo "❌ Health check failed after $max_attempts attempts"
+          exit 1
+      
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "🔄 Rolling back deployment..."
+          ssh ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }} '
+            cd /home/dacoris
+            
+            # Restore previous docker-compose
+            if [ -f docker-compose.yml.backup ]; then
+              mv docker-compose.yml.backup docker-compose.yml
+            fi
+            
+            # Rollback to previous images
+            docker tag ${{ env.BACKEND_IMAGE }}:rollback ${{ env.BACKEND_IMAGE }}:latest
+            docker tag ${{ env.FRONTEND_IMAGE }}:rollback ${{ env.FRONTEND_IMAGE }}:latest
+            docker tag ${{ env.NGINX_IMAGE }}:rollback ${{ env.NGINX_IMAGE }}:latest
+            
+            # Restart with previous version
+            docker-compose down
+            docker-compose up -d
+          '
+          echo "❌ Deployment failed and rolled back"
+      
+      - name: Notify deployment status
+        if: always()
+        uses: 8398a7/action-slack@v3
+        continue-on-error: true
+        with:
+          status: ${{ job.status }}
+          text: 'Production deployment ${{ job.status }} - Version: ${{ github.event.inputs.version || github.event.release.tag_name }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      
+      - name: Create deployment record
+        if: success()
+        run: |
+          echo "✅ Deployment successful at $(date)" >> deployment-log.txt
+          echo "Version: ${{ github.event.inputs.version || github.event.release.tag_name }}" >> deployment-log.txt
+          echo "Commit: $(git rev-parse HEAD)" >> deployment-log.txt

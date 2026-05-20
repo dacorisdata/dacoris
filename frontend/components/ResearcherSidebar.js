@@ -64,15 +64,7 @@ const NAV_SECTIONS = [
     section: 'Data Collection',
     items: [
       { icon: FormsIcon,    label: 'Data Import',   path: '/researcher/data/import' },
-      { icon: DatasetsIcon, label: 'Data Sources',  path: '/researcher/data/sources' },
       { icon: Storage,      label: 'Data Lakes',    path: '/researcher/data/lakes' },
-    ],
-  },
-  {
-    section: 'Collaboration',
-    items: [
-      { icon: CollabIcon, label: 'My Teams',    path: '/researcher/collaborations' },
-      { icon: InviteIcon, label: 'Invitations', path: '/researcher/collaborations/invitations' },
     ],
   },
 ];
