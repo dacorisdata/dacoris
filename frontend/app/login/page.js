@@ -184,7 +184,7 @@ function LoginPageContent() {
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
               <BarChart sx={{ fontSize: 28, color: 'primary.main', mt: 0.5 }} />
               <Typography sx={{ fontSize: '1rem', color: 'text.secondary', lineHeight: 1.7 }}>
-                Access real-time dashboards, financial tracking & compliance tools
+                Access real-time dashboard, financial tracking & compliance tools
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
