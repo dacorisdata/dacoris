@@ -199,10 +199,8 @@ class EmailService:
         if user:
             user.email_verified = True
             
-            # Auto-activate researcher accounts upon email verification
-            # Other account types (admin/staff) require admin approval
-            if user.primary_account_type == PrimaryAccountType.RESEARCHER:
-                user.status = UserStatus.ACTIVE
+            # Auto-activate all accounts upon email verification
+            user.status = UserStatus.ACTIVE
         
         await db.commit()
         
