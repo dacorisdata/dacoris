@@ -24,8 +24,17 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/id_ed25519
+          
+          # Write SSH key (preserve newlines)
+          printf '%s\n' "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          
+          # Verify key format
+          echo "🔍 Checking SSH key format..."
+          head -1 ~/.ssh/id_ed25519
+          tail -1 ~/.ssh/id_ed25519
+          
+          # Add host key
           ssh-keyscan -p 22000 -H 41.89.92.140 >> ~/.ssh/known_hosts
           
           # Create SSH config for custom port
@@ -37,6 +46,10 @@ jobs:
             StrictHostKeyChecking no
           EOF
           chmod 600 ~/.ssh/config
+          
+          # Test SSH connection
+          echo "🔐 Testing SSH connection..."
+          ssh -v dacoris@41.89.92.140 'echo "✅ SSH connection successful!"' 2>&1 | tail -20
       
       - name: Backup database
         if: ${{ !inputs.skip_backup }}
