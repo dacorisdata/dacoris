@@ -91,6 +91,12 @@ export const institutionAdminAPI = {
     api.post(`/institution-admin/users/${userId}/approve`),
   rejectUser: (userId) => 
     api.post(`/institution-admin/users/${userId}/reject`),
+  deleteUser: (userId) => 
+    api.delete(`/institution-admin/users/${userId}`),
+  suspendUser: (userId) => 
+    api.post(`/institution-admin/users/${userId}/suspend`),
+  activateUser: (userId) => 
+    api.post(`/institution-admin/users/${userId}/activate`),
   assignRoles: (userId, roles, primary_account_type) =>
     api.post(`/institution-admin/users/${userId}/roles`, { roles, primary_account_type }),
   getUserRoles: (userId) => api.get(`/institution-admin/users/${userId}/roles`),

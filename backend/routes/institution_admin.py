@@ -344,6 +344,126 @@ async def get_user_roles(
     
     return {"user_id": user_id, "roles": roles}
 
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin)
+):
+    """Delete a user from the institution"""
+    if not current_user.primary_institution_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Institution admin must be associated with an institution"
+        )
+    
+    # Get user
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Verify user belongs to same institution
+    if user.primary_institution_id != current_user.primary_institution_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot delete users from other institutions"
+        )
+    
+    # Prevent deleting global or institution admins
+    if user.is_global_admin or user.is_institution_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot delete admin accounts"
+        )
+    
+    # Delete user roles first
+    await db.execute(
+        user_roles.delete().where(user_roles.c.user_id == user_id)
+    )
+    
+    # Delete the user
+    await db.delete(user)
+    await db.commit()
+    
+    return {"message": "User deleted successfully"}
+
+@router.post("/users/{user_id}/suspend")
+async def suspend_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin)
+):
+    """Suspend a user account"""
+    if not current_user.primary_institution_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Institution admin must be associated with an institution"
+        )
+    
+    # Get user
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Verify user belongs to same institution
+    if user.primary_institution_id != current_user.primary_institution_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot manage users from other institutions"
+        )
+    
+    # Update status to suspended
+    user.status = UserStatus.SUSPENDED
+    await db.commit()
+    
+    return {"message": "User suspended successfully", "status": "suspended"}
+
+@router.post("/users/{user_id}/activate")
+async def activate_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin)
+):
+    """Activate a suspended user account"""
+    if not current_user.primary_institution_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Institution admin must be associated with an institution"
+        )
+    
+    # Get user
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Verify user belongs to same institution
+    if user.primary_institution_id != current_user.primary_institution_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot manage users from other institutions"
+        )
+    
+    # Update status to active
+    user.status = UserStatus.ACTIVE
+    await db.commit()
+    
+    return {"message": "User activated successfully", "status": "active"}
+
 @router.get("/roles")
 async def list_roles(
     db: AsyncSession = Depends(get_db),

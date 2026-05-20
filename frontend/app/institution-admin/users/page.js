@@ -12,7 +12,8 @@ import {
 import {
   Search as SearchIcon, ManageAccounts as RoleIcon,
   CheckBox as CheckAllIcon, CheckBoxOutlineBlank as UncheckIcon,
-  AdminPanelSettings as AdminIcon,
+  AdminPanelSettings as AdminIcon, Delete as DeleteIcon,
+  Block as SuspendIcon, CheckCircle as ActivateIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import { institutionAdminAPI } from '../../../lib/api';
@@ -143,6 +144,33 @@ export default function InstitutionAdminUsersPage() {
       await institutionAdminAPI.rejectUser(userId);
       setSuccess('User rejected'); loadData();
     } catch { setError('Failed to reject user'); }
+  };
+
+  const handleDeleteUser = async (userId, userName) => {
+    if (!confirm(`Are you sure you want to delete ${userName}? This action cannot be undone.`)) return;
+    try {
+      await institutionAdminAPI.deleteUser(userId);
+      setSuccess('User deleted successfully'); 
+      loadData();
+    } catch (e) { 
+      setError(e.response?.data?.detail || 'Failed to delete user'); 
+    }
+  };
+
+  const handleSuspendUser = async (userId) => {
+    try {
+      await institutionAdminAPI.suspendUser(userId);
+      setSuccess('User suspended'); 
+      loadData();
+    } catch { setError('Failed to suspend user'); }
+  };
+
+  const handleActivateUser = async (userId) => {
+    try {
+      await institutionAdminAPI.activateUser(userId);
+      setSuccess('User activated'); 
+      loadData();
+    } catch { setError('Failed to activate user'); }
   };
 
   const openRoleDialog = (user) => {
@@ -282,7 +310,7 @@ export default function InstitutionAdminUsersPage() {
                     {u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB') : '—'}
                   </TableCell>
                   <TableCell sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
                       {(u.status === 'PENDING' || u.status === 'pending') && (
                         <>
                           <Button size="small" onClick={() => handleApproveUser(u.id)}
@@ -295,10 +323,36 @@ export default function InstitutionAdminUsersPage() {
                           </Button>
                         </>
                       )}
-                      <Button size="small" startIcon={<RoleIcon sx={{ fontSize: '14px !important' }} />} onClick={() => openRoleDialog(u)}
-                        sx={{ color: '#1ca7a1', textTransform: 'none', fontSize: 12, fontWeight: 600, '&:hover': { bgcolor: 'rgba(28,167,161,0.1)' } }}>
-                        Roles
-                      </Button>
+                      <Tooltip title="Manage Roles">
+                        <IconButton size="small" onClick={() => openRoleDialog(u)}
+                          sx={{ color: '#1ca7a1', '&:hover': { bgcolor: 'rgba(28,167,161,0.1)' } }}>
+                          <RoleIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                      {(u.status === 'ACTIVE' || u.status === 'active') && (
+                        <Tooltip title="Suspend User">
+                          <IconButton size="small" onClick={() => handleSuspendUser(u.id)}
+                            sx={{ color: '#f59e0b', '&:hover': { bgcolor: 'rgba(245,158,11,0.1)' } }}>
+                            <SuspendIcon sx={{ fontSize: 18 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {(u.status === 'SUSPENDED' || u.status === 'suspended') && (
+                        <Tooltip title="Activate User">
+                          <IconButton size="small" onClick={() => handleActivateUser(u.id)}
+                            sx={{ color: '#22c55e', '&:hover': { bgcolor: 'rgba(34,197,94,0.1)' } }}>
+                            <ActivateIcon sx={{ fontSize: 18 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {!u.is_global_admin && !u.is_institution_admin && (
+                        <Tooltip title="Delete User">
+                          <IconButton size="small" onClick={() => handleDeleteUser(u.id, u.name || u.email)}
+                            sx={{ color: '#ef4444', '&:hover': { bgcolor: 'rgba(239,68,68,0.1)' } }}>
+                            <DeleteIcon sx={{ fontSize: 18 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Box>
                   </TableCell>
                 </TableRow>
