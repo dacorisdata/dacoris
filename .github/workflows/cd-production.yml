@@ -26,12 +26,12 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H 41.89.92.140 >> ~/.ssh/known_hosts
+          ssh-keyscan -p 22000 -H 41.89.92.140 >> ~/.ssh/known_hosts
       
       - name: Backup database
         if: ${{ !inputs.skip_backup }}
         run: |
-          ssh dacoris@41.89.92.140 '
+          ssh -p 22000 dacoris@41.89.92.140 '
             cd /home/dacoris
             
             # Create backup directory
@@ -44,7 +44,7 @@ jobs:
       
       - name: Pull latest code
         run: |
-          ssh dacoris@41.89.92.140 '
+          ssh -p 22000 dacoris@41.89.92.140 '
             cd /home/dacoris
             
             echo "📥 Pulling latest code from GitHub..."
@@ -56,7 +56,7 @@ jobs:
       
       - name: Verify environment file
         run: |
-          ssh dacoris@41.89.92.140 '
+          ssh -p 22000 dacoris@41.89.92.140 '
             cd /home/dacoris
             
             if [ ! -f .env.production ]; then
@@ -70,7 +70,7 @@ jobs:
       
       - name: Deploy with Docker Compose
         run: |
-          ssh dacoris@41.89.92.140 '
+          ssh -p 22000 dacoris@41.89.92.140 '
             cd /home/dacoris
             
             echo "🐳 Deploying services with Docker Compose..."
@@ -87,7 +87,7 @@ jobs:
       
       - name: Run database migrations
         run: |
-          ssh dacoris@41.89.92.140 '
+          ssh -p 22000 dacoris@41.89.92.140 '
             cd /home/dacoris
             
             echo "📊 Running database migrations..."
@@ -96,7 +96,7 @@ jobs:
       
       - name: Verify deployment
         run: |
-          ssh dacoris@41.89.92.140 '
+          ssh -p 22000 dacoris@41.89.92.140 '
             cd /home/dacoris
             
             echo "✅ Checking container status..."
@@ -124,14 +124,14 @@ jobs:
           
           echo "❌ Health check failed after $max_attempts attempts"
           echo "📋 Checking logs..."
-          ssh dacoris@41.89.92.140 'cd /home/dacoris && docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=50'
+          ssh -p 22000 dacoris@41.89.92.140 'cd /home/dacoris && docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=50'
           exit 1
       
       - name: Show logs on failure
         if: failure()
         run: |
           echo "❌ Deployment failed. Showing recent logs..."
-          ssh dacoris@41.89.92.140 '
+          ssh -p 22000 dacoris@41.89.92.140 '
             cd /home/dacoris
             echo "=== Backend Logs ==="
             docker compose -f docker-compose.prod.yml --env-file .env.production logs backend --tail=100
