@@ -58,3 +58,9 @@ nginx/ssl/*.crt
 # Secrets
 secrets/
 *.secret
+
+# CI/CD
+.env.staging
+.env.production
+deployment-log.txt
+docker-compose.yml.backup

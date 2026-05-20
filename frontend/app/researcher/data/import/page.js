@@ -266,7 +266,7 @@ export default function DataImportPage() {
         }
         result = await res.json();
       } else if (activeSource === 'kobo_collect') {
-        const koboDataUrl = `${koboServer.replace(/\/$/, '')}/api/v2/assets/${koboAssetUid}/data.csv?format=csv`;
+        const koboDataUrl = `${koboServer.replace(/\/$/, '')}/api/v2/assets/${koboAssetUid}/data/?format=json`;
         const metaJson = JSON.stringify({ server: koboServer, asset_uid: koboAssetUid, api_token: koboToken });
         const res = await fetch('/api/research/lakehouse-imports/register', {
           method: 'POST',
@@ -278,8 +278,8 @@ export default function DataImportPage() {
             source_url: koboDataUrl,
             source_type: 'kobo_collect',
             source_tag: tag,
-            file_name: `${tag}.csv`,
-            file_format: 'csv',
+            file_name: `${tag}.json`,
+            file_format: 'json',
             description: importDesc || null,
             priority,
             metadata_json: metaJson,
@@ -425,7 +425,7 @@ export default function DataImportPage() {
             <Alert severity="success" icon={<SuccessIcon />} sx={{ borderRadius: 2 }}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>Ready to register</Typography>
               <Typography variant="caption">
-                Endpoint: {koboServer.replace(/\/$/, '')}/api/v2/assets/{koboAssetUid}/data.csv
+                Endpoint: {koboServer.replace(/\/$/, '')}/api/v2/assets/{koboAssetUid}/data/?format=json
               </Typography>
             </Alert>
           )}
