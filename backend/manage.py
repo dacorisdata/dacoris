@@ -101,7 +101,9 @@ def reset_admin_password(email, password):
                 click.echo(f"Error: User {email} is not an admin account")
                 return
             
-            user.password_hash = pwd_context.hash(password)
+            password_bytes = password.encode('utf-8')
+            salt = bcrypt.gensalt()
+            user.password_hash = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
             await session.commit()
             
             click.echo(f"[OK] Password reset successfully for {email}")
