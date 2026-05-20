@@ -25,7 +25,7 @@ sudo su - dacoris
 ### 2. Navigate to Production Directory
 
 ```bash
-cd /home/dacoris/production
+cd /home/dacoris
 ```
 
 ### 3. Pull Latest Code from GitHub
@@ -82,7 +82,7 @@ Visit **http://41.89.92.140** and do a hard refresh:
 ```bash
 ssh adminuser@41.89.92.140
 sudo su - dacoris
-cd /home/dacoris/production
+cd /home/dacoris
 ```
 
 ### Step 2: Backup Database (Recommended)
@@ -213,7 +213,7 @@ Create a quick deployment script:
 
 ```bash
 # Create deploy script
-cat > /home/dacoris/production/deploy.sh << 'EOF'
+cat > /home/dacoris/deploy.sh << 'EOF'
 #!/bin/bash
 set -e
 
@@ -253,7 +253,7 @@ echo "🌐 Visit: http://41.89.92.140"
 EOF
 
 # Make executable
-chmod +x /home/dacoris/production/deploy.sh
+chmod +x /home/dacoris/deploy.sh
 ```
 
 **Run deployment:**
@@ -478,7 +478,7 @@ For issues or questions:
 
 ```bash
 # Full deployment
-cd /home/dacoris/production
+cd /home/dacoris
 git pull origin main
 docker compose -f docker-compose.prod.yml down
 docker compose -f docker-compose.prod.yml up -d --build

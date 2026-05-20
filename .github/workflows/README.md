@@ -25,75 +25,42 @@ This directory contains all CI/CD workflows for the DACORIS project.
 
 ---
 
-### 2. CD Staging Workflow (`cd-staging.yml`)
+### 2. CD Production Workflow (`cd-production.yml`)
 
-**Purpose**: Continuous Deployment to staging environment
+**Purpose**: Continuous Deployment to production server (41.89.92.140)
 
 **Triggers**:
 - Automatic: Push to `main` branch
-- Manual: Workflow dispatch
+- Manual: Workflow dispatch (with optional skip backup)
 
 **Jobs**:
-- **deploy-staging**: Deploy to staging server
+- **deploy-production**: Deploy to production server using git pull and docker compose
 
 **Steps**:
-1. SSH to staging server
-2. Create environment file
-3. Pull latest Docker images
-4. Deploy containers
-5. Run database migrations
-6. Health check
-7. Notify on Slack (optional)
-
-**Duration**: ~3-5 minutes
-
-**Required Secrets**:
-- `DOCKER_USERNAME`, `DOCKER_PASSWORD`
-- `STAGING_HOST`, `STAGING_USER`, `STAGING_SSH_KEY`, `STAGING_URL`
-- `DB_PASSWORD`, `JWT_SECRET_KEY`
-- `ORCID_CLIENT_ID`, `ORCID_CLIENT_SECRET`
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`
-- `ADMIN_EMAIL`, `FROM_EMAIL`
-
----
-
-### 3. CD Production Workflow (`cd-production.yml`)
-
-**Purpose**: Continuous Deployment to production environment
-
-**Triggers**:
-- Automatic: When a release is published
-- Manual: Workflow dispatch with version input
-
-**Jobs**:
-- **deploy-production**: Deploy to production server with rollback on failure
-
-**Steps**:
-1. Backup current deployment and database
-2. Tag current images for rollback
-3. SSH to production server
-4. Create environment file
-5. Pull latest Docker images
-6. Deploy with zero-downtime rolling update
-7. Run database migrations
+1. Set up SSH connection to server
+2. Backup database (unless skipped)
+3. Pull latest code from GitHub (`git pull origin main`)
+4. Verify `.env.production` file exists on server
+5. Deploy with Docker Compose (`docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build`)
+6. Run database migrations
+7. Verify deployment (check container status)
 8. Health check (with retries)
-9. Rollback on failure
-10. Notify on Slack (optional)
+9. Show logs on failure
 
-**Duration**: ~5-10 minutes
+**Duration**: ~5-10 minutes (depending on build time)
 
 **Required Secrets**:
-- All secrets from staging
-- `PRODUCTION_HOST`, `PRODUCTION_USER`, `PRODUCTION_SSH_KEY`, `PRODUCTION_URL`
-- `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `INGEST_API_KEY`, `MINIO_INGEST_URL`
+- `PRODUCTION_SSH_KEY`: SSH private key for dacoris@41.89.92.140
 
-**Environment Protection**:
-- Requires manual approval (recommended)
-- Production environment configured in repository settings
+**Important Notes**:
+- `.env.production` must already exist on the server at `/home/dacoris/.env.production`
+- Code is built directly on the server (not pulled from Docker Hub)
+- Database is preserved during deployment
+- Application URL: http://41.89.92.140
 
 ---
 
-### 4. Rollback Workflow (`rollback.yml`)
+### 3. Rollback Workflow (`rollback.yml`)
 
 **Purpose**: Rollback to previous deployment
 
@@ -150,7 +117,6 @@ Add these badges to your README.md:
 
 ```markdown
 ![CI](https://github.com/yourusername/dacoris/workflows/CI%20-%20Test%20and%20Build/badge.svg)
-![CD Staging](https://github.com/yourusername/dacoris/workflows/CD%20-%20Deploy%20to%20Staging/badge.svg)
 ![CD Production](https://github.com/yourusername/dacoris/workflows/CD%20-%20Deploy%20to%20Production/badge.svg)
 ```
 
@@ -192,12 +158,15 @@ Add these badges to your README.md:
 
 ## Workflow Customization
 
-### Adding New Environments
+### Deployment Process
 
-1. Create new workflow file (e.g., `cd-development.yml`)
-2. Copy from existing workflow
-3. Update environment name and secrets
-4. Add environment in repository settings
+The production deployment follows these principles:
+
+1. **Git-based deployment**: Code is pulled directly from GitHub on the server
+2. **Local builds**: Docker images are built on the production server
+3. **Environment file**: `.env.production` is managed manually on the server (not in git)
+4. **Database preservation**: Database volume is never deleted during deployment
+5. **Health checks**: Automatic verification after deployment
 
 ### Modifying Deployment Steps
 
@@ -246,8 +215,9 @@ Example: Add email notifications
 ### SSH Security
 
 - ✅ Use SSH keys (not passwords)
-- ✅ Different keys for each environment
-- ✅ Restrict SSH access by IP
+- ✅ SSH key stored in GitHub Secrets as `PRODUCTION_SSH_KEY`
+- ✅ SSH user: `dacoris@41.89.92.140`
+- ✅ Restrict SSH access by IP (recommended)
 - ✅ Monitor SSH logs
 
 ---
@@ -300,6 +270,7 @@ Check for updates to GitHub Actions:
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
 - [Workflow Syntax](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions)
 - [GitHub Actions Marketplace](https://github.com/marketplace?type=actions)
+- [Deployment Guide](../../.guides/DEPLOY_WITH_DOCKER_COMPOSE.md)
 - [DACORIS CI/CD Setup Guide](../../CICD_SETUP_GUIDE.md)
 
 ---

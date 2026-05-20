@@ -190,7 +190,7 @@ function LoginPageContent() {
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
               <LinkIcon sx={{ fontSize: 28, color: 'primary.main', mt: 0.5 }} />
               <Typography sx={{ fontSize: '1rem', color: 'text.secondary', lineHeight: 1.7 }}>
-                Integrated with ORCID, Web of Science, HR & Finance systems
+                Integrated with ORCID, HR & Finance systems
               </Typography>
             </Box>
           </Box>
