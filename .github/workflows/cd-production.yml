@@ -24,32 +24,39 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           
-          # Write SSH key (preserve newlines)
-          printf '%s\n' "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/id_ed25519
+          # Write SSH key
+          cat > ~/.ssh/id_ed25519 << 'EOF'
+          ${{ secrets.PRODUCTION_SSH_KEY }}
+          EOF
           chmod 600 ~/.ssh/id_ed25519
           
           # Verify key format
-          echo "🔍 Checking SSH key format..."
+          echo "🔍 SSH key first line:"
           head -1 ~/.ssh/id_ed25519
+          echo "🔍 SSH key last line:"
           tail -1 ~/.ssh/id_ed25519
+          echo "🔍 SSH key line count:"
+          wc -l ~/.ssh/id_ed25519
           
           # Add host key
-          ssh-keyscan -p 22000 -H 41.89.92.140 >> ~/.ssh/known_hosts
+          ssh-keyscan -p 22000 -H 41.89.92.140 >> ~/.ssh/known_hosts 2>/dev/null
           
-          # Create SSH config for custom port
-          cat >> ~/.ssh/config << EOF
+          # Create SSH config
+          cat > ~/.ssh/config << 'EOF'
           Host 41.89.92.140
             Port 22000
             User dacoris
             IdentityFile ~/.ssh/id_ed25519
             StrictHostKeyChecking no
+            UserKnownHostsFile ~/.ssh/known_hosts
           EOF
           chmod 600 ~/.ssh/config
           
-          # Test SSH connection
+          # Test SSH connection with verbose output
           echo "🔐 Testing SSH connection..."
-          ssh -v dacoris@41.89.92.140 'echo "✅ SSH connection successful!"' 2>&1 | tail -20
+          ssh -vvv dacoris@41.89.92.140 'echo "✅ Connected!"' 2>&1 | grep -E "(debug1|Offering|Authentications|Permission)" || true
       
       - name: Backup database
         if: ${{ !inputs.skip_backup }}
