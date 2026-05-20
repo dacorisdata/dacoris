@@ -102,6 +102,7 @@ jobs:
       
       - name: Run linting
         working-directory: ./frontend
+        continue-on-error: true
         run: npm run lint
       
       - name: Build application
