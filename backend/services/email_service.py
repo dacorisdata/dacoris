@@ -39,7 +39,7 @@ class EmailService:
         smtp_user = os.getenv("SMTP_USER")
         smtp_password = os.getenv("SMTP_PASSWORD")
         from_email = os.getenv("FROM_EMAIL", smtp_user)
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost")
+        frontend_url = os.getenv("FRONTEND_URL", "https://rims.dacoris.com")
         
         if not smtp_user or not smtp_password:
             print("ERROR: SMTP credentials not configured")
