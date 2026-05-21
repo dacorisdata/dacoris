@@ -1,18 +1,29 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import Highlight from '@tiptap/extension-highlight';
+import FontFamily from '@tiptap/extension-font-family';
+import FontSize from 'tiptap-extension-font-size';
+import TextStyle from '@tiptap/extension-text-style';
 import Citation from '@/lib/tiptap-citation-extension';
+import Comment from '@/lib/tiptap-comment-extension';
+import PageBreak from '@/lib/tiptap-pagebreak-extension';
 import CitationSidebar from '@/components/CitationSidebar';
 import BibliographyManager from '@/components/BibliographyManager';
+import CommentSidebar from '@/components/CommentSidebar';
+import CommentForm from '@/components/CommentForm';
+import PagedEditor from '@/components/PagedEditor';
+import DocumentOutline from '@/components/DocumentOutline';
+import { PAGE_SIZE_OPTIONS, DEFAULT_PAGE_SIZE } from '@/lib/page-config';
 import './editor.css';
 import {
   Box, Paper, IconButton, Typography, Avatar, AvatarGroup, Tooltip, Button,
   Divider, ToggleButtonGroup, ToggleButton, Menu, MenuItem, useTheme,
+  Select, FormControl, Snackbar, Alert, MenuList, ListItemIcon, ListItemText,
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
@@ -37,6 +48,20 @@ import {
   Highlight as HighlightIcon,
   HorizontalRule as DividerIcon,
   MoreVert as MoreIcon,
+  Comment as CommentIcon,
+  AddComment as AddCommentIcon,
+  Edit as RenameIcon,
+  ContentCut as CutIcon,
+  ContentCopy as CopyIcon,
+  ContentPaste as PasteIcon,
+  Image as ImageIcon,
+  TableChart as TableIcon,
+  Link as LinkIcon,
+  History as VersionIcon,
+  KeyboardArrowDown as ArrowDownIcon,
+  InsertPageBreak as PageBreakIcon,
+  Description as PageSizeIcon,
+  FormatClear as ParagraphIcon,
 } from '@mui/icons-material';
 
 const ACCENT = '#1ca7a1';
@@ -56,14 +81,64 @@ export default function ManuscriptEditorPage() {
     { id: 2, name: 'Jane Smith', avatar: 'JS', color: '#3b82f6' },
   ]);
   const [menuAnchor, setMenuAnchor] = useState(null);
+  
+  // Menu bar anchors
+  const [fileMenuAnchor, setFileMenuAnchor] = useState(null);
+  const [editMenuAnchor, setEditMenuAnchor] = useState(null);
+  const [insertMenuAnchor, setInsertMenuAnchor] = useState(null);
+  const [formatMenuAnchor, setFormatMenuAnchor] = useState(null);
+  const [toolsMenuAnchor, setToolsMenuAnchor] = useState(null);
+  
   const [citationSidebarOpen, setCitationSidebarOpen] = useState(false);
   const [citationStyle, setCitationStyle] = useState('APA');
   const [citations, setCitations] = useState([]);
+  
+  // Comment state
+  const [comments, setComments] = useState([]);
+  const [commentFilter, setCommentFilter] = useState('all');
+  const [commentSidebarOpen, setCommentSidebarOpen] = useState(false);
+  const [showCommentForm, setShowCommentForm] = useState(false);
+  const [commentFormPosition, setCommentFormPosition] = useState({ top: 0, left: 0 });
+  const [selectedText, setSelectedText] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [collaborators, setCollaborators] = useState([]); // For @mentions
+  
+  // Page settings
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageCount, setPageCount] = useState(1);
+  
+  // Document outline
+  const [outlineOpen, setOutlineOpen] = useState(true);
+  
+  // Snackbar state
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+  // Handle comment deletion when text is deleted
+  const handleCommentDeletedFromText = useCallback(async (commentId) => {
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}/comments/${commentId}`,
+        {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }
+      );
+      setComments(prev => prev.filter(c => c.id !== commentId));
+    } catch (error) {
+      console.error('Error deleting comment:', error);
+    }
+  }, [params.id]);
 
   const editor = useEditor({
     extensions: [
       StarterKit,
       Underline,
+      TextStyle,
+      FontFamily.configure({
+        types: ['textStyle'],
+      }),
+      FontSize,
       TextAlign.configure({
         types: ['heading', 'paragraph'],
       }),
@@ -71,8 +146,23 @@ export default function ManuscriptEditorPage() {
         multicolor: true,
       }),
       Citation,
+      Comment.configure({
+        onCommentDeleted: handleCommentDeletedFromText,
+        onCommentClick: (commentId) => {
+          // Open sidebar and scroll to comment
+          setCommentSidebarOpen(true);
+          // Small delay to ensure sidebar is rendered
+          setTimeout(() => {
+            const commentElement = document.querySelector(`[data-comment-id="${commentId}"]`);
+            if (commentElement) {
+              commentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }, 100);
+        },
+      }),
+      PageBreak,
     ],
-    content: '<h1>Start writing your manuscript...</h1><p>Begin typing here.</p>',
+    content: '',
     editorProps: {
       attributes: {
         class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto focus:outline-none',
@@ -83,37 +173,299 @@ export default function ManuscriptEditorPage() {
   useEffect(() => {
     fetchManuscript();
     fetchCitations();
+    fetchComments();
+    fetchCurrentUser();
+    
+    // Load page size preference
+    const savedPageSize = localStorage.getItem('manuscript-page-size');
+    if (savedPageSize && PAGE_SIZE_OPTIONS.find(opt => opt.value === savedPageSize)) {
+      setPageSize(savedPageSize);
+    }
+    
+    // Load outline preference
+    const savedOutlineOpen = localStorage.getItem('manuscript-outline-open');
+    if (savedOutlineOpen !== null) {
+      setOutlineOpen(savedOutlineOpen === 'true');
+    }
   }, [params.id]);
+
+  // Set editor content when both editor and manuscript are ready
+  useEffect(() => {
+    if (editor && manuscript && manuscript.content) {
+      console.log('📝 Setting editor content from manuscript:', manuscript.content.length, 'characters');
+      editor.commands.setContent(manuscript.content);
+    }
+  }, [editor, manuscript]);
+
+  const fetchCurrentUser = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/users/me`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentUser(data);
+      }
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+    }
+  };
+
+  const fetchComments = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}/comments`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setComments(data);
+      }
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+    }
+  };
+
+  const handleAddComment = async (content) => {
+    if (!selectedText) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}/comments`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            content,
+            quoted_text: selectedText.text,
+            selection_start: selectedText.from,
+            selection_end: selectedText.to,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const newComment = await response.json();
+        setComments([...comments, newComment]);
+        
+        // Add comment mark to editor with comment text for tooltip
+        if (editor) {
+          const commentPreview = content.length > 50 ? content.substring(0, 50) + '...' : content;
+          editor.chain()
+            .focus()
+            .setTextSelection({ from: selectedText.from, to: selectedText.to })
+            .setComment(newComment.id, commentPreview)
+            .run();
+        }
+        
+        setShowCommentForm(false);
+        setSelectedText(null);
+      }
+    } catch (error) {
+      console.error('Error adding comment:', error);
+    }
+  };
+
+  const handleReplyComment = async (parentCommentId, content) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}/comments`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            content,
+            parent_comment_id: parentCommentId,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const newComment = await response.json();
+        setComments([...comments, newComment]);
+      }
+    } catch (error) {
+      console.error('Error replying to comment:', error);
+    }
+  };
+
+  const handleResolveComment = async (commentId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}/comments/${commentId}/resolve`,
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        setComments(comments.map(c => 
+          c.id === commentId ? { ...c, is_resolved: result.is_resolved } : c
+        ));
+        
+        // Update comment mark in editor
+        if (editor) {
+          editor.commands.updateCommentResolved(commentId, result.is_resolved);
+        }
+      }
+    } catch (error) {
+      console.error('Error resolving comment:', error);
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}/comments/${commentId}`,
+        {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }
+      );
+
+      if (response.ok) {
+        setComments(comments.filter(c => c.id !== commentId));
+        
+        // Remove comment mark from editor
+        if (editor) {
+          editor.commands.removeCommentMark(commentId);
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting comment:', error);
+    }
+  };
+
+  const handleTextSelection = useCallback(() => {
+    if (!editor) return;
+
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      setSelectedText(null);
+      return;
+    }
+
+    const text = editor.state.doc.textBetween(from, to, ' ');
+    if (text.trim()) {
+      setSelectedText({ from, to, text });
+    }
+  }, [editor]);
+
+  const handleShowCommentForm = () => {
+    if (!selectedText) return;
+
+    // Position the comment form near the selection
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      setCommentFormPosition({
+        top: rect.bottom + window.scrollY + 10,
+        left: rect.left + window.scrollX,
+      });
+    }
+
+    setShowCommentForm(true);
+  };
+
+  // Track text selection
+  useEffect(() => {
+    if (!editor) return;
+
+    editor.on('selectionUpdate', handleTextSelection);
+    return () => {
+      editor.off('selectionUpdate', handleTextSelection);
+    };
+  }, [editor, handleTextSelection]);
 
   const fetchManuscript = async () => {
     try {
+      console.log('📖 Fetching manuscript:', params.id);
       const token = localStorage.getItem('token');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}`, {
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}`;
+      
+      const response = await fetch(apiUrl, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
+      
+      console.log('📡 Fetch response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Manuscript loaded:', {
+          id: data.id,
+          title: data.title,
+          hasContent: !!data.content,
+          contentLength: data.content?.length || 0
+        });
+        
         setManuscript(data);
-        if (data.content && editor) {
-          editor.commands.setContent(data.content);
+        
+        // Build collaborators list for mentions
+        const collabList = [];
+        if (data.user && (data.user.name || data.user.email)) {
+          collabList.push({ 
+            id: data.user.id, 
+            name: data.user.name || data.user.email, 
+            email: data.user.email || '' 
+          });
         }
+        if (data.co_authors && Array.isArray(data.co_authors)) {
+          data.co_authors.forEach(coAuthor => {
+            if (coAuthor.id !== data.user?.id && (coAuthor.name || coAuthor.email)) {
+              collabList.push({ 
+                id: coAuthor.id, 
+                name: coAuthor.name || coAuthor.email, 
+                email: coAuthor.email || '' 
+              });
+            }
+          });
+        }
+        setCollaborators(collabList);
+      } else {
+        console.error('❌ Failed to fetch manuscript:', response.status);
       }
     } catch (error) {
-      console.error('Error fetching manuscript:', error);
+      console.error('❌ Error fetching manuscript:', error);
     }
   };
 
   const handleSave = async () => {
-    if (!editor) return;
+    if (!editor) {
+      console.error('❌ Editor not initialized');
+      return;
+    }
     
+    console.log('💾 Saving manuscript...');
     setSaving(true);
+    
     try {
       const token = localStorage.getItem('token');
       const content = editor.getHTML();
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}`, {
+      console.log('📝 Content length:', content.length, 'characters');
+      console.log('🔑 Token exists:', !!token);
+      
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts/${params.id}`;
+      console.log('🌐 Saving to:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -122,15 +474,22 @@ export default function ManuscriptEditorPage() {
         body: JSON.stringify({ content }),
       });
 
+      console.log('📡 Response status:', response.status);
+
       if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Manuscript saved successfully:', data);
         setLastSaved(new Date());
         setHasUnsavedChanges(false);
+        setSnackbar({ open: true, message: 'Manuscript saved successfully!', severity: 'success' });
       } else {
-        console.error('Failed to save manuscript');
+        const errorData = await response.json().catch(() => ({}));
+        console.error('❌ Failed to save manuscript:', response.status, errorData);
+        setSnackbar({ open: true, message: `Failed to save: ${errorData.detail || response.statusText}`, severity: 'error' });
       }
     } catch (error) {
-      console.error('Error saving manuscript:', error);
-      alert('Failed to save manuscript. Please try again.');
+      console.error('❌ Error saving manuscript:', error);
+      setSnackbar({ open: true, message: 'Failed to save manuscript. Please check your connection.', severity: 'error' });
     } finally {
       setSaving(false);
     }
@@ -159,21 +518,29 @@ export default function ManuscriptEditorPage() {
   const handleInsertCitation = (citation) => {
     if (!editor) return;
 
+    console.log('📝 Inserting citation:', citation);
+
     const inlineText = formatInlineCitation(citation);
     
+    // Insert citation as a styled span
     editor
       .chain()
       .focus()
-      .insertCitation({
-        citationId: citation.id,
-        citationKey: citation.citation_key,
-        publicationId: citation.publication_id,
-        inlineText: inlineText,
-      })
+      .insertContent(`<span class="citation-node" data-citation-id="${citation.id}" data-citation-key="${citation.citation_key}" data-publication-id="${citation.publication_id}">${inlineText}</span> `)
       .run();
 
-    setCitations((prev) => [...prev, citation]);
+    // Update citations list
+    setCitations((prev) => {
+      // Check if citation already exists in state
+      if (prev.some(c => c.id === citation.id)) {
+        return prev;
+      }
+      return [...prev, citation];
+    });
+    
     setHasUnsavedChanges(true);
+    
+    console.log('✅ Citation inserted successfully');
   };
 
   const formatInlineCitation = (citation) => {
@@ -225,15 +592,103 @@ export default function ManuscriptEditorPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [editor, saving]);
 
-  // Auto-save every 30 seconds
+  // Auto-save every 5 minutes
   useEffect(() => {
     const interval = setInterval(() => {
       if (editor && !saving && hasUnsavedChanges) {
+        console.log('🔄 Auto-saving manuscript...');
         handleSave();
       }
-    }, 30000);
+    }, 300000); // 5 minutes = 300000ms
     return () => clearInterval(interval);
   }, [editor, saving, hasUnsavedChanges]);
+
+  // Warn before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+        // Attempt to save before leaving
+        if (editor && !saving) {
+          handleSave();
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges, editor, saving]);
+
+  // Helper functions for dropdowns
+  const getCurrentFontFamily = () => {
+    if (!editor) return 'Default';
+    const fontFamily = editor.getAttributes('textStyle').fontFamily;
+    return fontFamily || 'Default';
+  };
+
+  const getCurrentFontSize = () => {
+    if (!editor) return '16px';
+    const fontSize = editor.getAttributes('textStyle').fontSize;
+    return fontSize || '16px';
+  };
+
+  const getCurrentHeadingLevel = () => {
+    if (!editor) return 'paragraph';
+    for (let level = 1; level <= 6; level++) {
+      if (editor.isActive('heading', { level })) {
+        return `h${level}`;
+      }
+    }
+    return 'paragraph';
+  };
+
+  const handleFontFamilyChange = (event) => {
+    const fontFamily = event.target.value;
+    if (fontFamily === 'Default') {
+      editor.chain().focus().unsetFontFamily().run();
+    } else {
+      editor.chain().focus().setFontFamily(fontFamily).run();
+    }
+  };
+
+  const handleFontSizeChange = (event) => {
+    const fontSize = event.target.value;
+    if (fontSize === 'Default') {
+      editor.chain().focus().unsetFontSize().run();
+    } else {
+      editor.chain().focus().setFontSize(fontSize).run();
+    }
+  };
+
+  const handleHeadingChange = (event) => {
+    const value = event.target.value;
+    if (value === 'paragraph') {
+      editor.chain().focus().setParagraph().run();
+    } else {
+      const level = parseInt(value.replace('h', ''));
+      editor.chain().focus().toggleHeading({ level }).run();
+    }
+  };
+
+  const handlePageSizeChange = (event) => {
+    const newSize = event.target.value;
+    setPageSize(newSize);
+    localStorage.setItem('manuscript-page-size', newSize);
+  };
+
+  const handleInsertPageBreak = () => {
+    if (editor) {
+      editor.chain().focus().setPageBreak().run();
+      setInsertMenuAnchor(null);
+    }
+  };
+
+  const handleToggleOutline = () => {
+    const newState = !outlineOpen;
+    setOutlineOpen(newState);
+    localStorage.setItem('manuscript-outline-open', newState.toString());
+  };
 
   if (!editor) return null;
 
@@ -262,6 +717,11 @@ export default function ManuscriptEditorPage() {
             {hasUnsavedChanges && (
               <Typography component="span" sx={{ ml: 1, fontSize: 12, color: 'warning.main', fontWeight: 400 }}>
                 • Unsaved changes
+              </Typography>
+            )}
+            {pageCount > 1 && (
+              <Typography component="span" sx={{ ml: 1, fontSize: 12, color: 'text.secondary', fontWeight: 400 }}>
+                • {pageCount} {pageCount === 1 ? 'page' : 'pages'}
               </Typography>
             )}
           </Typography>
@@ -321,6 +781,232 @@ export default function ManuscriptEditorPage() {
         sx={{ 
           borderBottom: 1, 
           borderColor: 'divider',
+          px: 1,
+          py: 0.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+        }}
+      >
+        {/* File Menu */}
+        <Button
+          size="small"
+          onClick={(e) => setFileMenuAnchor(e.currentTarget)}
+          endIcon={<ArrowDownIcon sx={{ fontSize: 14 }} />}
+          sx={{ textTransform: 'none', color: 'text.primary', fontSize: 13, minWidth: 'auto', px: 1 }}
+        >
+          File
+        </Button>
+        <Menu
+          anchorEl={fileMenuAnchor}
+          open={Boolean(fileMenuAnchor)}
+          onClose={() => setFileMenuAnchor(null)}
+          disableScrollLock
+        >
+          <MenuItem onClick={() => { /* TODO: Rename */ setFileMenuAnchor(null); }}>
+            <ListItemIcon><RenameIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Rename</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { setFileMenuAnchor(null); }}>
+            <ListItemIcon><SaveIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Auto Save: {hasUnsavedChanges ? 'On' : 'Saved'}</ListItemText>
+          </MenuItem>
+        </Menu>
+
+        {/* Edit Menu */}
+        <Button
+          size="small"
+          onClick={(e) => setEditMenuAnchor(e.currentTarget)}
+          endIcon={<ArrowDownIcon sx={{ fontSize: 14 }} />}
+          sx={{ textTransform: 'none', color: 'text.primary', fontSize: 13, minWidth: 'auto', px: 1 }}
+        >
+          Edit
+        </Button>
+        <Menu
+          anchorEl={editMenuAnchor}
+          open={Boolean(editMenuAnchor)}
+          onClose={() => setEditMenuAnchor(null)}
+          disableScrollLock
+        >
+          <MenuItem 
+            onClick={() => { editor?.chain().focus().undo().run(); setEditMenuAnchor(null); }}
+            disabled={!editor?.can().undo()}
+          >
+            <ListItemIcon><UndoIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Undo</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+Z</Typography>
+          </MenuItem>
+          <MenuItem 
+            onClick={() => { editor?.chain().focus().redo().run(); setEditMenuAnchor(null); }}
+            disabled={!editor?.can().redo()}
+          >
+            <ListItemIcon><RedoIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Redo</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+Y</Typography>
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={() => { document.execCommand('cut'); setEditMenuAnchor(null); }}>
+            <ListItemIcon><CutIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Cut</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+X</Typography>
+          </MenuItem>
+          <MenuItem onClick={() => { document.execCommand('copy'); setEditMenuAnchor(null); }}>
+            <ListItemIcon><CopyIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Copy</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+C</Typography>
+          </MenuItem>
+          <MenuItem onClick={() => { document.execCommand('paste'); setEditMenuAnchor(null); }}>
+            <ListItemIcon><PasteIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Paste</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+V</Typography>
+          </MenuItem>
+        </Menu>
+
+        {/* Insert Menu */}
+        <Button
+          size="small"
+          onClick={(e) => setInsertMenuAnchor(e.currentTarget)}
+          endIcon={<ArrowDownIcon sx={{ fontSize: 14 }} />}
+          sx={{ textTransform: 'none', color: 'text.primary', fontSize: 13, minWidth: 'auto', px: 1 }}
+        >
+          Insert
+        </Button>
+        <Menu
+          anchorEl={insertMenuAnchor}
+          open={Boolean(insertMenuAnchor)}
+          onClose={() => setInsertMenuAnchor(null)}
+          disableScrollLock
+        >
+          <MenuItem onClick={() => { /* TODO: Insert Image */ setInsertMenuAnchor(null); }}>
+            <ListItemIcon><ImageIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Image</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { /* TODO: Insert Table */ setInsertMenuAnchor(null); }}>
+            <ListItemIcon><TableIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Table</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { /* TODO: Insert Link */ setInsertMenuAnchor(null); }}>
+            <ListItemIcon><LinkIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Link</ListItemText>
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={handleInsertPageBreak}>
+            <ListItemIcon><PageBreakIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Page Break</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+Enter</Typography>
+          </MenuItem>
+        </Menu>
+
+        {/* Format Menu */}
+        <Button
+          size="small"
+          onClick={(e) => setFormatMenuAnchor(e.currentTarget)}
+          endIcon={<ArrowDownIcon sx={{ fontSize: 14 }} />}
+          sx={{ textTransform: 'none', color: 'text.primary', fontSize: 13, minWidth: 'auto', px: 1 }}
+        >
+          Format
+        </Button>
+        <Menu
+          anchorEl={formatMenuAnchor}
+          open={Boolean(formatMenuAnchor)}
+          onClose={() => setFormatMenuAnchor(null)}
+          disableScrollLock
+        >
+          <MenuItem onClick={() => { editor?.chain().focus().setParagraph().run(); setFormatMenuAnchor(null); }}>
+            <ListItemIcon><ParagraphIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Paragraph</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+Alt+0</Typography>
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={() => { editor?.chain().focus().setFontSize('12px').run(); setFormatMenuAnchor(null); }}>
+            <ListItemText inset>Font Size: 12px</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().setFontSize('14px').run(); setFormatMenuAnchor(null); }}>
+            <ListItemText inset>Font Size: 14px</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().setFontSize('16px').run(); setFormatMenuAnchor(null); }}>
+            <ListItemText inset>Font Size: 16px (Default)</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().setFontSize('18px').run(); setFormatMenuAnchor(null); }}>
+            <ListItemText inset>Font Size: 18px</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().setFontSize('24px').run(); setFormatMenuAnchor(null); }}>
+            <ListItemText inset>Font Size: 24px</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().setFontSize('36px').run(); setFormatMenuAnchor(null); }}>
+            <ListItemText inset>Font Size: 36px</ListItemText>
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={() => { editor?.chain().focus().toggleBold().run(); setFormatMenuAnchor(null); }}>
+            <ListItemIcon><BoldIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Bold</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+B</Typography>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().toggleItalic().run(); setFormatMenuAnchor(null); }}>
+            <ListItemIcon><ItalicIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Italic</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+I</Typography>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().toggleUnderline().run(); setFormatMenuAnchor(null); }}>
+            <ListItemIcon><UnderlineIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Underline</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>Ctrl+U</Typography>
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={() => { editor?.chain().focus().setTextAlign('left').run(); setFormatMenuAnchor(null); }}>
+            <ListItemIcon><AlignLeftIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Align Left</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().setTextAlign('center').run(); setFormatMenuAnchor(null); }}>
+            <ListItemIcon><AlignCenterIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Align Center</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().setTextAlign('right').run(); setFormatMenuAnchor(null); }}>
+            <ListItemIcon><AlignRightIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Align Right</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { editor?.chain().focus().setTextAlign('justify').run(); setFormatMenuAnchor(null); }}>
+            <ListItemIcon><AlignJustifyIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Align Justify</ListItemText>
+          </MenuItem>
+        </Menu>
+
+        {/* Tools Menu */}
+        <Button
+          size="small"
+          onClick={(e) => setToolsMenuAnchor(e.currentTarget)}
+          endIcon={<ArrowDownIcon sx={{ fontSize: 14 }} />}
+          sx={{ textTransform: 'none', color: 'text.primary', fontSize: 13, minWidth: 'auto', px: 1 }}
+        >
+          Tools
+        </Button>
+        <Menu
+          anchorEl={toolsMenuAnchor}
+          open={Boolean(toolsMenuAnchor)}
+          onClose={() => setToolsMenuAnchor(null)}
+          disableScrollLock
+        >
+          <MenuItem onClick={() => { setCitationSidebarOpen(true); setToolsMenuAnchor(null); }}>
+            <ListItemIcon><CitationIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Citations</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { setCommentSidebarOpen(true); setToolsMenuAnchor(null); }}>
+            <ListItemIcon><CommentIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Comments</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { /* TODO: Version Control */ setToolsMenuAnchor(null); }}>
+            <ListItemIcon><VersionIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Version Control</ListItemText>
+          </MenuItem>
+        </Menu>
+      </Paper>
+
+      {/* Toolbar */}
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          borderBottom: 1, 
+          borderColor: 'divider',
           px: 2,
           py: 1,
           display: 'flex',
@@ -349,39 +1035,114 @@ export default function ManuscriptEditorPage() {
 
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
 
-        {/* Headings */}
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <IconButton
-            size="small"
-            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        {/* Page Size Dropdown */}
+        <Tooltip title="Page Size">
+          <FormControl size="small" sx={{ minWidth: 100 }}>
+            <Select
+              value={pageSize}
+              onChange={handlePageSizeChange}
+              sx={{ 
+                fontSize: 13,
+                height: 32,
+                '& .MuiSelect-select': { py: 0.5 },
+              }}
+              startAdornment={<PageSizeIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />}
+            >
+              {PAGE_SIZE_OPTIONS.map(option => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.value}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Tooltip>
+
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+        {/* Font Family Dropdown */}
+        <FormControl size="small" sx={{ minWidth: 140 }}>
+          <Select
+            value={getCurrentFontFamily()}
+            onChange={handleFontFamilyChange}
             sx={{ 
-              bgcolor: editor.isActive('heading', { level: 1 }) ? `${ACCENT}20` : 'transparent',
-              color: editor.isActive('heading', { level: 1 }) ? ACCENT : 'inherit',
+              fontSize: 13,
+              height: 32,
+              '& .MuiSelect-select': { py: 0.5 },
             }}
           >
-            <H1Icon sx={{ fontSize: 18 }} />
-          </IconButton>
-          <IconButton
-            size="small"
-            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            <MenuItem value="Default">Default</MenuItem>
+            <MenuItem value="Times New Roman" sx={{ fontFamily: 'Times New Roman' }}>Times New Roman</MenuItem>
+            <MenuItem value="Arial" sx={{ fontFamily: 'Arial' }}>Arial</MenuItem>
+            <MenuItem value="Calibri" sx={{ fontFamily: 'Calibri' }}>Calibri</MenuItem>
+            <MenuItem value="Georgia" sx={{ fontFamily: 'Georgia' }}>Georgia</MenuItem>
+            <MenuItem value="Garamond" sx={{ fontFamily: 'Garamond' }}>Garamond</MenuItem>
+            <MenuItem value="Helvetica" sx={{ fontFamily: 'Helvetica' }}>Helvetica</MenuItem>
+          </Select>
+        </FormControl>
+
+        {/* Font Size Dropdown */}
+        <FormControl size="small" sx={{ minWidth: 80 }}>
+          <Select
+            value={getCurrentFontSize()}
+            onChange={handleFontSizeChange}
             sx={{ 
-              bgcolor: editor.isActive('heading', { level: 2 }) ? `${ACCENT}20` : 'transparent',
-              color: editor.isActive('heading', { level: 2 }) ? ACCENT : 'inherit',
+              fontSize: 13,
+              height: 32,
+              '& .MuiSelect-select': { py: 0.5 },
             }}
           >
-            <H2Icon sx={{ fontSize: 18 }} />
-          </IconButton>
-          <IconButton
-            size="small"
-            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+            <MenuItem value="Default">Default</MenuItem>
+            <MenuItem value="8px">8</MenuItem>
+            <MenuItem value="9px">9</MenuItem>
+            <MenuItem value="10px">10</MenuItem>
+            <MenuItem value="11px">11</MenuItem>
+            <MenuItem value="12px">12</MenuItem>
+            <MenuItem value="14px">14</MenuItem>
+            <MenuItem value="16px">16</MenuItem>
+            <MenuItem value="18px">18</MenuItem>
+            <MenuItem value="20px">20</MenuItem>
+            <MenuItem value="24px">24</MenuItem>
+            <MenuItem value="28px">28</MenuItem>
+            <MenuItem value="32px">32</MenuItem>
+            <MenuItem value="36px">36</MenuItem>
+            <MenuItem value="48px">48</MenuItem>
+          </Select>
+        </FormControl>
+
+        {/* Heading Style Dropdown */}
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <Select
+            value={getCurrentHeadingLevel()}
+            onChange={handleHeadingChange}
             sx={{ 
-              bgcolor: editor.isActive('heading', { level: 3 }) ? `${ACCENT}20` : 'transparent',
-              color: editor.isActive('heading', { level: 3 }) ? ACCENT : 'inherit',
+              fontSize: 13,
+              height: 32,
+              '& .MuiSelect-select': { py: 0.5 },
             }}
           >
-            <H3Icon sx={{ fontSize: 18 }} />
+            <MenuItem value="paragraph">Paragraph</MenuItem>
+            <MenuItem value="h1" sx={{ fontWeight: 700, fontSize: 16 }}>Heading 1</MenuItem>
+            <MenuItem value="h2" sx={{ fontWeight: 700, fontSize: 15 }}>Heading 2</MenuItem>
+            <MenuItem value="h3" sx={{ fontWeight: 600, fontSize: 14 }}>Heading 3</MenuItem>
+            <MenuItem value="h4" sx={{ fontWeight: 600, fontSize: 13.5 }}>Heading 4</MenuItem>
+            <MenuItem value="h5" sx={{ fontWeight: 600, fontSize: 13 }}>Heading 5</MenuItem>
+            <MenuItem value="h6" sx={{ fontWeight: 600, fontSize: 12.5 }}>Heading 6</MenuItem>
+          </Select>
+        </FormControl>
+
+        {/* Paragraph Button */}
+        <Tooltip title="Convert to Paragraph (Ctrl+Alt+0)">
+          <IconButton
+            size="small"
+            onClick={() => editor.chain().focus().setParagraph().run()}
+            sx={{ 
+              bgcolor: editor.isActive('paragraph') ? `${ACCENT}20` : 'transparent',
+              color: editor.isActive('paragraph') ? ACCENT : 'inherit',
+            }}
+          >
+            <ParagraphIcon sx={{ fontSize: 18 }} />
           </IconButton>
-        </Box>
+        </Tooltip>
 
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
 
@@ -535,6 +1296,18 @@ export default function ManuscriptEditorPage() {
 
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
 
+        {/* Page Break */}
+        <Tooltip title="Insert Page Break (Ctrl+Enter)">
+          <IconButton
+            size="small"
+            onClick={handleInsertPageBreak}
+          >
+            <PageBreakIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
         {/* Citations */}
         <Tooltip title="Toggle Citation Library">
           <IconButton
@@ -548,37 +1321,100 @@ export default function ManuscriptEditorPage() {
             <CitationIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
+
+        {/* Comments */}
+        <Tooltip title={selectedText ? "Add Comment" : "Select text to comment"}>
+          <IconButton
+            size="small"
+            onClick={handleShowCommentForm}
+            disabled={!selectedText}
+            sx={{ 
+              bgcolor: selectedText ? `${ACCENT}20` : 'transparent',
+              color: selectedText ? ACCENT : 'inherit',
+            }}
+          >
+            <AddCommentIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="Toggle Comments Panel">
+          <IconButton
+            size="small"
+            onClick={() => setCommentSidebarOpen(!commentSidebarOpen)}
+            sx={{ 
+              bgcolor: commentSidebarOpen ? `${ACCENT}20` : 'transparent',
+              color: commentSidebarOpen ? ACCENT : 'inherit',
+            }}
+          >
+            <CommentIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
       </Paper>
 
-      {/* Editor Content */}
-      <Box 
-        sx={{ 
-          flex: 1, 
-          overflow: 'auto',
-          bgcolor: dark ? 'background.paper' : '#f9fafb',
-          py: 4,
-        }}
-      >
-        <Paper
-          elevation={0}
-          sx={{
-            maxWidth: 850,
-            mx: 'auto',
-            p: 6,
-            minHeight: '100%',
-            borderRadius: 0,
-            boxShadow: dark ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
+      {/* Editor Content with Outline and Comment Sidebar */}
+      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        {/* Document Outline Sidebar */}
+        <DocumentOutline 
+          editor={editor}
+          open={outlineOpen}
+          onToggle={handleToggleOutline}
+        />
+
+        {/* Main Editor Area */}
+        <Box 
+          sx={{ 
+            flex: 1, 
+            overflow: 'auto',
+            bgcolor: dark ? '#2d2d2d' : '#e5e5e5',
+            py: 4,
+            position: 'relative',
           }}
         >
-          <EditorContent 
+          <PagedEditor 
             editor={editor} 
-            style={{
-              minHeight: '500px',
-              fontSize: '16px',
-              lineHeight: '1.75',
-            }}
+            pageSize={pageSize}
+            showPageNumbers={true}
           />
-        </Paper>
+
+          {/* Comment Form */}
+          {showCommentForm && selectedText && (
+            <CommentForm
+              quotedText={selectedText.text}
+              onSubmit={handleAddComment}
+              onCancel={() => {
+                setShowCommentForm(false);
+                setSelectedText(null);
+              }}
+              position={commentFormPosition}
+              collaborators={collaborators}
+            />
+          )}
+        </Box>
+
+        {/* Comment Sidebar */}
+        {commentSidebarOpen && (
+          <CommentSidebar
+            comments={comments}
+            filter={commentFilter}
+            onFilterChange={setCommentFilter}
+            onReply={handleReplyComment}
+            onResolve={handleResolveComment}
+            onDelete={handleDeleteComment}
+            onCommentClick={(commentId) => {
+              // Scroll to comment in editor
+              const comment = comments.find(c => c.id === commentId);
+              if (comment && comment.selection_start && editor) {
+                editor.commands.setTextSelection({
+                  from: comment.selection_start,
+                  to: comment.selection_end,
+                });
+                editor.commands.focus();
+              }
+            }}
+            currentUserId={currentUser?.id}
+            collaborators={collaborators}
+          />
+        )}
       </Box>
 
       {/* Options Menu */}
@@ -619,6 +1455,23 @@ export default function ManuscriptEditorPage() {
         citationStyle={citationStyle}
         citations={citations}
       />
+
+      {/* Save Notification Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

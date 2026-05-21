@@ -8,7 +8,7 @@ import os
 
 from database import get_db
 from models import User, AccountType, UserStatus
-from auth import create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+from auth import create_access_token, create_refresh_token, ACCESS_TOKEN_EXPIRE_MINUTES
 from services.orcid_sync import OrcidSyncService
 
 router = APIRouter(prefix="/api/auth/orcid", tags=["orcid"])
@@ -198,23 +198,27 @@ async def orcid_callback(
                 user.status = UserStatus.ACTIVE  # Auto-activate if domain matches
                 await db.commit()
         
-        # Generate JWT token with user_id
+        # Generate JWT tokens with user_id
         jwt_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        jwt_token = create_access_token(
-            data={
-                "user_id": user.id,
-                "orcid_id": user.orcid_id,
-                "account_type": user.account_type.value,
-                "institution_id": user.primary_institution_id
-            }, 
+        token_data = {
+            "user_id": user.id,
+            "orcid_id": user.orcid_id,
+            "account_type": user.account_type.value,
+            "institution_id": user.primary_institution_id
+        }
+        
+        jwt_access_token = create_access_token(
+            data=token_data, 
             expires_delta=jwt_token_expires
         )
         
+        jwt_refresh_token = create_refresh_token(data=token_data)
+        
         # Redirect based on user status
         if is_new_user and user.status == UserStatus.PENDING:
-            redirect_url = f"{FRONTEND_URL}/onboarding?token={jwt_token}"
+            redirect_url = f"{FRONTEND_URL}/onboarding?token={jwt_access_token}&refresh_token={jwt_refresh_token}"
         else:
-            redirect_url = f"{FRONTEND_URL}/dashboard?token={jwt_token}"
+            redirect_url = f"{FRONTEND_URL}/dashboard?token={jwt_access_token}&refresh_token={jwt_refresh_token}"
         
         return RedirectResponse(url=redirect_url)
 

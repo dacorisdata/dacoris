@@ -21,7 +21,7 @@ import { onboardingAPI } from '../../lib/api';
 import useAuthStore from '../../store/authStore';
 
 // Token Handler Component
-function TokenHandler({ setToken, fetchUser, router, loadInstitutions }) {
+function TokenHandler({ setToken, setRefreshToken, fetchUser, router, loadInstitutions, scheduleTokenRefresh }) {
   const searchParams = useSearchParams();
   const hasInitialized = useRef(false);
 
@@ -30,10 +30,18 @@ function TokenHandler({ setToken, fetchUser, router, loadInstitutions }) {
     hasInitialized.current = true;
     
     const initOnboarding = async () => {
-      // Get token from URL or localStorage
+      // Get tokens from URL or localStorage
       const urlToken = searchParams.get('token');
+      const urlRefreshToken = searchParams.get('refresh_token');
+      
       if (urlToken) {
         setToken(urlToken);
+        
+        if (urlRefreshToken) {
+          setRefreshToken(urlRefreshToken);
+          // Schedule automatic refresh (assume 30 minutes expiry for new tokens)
+          scheduleTokenRefresh(30 * 60);
+        }
       }
       
       // Check if user is already authenticated and needs onboarding
@@ -61,14 +69,14 @@ function TokenHandler({ setToken, fetchUser, router, loadInstitutions }) {
     };
     
     initOnboarding();
-  }, [searchParams, setToken, fetchUser, router, loadInstitutions]);
+  }, [searchParams, setToken, setRefreshToken, fetchUser, router, loadInstitutions, scheduleTokenRefresh]);
 
   return null;
 }
 
 function OnboardingPageContent() {
   const router = useRouter();
-  const { setToken, fetchUser } = useAuthStore();
+  const { setToken, setRefreshToken, fetchUser, scheduleTokenRefresh } = useAuthStore();
   
   const [activeStep, setActiveStep] = useState(0);
   const [institutions, setInstitutions] = useState([]);
@@ -137,10 +145,12 @@ function OnboardingPageContent() {
     <>
       <Suspense fallback={null}>
         <TokenHandler 
-          setToken={setToken} 
+          setToken={setToken}
+          setRefreshToken={setRefreshToken}
           fetchUser={fetchUser} 
           router={router} 
           loadInstitutions={loadInstitutions}
+          scheduleTokenRefresh={scheduleTokenRefresh}
         />
       </Suspense>
       <Container maxWidth="md">

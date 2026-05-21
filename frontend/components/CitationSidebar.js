@@ -37,8 +37,9 @@ export default function CitationSidebar({
   const fetchLibraries = async () => {
     try {
       const token = localStorage.getItem('token');
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || '/api';
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/publication-libraries`,
+        `${apiBase}/publications/libraries`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -60,8 +61,9 @@ export default function CitationSidebar({
   const fetchPublications = async () => {
     try {
       const token = localStorage.getItem('token');
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || '/api';
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/publications`,
+        `${apiBase}/publications`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -94,14 +96,21 @@ export default function CitationSidebar({
   };
 
   const handleInsertCitation = async (publication) => {
-    if (isCited(publication.id)) {
+    // Check if already cited
+    const alreadyCited = existingCitations.some(c => c.publication_id === publication.id);
+    if (alreadyCited) {
+      console.log('⚠️ Publication already cited:', publication.title);
+      alert('This publication is already cited in your document. Check your editor for the existing citation.');
       return;
     }
 
+    console.log('➕ Adding citation for:', publication.title);
+
     try {
       const token = localStorage.getItem('token');
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || '/api';
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/manuscripts/${manuscriptId}/citations`,
+        `${apiBase}/manuscripts/${manuscriptId}/citations`,
         {
           method: 'POST',
           headers: {
@@ -117,18 +126,37 @@ export default function CitationSidebar({
 
       if (response.ok) {
         const citation = await response.json();
+        console.log('✅ Citation created:', citation);
         onInsertCitation(citation);
       } else {
         const error = await response.json();
-        console.error('Citation error:', error);
+        console.error('❌ Citation error:', error);
         if (error.detail && error.detail.includes('already exists')) {
-          alert('This publication is already cited in your document');
+          // Citation exists in DB but not in editor state - still insert it
+          console.log('⚠️ Citation exists in DB, fetching and inserting...');
+          // Try to fetch existing citations and find this one
+          const citationsResponse = await fetch(
+            `${apiBase}/manuscripts/${manuscriptId}/citations`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+          if (citationsResponse.ok) {
+            const allCitations = await citationsResponse.json();
+            const existingCitation = allCitations.find(c => c.publication_id === publication.id);
+            if (existingCitation) {
+              console.log('📌 Inserting existing citation:', existingCitation);
+              onInsertCitation(existingCitation);
+            }
+          }
         } else {
           alert(error.detail || 'Failed to add citation. Please try again.');
         }
       }
     } catch (error) {
-      console.error('Error adding citation:', error);
+      console.error('❌ Network error adding citation:', error);
       alert('Network error. Please check your connection and try again.');
     }
   };

@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 
 from database import get_db
-from models import User, Manuscript, ManuscriptCoAuthor, ManuscriptCitation, Publication, PublicationLibrary, NotificationType, NotificationPriority
+from models import User, Manuscript, ManuscriptCoAuthor, ManuscriptCitation, Publication, PublicationLibrary, NotificationType, NotificationPriority, ManuscriptComment, ManuscriptReviewer
 from auth import get_current_user
 from services.notification_service import NotificationService
 from services.citation_service import (
@@ -699,3 +699,521 @@ async def get_bibliography(
         'style': style,
         'citation_count': len(citation_data)
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COMMENT SCHEMAS
+# ═══════════════════════════════════════════════════════════════════════════
+
+class UserBasic(BaseModel):
+    id: str
+    name: Optional[str]
+    email: str
+    
+    class Config:
+        from_attributes = True
+
+
+class CommentCreate(BaseModel):
+    content: str
+    quoted_text: Optional[str] = None
+    selection_start: Optional[int] = None
+    selection_end: Optional[int] = None
+    parent_comment_id: Optional[str] = None
+
+
+class CommentUpdate(BaseModel):
+    content: Optional[str] = None
+    is_resolved: Optional[bool] = None
+
+
+class CommentResponse(BaseModel):
+    id: str
+    manuscript_id: str
+    user_id: str
+    parent_comment_id: Optional[str]
+    content: str
+    quoted_text: Optional[str]
+    selection_start: Optional[int]
+    selection_end: Optional[int]
+    is_resolved: bool
+    resolved_by_id: Optional[str]
+    resolved_at: Optional[datetime]
+    created_at: datetime
+    updated_at: Optional[datetime]
+    user: UserBasic
+    replies_count: int = 0
+    
+    class Config:
+        from_attributes = True
+
+
+class ReviewerCreate(BaseModel):
+    user_id: Optional[str] = None
+    email: Optional[str] = None
+    name: str
+
+
+class ReviewerResponse(BaseModel):
+    id: str
+    manuscript_id: str
+    user_id: Optional[str]
+    email: Optional[str]
+    name: str
+    status: str
+    invited_at: datetime
+    responded_at: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COMMENT ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+async def check_manuscript_access(manuscript_id: str, user: User, db: AsyncSession):
+    """Check if user has access to manuscript (owner, co-author, or reviewer)"""
+    result = await db.execute(
+        select(Manuscript).options(
+            selectinload(Manuscript.co_authors),
+            selectinload(Manuscript.reviewers)
+        ).where(Manuscript.id == manuscript_id)
+    )
+    manuscript = result.scalar_one_or_none()
+    
+    if not manuscript:
+        raise HTTPException(status_code=404, detail="Manuscript not found")
+    
+    # Check if user is owner
+    if manuscript.user_id == user.id:
+        return manuscript
+    
+    # Check if user is co-author
+    for co_author in manuscript.co_authors:
+        if co_author.email == user.email:
+            return manuscript
+    
+    # Check if user is reviewer
+    for reviewer in manuscript.reviewers:
+        if reviewer.user_id == user.id or reviewer.email == user.email:
+            return manuscript
+    
+    raise HTTPException(status_code=403, detail="You don't have access to this manuscript")
+
+
+@router.post("/{manuscript_id}/comments", response_model=CommentResponse)
+async def create_comment(
+    manuscript_id: str,
+    comment_data: CommentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new comment on a manuscript"""
+    # Check access
+    manuscript = await check_manuscript_access(manuscript_id, current_user, db)
+    
+    # If parent_comment_id is provided, verify it exists
+    if comment_data.parent_comment_id:
+        parent_result = await db.execute(
+            select(ManuscriptComment).where(
+                ManuscriptComment.id == comment_data.parent_comment_id,
+                ManuscriptComment.manuscript_id == manuscript_id
+            )
+        )
+        if not parent_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Parent comment not found")
+    
+    # Create comment
+    comment = ManuscriptComment(
+        manuscript_id=manuscript_id,
+        user_id=current_user.id,
+        content=comment_data.content,
+        quoted_text=comment_data.quoted_text,
+        selection_start=comment_data.selection_start,
+        selection_end=comment_data.selection_end,
+        parent_comment_id=comment_data.parent_comment_id
+    )
+    
+    db.add(comment)
+    await db.commit()
+    
+    # Reload with user relationship
+    result = await db.execute(
+        select(ManuscriptComment).options(
+            selectinload(ManuscriptComment.user)
+        ).where(ManuscriptComment.id == comment.id)
+    )
+    comment = result.scalar_one()
+    
+    # Count replies
+    replies_result = await db.execute(
+        select(ManuscriptComment).where(
+            ManuscriptComment.parent_comment_id == comment.id
+        )
+    )
+    replies_count = len(replies_result.scalars().all())
+    
+    # Send notification if it's a reply
+    if comment_data.parent_comment_id:
+        parent_result = await db.execute(
+            select(ManuscriptComment).where(
+                ManuscriptComment.id == comment_data.parent_comment_id
+            )
+        )
+        parent_comment = parent_result.scalar_one()
+        
+        if parent_comment.user_id != current_user.id:
+            notification_service = NotificationService(db)
+            await notification_service.create_notification(
+                user_id=parent_comment.user_id,
+                type=NotificationType.COMMENT_ADDED,
+                priority=NotificationPriority.MEDIUM,
+                title="New reply to your comment",
+                message=f"{current_user.name or current_user.email} replied to your comment on {manuscript.title}",
+                link=f"/researcher/manuscripts/{manuscript_id}/editor"
+            )
+    
+    return CommentResponse(
+        id=comment.id,
+        manuscript_id=comment.manuscript_id,
+        user_id=comment.user_id,
+        parent_comment_id=comment.parent_comment_id,
+        content=comment.content,
+        quoted_text=comment.quoted_text,
+        selection_start=comment.selection_start,
+        selection_end=comment.selection_end,
+        is_resolved=comment.is_resolved,
+        resolved_by_id=comment.resolved_by_id,
+        resolved_at=comment.resolved_at,
+        created_at=comment.created_at,
+        updated_at=comment.updated_at,
+        user=UserBasic(
+            id=comment.user.id,
+            name=comment.user.name,
+            email=comment.user.email
+        ),
+        replies_count=replies_count
+    )
+
+
+@router.get("/{manuscript_id}/comments", response_model=List[CommentResponse])
+async def get_comments(
+    manuscript_id: str,
+    resolved: Optional[bool] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all comments for a manuscript"""
+    # Check access
+    await check_manuscript_access(manuscript_id, current_user, db)
+    
+    # Build query
+    query = select(ManuscriptComment).options(
+        selectinload(ManuscriptComment.user)
+    ).where(ManuscriptComment.manuscript_id == manuscript_id)
+    
+    if resolved is not None:
+        query = query.where(ManuscriptComment.is_resolved == resolved)
+    
+    result = await db.execute(query.order_by(ManuscriptComment.created_at))
+    comments = result.scalars().all()
+    
+    # Count replies for each comment
+    response_comments = []
+    for comment in comments:
+        replies_result = await db.execute(
+            select(ManuscriptComment).where(
+                ManuscriptComment.parent_comment_id == comment.id
+            )
+        )
+        replies_count = len(replies_result.scalars().all())
+        
+        response_comments.append(CommentResponse(
+            id=comment.id,
+            manuscript_id=comment.manuscript_id,
+            user_id=comment.user_id,
+            parent_comment_id=comment.parent_comment_id,
+            content=comment.content,
+            quoted_text=comment.quoted_text,
+            selection_start=comment.selection_start,
+            selection_end=comment.selection_end,
+            is_resolved=comment.is_resolved,
+            resolved_by_id=comment.resolved_by_id,
+            resolved_at=comment.resolved_at,
+            created_at=comment.created_at,
+            updated_at=comment.updated_at,
+            user=UserBasic(
+                id=comment.user.id,
+                name=comment.user.name,
+                email=comment.user.email
+            ),
+            replies_count=replies_count
+        ))
+    
+    return response_comments
+
+
+@router.patch("/{manuscript_id}/comments/{comment_id}", response_model=CommentResponse)
+async def update_comment(
+    manuscript_id: str,
+    comment_id: str,
+    update_data: CommentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update a comment"""
+    # Check access
+    await check_manuscript_access(manuscript_id, current_user, db)
+    
+    # Get comment
+    result = await db.execute(
+        select(ManuscriptComment).options(
+            selectinload(ManuscriptComment.user)
+        ).where(
+            ManuscriptComment.id == comment_id,
+            ManuscriptComment.manuscript_id == manuscript_id
+        )
+    )
+    comment = result.scalar_one_or_none()
+    
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    # Only comment author can update content
+    if update_data.content is not None and comment.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only edit your own comments")
+    
+    # Update fields
+    if update_data.content is not None:
+        comment.content = update_data.content
+    
+    if update_data.is_resolved is not None:
+        comment.is_resolved = update_data.is_resolved
+        if update_data.is_resolved:
+            comment.resolved_by_id = current_user.id
+            comment.resolved_at = datetime.utcnow()
+        else:
+            comment.resolved_by_id = None
+            comment.resolved_at = None
+    
+    await db.commit()
+    await db.refresh(comment)
+    
+    # Count replies
+    replies_result = await db.execute(
+        select(ManuscriptComment).where(
+            ManuscriptComment.parent_comment_id == comment.id
+        )
+    )
+    replies_count = len(replies_result.scalars().all())
+    
+    return CommentResponse(
+        id=comment.id,
+        manuscript_id=comment.manuscript_id,
+        user_id=comment.user_id,
+        parent_comment_id=comment.parent_comment_id,
+        content=comment.content,
+        quoted_text=comment.quoted_text,
+        selection_start=comment.selection_start,
+        selection_end=comment.selection_end,
+        is_resolved=comment.is_resolved,
+        resolved_by_id=comment.resolved_by_id,
+        resolved_at=comment.resolved_at,
+        created_at=comment.created_at,
+        updated_at=comment.updated_at,
+        user=UserBasic(
+            id=comment.user.id,
+            name=comment.user.name,
+            email=comment.user.email
+        ),
+        replies_count=replies_count
+    )
+
+
+@router.delete("/{manuscript_id}/comments/{comment_id}")
+async def delete_comment(
+    manuscript_id: str,
+    comment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a comment"""
+    # Check access
+    manuscript = await check_manuscript_access(manuscript_id, current_user, db)
+    
+    # Get comment
+    result = await db.execute(
+        select(ManuscriptComment).where(
+            ManuscriptComment.id == comment_id,
+            ManuscriptComment.manuscript_id == manuscript_id
+        )
+    )
+    comment = result.scalar_one_or_none()
+    
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    # Only comment author or manuscript owner can delete
+    if comment.user_id != current_user.id and manuscript.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own comments or comments on your manuscript")
+    
+    await db.delete(comment)
+    await db.commit()
+    
+    return {"message": "Comment deleted successfully"}
+
+
+@router.post("/{manuscript_id}/comments/{comment_id}/resolve")
+async def toggle_resolve_comment(
+    manuscript_id: str,
+    comment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Toggle resolve status of a comment"""
+    # Check access
+    await check_manuscript_access(manuscript_id, current_user, db)
+    
+    # Get comment
+    result = await db.execute(
+        select(ManuscriptComment).where(
+            ManuscriptComment.id == comment_id,
+            ManuscriptComment.manuscript_id == manuscript_id
+        )
+    )
+    comment = result.scalar_one_or_none()
+    
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    # Toggle resolution
+    comment.is_resolved = not comment.is_resolved
+    if comment.is_resolved:
+        comment.resolved_by_id = current_user.id
+        comment.resolved_at = datetime.utcnow()
+    else:
+        comment.resolved_by_id = None
+        comment.resolved_at = None
+    
+    await db.commit()
+    
+    return {
+        "message": "Comment resolved" if comment.is_resolved else "Comment reopened",
+        "is_resolved": comment.is_resolved
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# REVIEWER ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.post("/{manuscript_id}/reviewers", response_model=ReviewerResponse)
+async def invite_reviewer(
+    manuscript_id: str,
+    reviewer_data: ReviewerCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Invite a reviewer to a manuscript"""
+    # Get manuscript and check ownership
+    result = await db.execute(
+        select(Manuscript).where(
+            Manuscript.id == manuscript_id,
+            Manuscript.user_id == current_user.id
+        )
+    )
+    manuscript = result.scalar_one_or_none()
+    
+    if not manuscript:
+        raise HTTPException(status_code=404, detail="Manuscript not found or you don't have permission")
+    
+    # Create reviewer
+    reviewer = ManuscriptReviewer(
+        manuscript_id=manuscript_id,
+        user_id=reviewer_data.user_id,
+        email=reviewer_data.email,
+        name=reviewer_data.name
+    )
+    
+    db.add(reviewer)
+    await db.commit()
+    await db.refresh(reviewer)
+    
+    return ReviewerResponse(
+        id=reviewer.id,
+        manuscript_id=reviewer.manuscript_id,
+        user_id=reviewer.user_id,
+        email=reviewer.email,
+        name=reviewer.name,
+        status=reviewer.status,
+        invited_at=reviewer.invited_at,
+        responded_at=reviewer.responded_at
+    )
+
+
+@router.get("/{manuscript_id}/reviewers", response_model=List[ReviewerResponse])
+async def get_reviewers(
+    manuscript_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all reviewers for a manuscript"""
+    # Check access
+    await check_manuscript_access(manuscript_id, current_user, db)
+    
+    result = await db.execute(
+        select(ManuscriptReviewer).where(
+            ManuscriptReviewer.manuscript_id == manuscript_id
+        )
+    )
+    reviewers = result.scalars().all()
+    
+    return [ReviewerResponse(
+        id=r.id,
+        manuscript_id=r.manuscript_id,
+        user_id=r.user_id,
+        email=r.email,
+        name=r.name,
+        status=r.status,
+        invited_at=r.invited_at,
+        responded_at=r.responded_at
+    ) for r in reviewers]
+
+
+@router.delete("/{manuscript_id}/reviewers/{reviewer_id}")
+async def remove_reviewer(
+    manuscript_id: str,
+    reviewer_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove a reviewer from a manuscript"""
+    # Get manuscript and check ownership
+    result = await db.execute(
+        select(Manuscript).where(
+            Manuscript.id == manuscript_id,
+            Manuscript.user_id == current_user.id
+        )
+    )
+    manuscript = result.scalar_one_or_none()
+    
+    if not manuscript:
+        raise HTTPException(status_code=404, detail="Manuscript not found or you don't have permission")
+    
+    # Get reviewer
+    result = await db.execute(
+        select(ManuscriptReviewer).where(
+            ManuscriptReviewer.id == reviewer_id,
+            ManuscriptReviewer.manuscript_id == manuscript_id
+        )
+    )
+    reviewer = result.scalar_one_or_none()
+    
+    if not reviewer:
+        raise HTTPException(status_code=404, detail="Reviewer not found")
+    
+    await db.delete(reviewer)
+    await db.commit()
+    
+    return {"message": "Reviewer removed successfully"}

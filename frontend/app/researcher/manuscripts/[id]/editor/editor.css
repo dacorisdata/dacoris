@@ -32,6 +32,32 @@
   margin-bottom: 0.3em;
 }
 
+.ProseMirror h4 {
+  font-size: 1.125em;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+}
+
+.ProseMirror h5 {
+  font-size: 1em;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 0.7em;
+  margin-bottom: 0.2em;
+}
+
+.ProseMirror h6 {
+  font-size: 0.875em;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 0.7em;
+  margin-bottom: 0.2em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .ProseMirror p {
   margin-top: 0.5em;
   margin-bottom: 0.5em;
@@ -187,4 +213,264 @@
 
 .ProseMirror .bibliography-entry em {
   font-style: italic;
+}
+
+/* Comment Highlight Styles */
+.ProseMirror .comment-highlight {
+  background-color: #fef3c7;
+  border-bottom: 2px solid #f59e0b;
+  padding: 0.1em 0;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.ProseMirror .comment-highlight:hover {
+  background-color: #fde68a;
+  border-bottom-color: #d97706;
+}
+
+.ProseMirror .comment-highlight[data-resolved="true"] {
+  background-color: #e5e7eb;
+  border-bottom-color: #9ca3af;
+  opacity: 0.6;
+}
+
+.ProseMirror .comment-highlight[data-resolved="true"]:hover {
+  background-color: #d1d5db;
+  opacity: 0.8;
+}
+
+/* Dark mode comment highlights */
+@media (prefers-color-scheme: dark) {
+  .ProseMirror .comment-highlight {
+    background-color: rgba(251, 191, 36, 0.2);
+    border-bottom-color: #fbbf24;
+  }
+
+  .ProseMirror .comment-highlight:hover {
+    background-color: rgba(251, 191, 36, 0.3);
+  }
+
+  .ProseMirror .comment-highlight[data-resolved="true"] {
+    background-color: rgba(156, 163, 175, 0.2);
+    border-bottom-color: #6b7280;
+  }
+
+  .ProseMirror .comment-highlight[data-resolved="true"]:hover {
+    background-color: rgba(156, 163, 175, 0.3);
+  }
+}
+
+/* ========================================================================== */
+/* Page Break and Pagination Styles */
+/* ========================================================================== */
+
+/* Paged editor wrapper */
+.paged-editor-wrapper {
+  position: relative;
+}
+
+/* Page containers (background) */
+.page-container {
+  position: relative;
+  background: white;
+  box-sizing: border-box;
+}
+
+/* Dark mode page containers */
+@media (prefers-color-scheme: dark) {
+  .page-container {
+    background: #1e1e1e;
+  }
+}
+
+/* Ensure editor content stays within page bounds */
+.page-container .ProseMirror {
+  min-height: auto;
+  outline: none;
+}
+
+/* Page break line between pages */
+.page-break-line {
+  pointer-events: none;
+}
+
+/* Page numbers */
+.page-number {
+  font-family: 'Times New Roman', serif;
+  font-size: 11px;
+  color: #999;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Manual page break node in editor */
+.ProseMirror .page-break-node {
+  position: relative;
+  height: 24px;
+  margin: 2em 0;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  page-break-after: always;
+  break-after: page;
+}
+
+.ProseMirror .page-break-node::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: linear-gradient(to right, transparent, #d1d5db 20%, #d1d5db 80%, transparent);
+}
+
+.ProseMirror .page-break-node::after {
+  content: 'Page Break';
+  position: relative;
+  background: white;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  z-index: 1;
+}
+
+/* Dark mode page break */
+@media (prefers-color-scheme: dark) {
+  .ProseMirror .page-break-node::before {
+    background: linear-gradient(to right, transparent, #4b5563 20%, #4b5563 80%, transparent);
+  }
+
+  .ProseMirror .page-break-node::after {
+    background: #1e1e1e;
+    color: #9ca3af;
+    border-color: #4b5563;
+  }
+}
+
+/* Hover effect for page break */
+.ProseMirror .page-break-node:hover::after {
+  color: #1ca7a1;
+  border-color: #1ca7a1;
+}
+
+/* Editor content wrapper for paged layout */
+.editor-content-wrapper {
+  box-sizing: border-box;
+}
+
+/* ========================================================================== */
+/* Print Styles */
+/* ========================================================================== */
+
+@media print {
+  /* Set page size */
+  @page {
+    size: A4;
+    margin: 1in;
+  }
+
+  /* Hide UI elements */
+  .page-number,
+  .page-break-line,
+  .page-container {
+    box-shadow: none !important;
+    margin: 0 !important;
+    page-break-after: always;
+  }
+
+  /* Ensure manual page breaks work in print */
+  .ProseMirror .page-break-node {
+    page-break-after: always;
+    break-after: page;
+    height: 0;
+    margin: 0;
+    border: none;
+    visibility: hidden;
+  }
+
+  .ProseMirror .page-break-node::before,
+  .ProseMirror .page-break-node::after {
+    display: none;
+  }
+
+  /* Avoid breaking inside elements */
+  .ProseMirror h1,
+  .ProseMirror h2,
+  .ProseMirror h3,
+  .ProseMirror h4,
+  .ProseMirror h5,
+  .ProseMirror h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  .ProseMirror blockquote,
+  .ProseMirror pre,
+  .ProseMirror table {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Orphans and widows */
+  .ProseMirror p {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Hide page count indicator */
+  .paged-editor-wrapper > div:last-child {
+    display: none !important;
+  }
+
+  /* Ensure proper margins */
+  .editor-content-wrapper {
+    padding: 0 !important;
+  }
+
+  .paged-editor-wrapper {
+    background: white;
+  }
+}
+
+/* Print preview mode (optional - can be toggled with a class) */
+.print-preview .page-container {
+  box-shadow: 0 0 0 1px #e5e7eb, 0 4px 6px rgba(0, 0, 0, 0.05) !important;
+  border: 1px solid #e5e7eb;
+}
+
+.print-preview .page-number {
+  opacity: 1;
+}
+
+/* Responsive design - hide pages on small screens */
+@media (max-width: 768px) {
+  .page-container {
+    width: 100% !important;
+    min-height: auto !important;
+    box-shadow: none !important;
+    margin-bottom: 0 !important;
+  }
+
+  .page-number,
+  .page-break-line {
+    display: none;
+  }
+
+  .editor-content-wrapper {
+    width: 100% !important;
+    padding: 16px !important;
+  }
+
+  .ProseMirror {
+    min-height: 300px !important;
+  }
 }

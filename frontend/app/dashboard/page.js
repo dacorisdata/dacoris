@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { Box, Typography, Grid, Card, CardContent, CardActionArea, Chip } from '@mui/material';
 import { 
   Assessment, 
@@ -9,7 +9,36 @@ import {
   TrendingUp,
   ArrowForward 
 } from '@mui/icons-material';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import useAuthStore from '../../store/authStore';
+
+// Token Handler Component for ORCID redirects
+function TokenHandler() {
+  const searchParams = useSearchParams();
+  const { setToken, setRefreshToken, scheduleTokenRefresh } = useAuthStore();
+  const hasInitialized = useRef(false);
+
+  useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+    
+    // Get tokens from URL parameters (ORCID callback)
+    const urlToken = searchParams.get('token');
+    const urlRefreshToken = searchParams.get('refresh_token');
+    
+    if (urlToken) {
+      setToken(urlToken);
+      
+      if (urlRefreshToken) {
+        setRefreshToken(urlRefreshToken);
+        // Schedule automatic refresh (assume 30 minutes expiry for new tokens)
+        scheduleTokenRefresh(30 * 60);
+      }
+    }
+  }, [searchParams, setToken, setRefreshToken, scheduleTokenRefresh]);
+
+  return null;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -82,6 +111,9 @@ export default function DashboardPage() {
 
   return (
     <Box sx={{ p: 4, maxWidth: 1400, mx: 'auto' }}>
+      <Suspense fallback={null}>
+        <TokenHandler />
+      </Suspense>
       {/* Header Section */}
       <Box sx={{ mb: 5 }}>
         <Typography 

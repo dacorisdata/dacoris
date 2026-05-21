@@ -18,8 +18,11 @@ from auth import (
     verify_password,
     get_password_hash,
     create_access_token,
+    create_refresh_token,
+    verify_refresh_token,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     ADMIN_SESSION_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_DAYS,
     get_current_user,
     get_current_active_user
 )
@@ -71,7 +74,12 @@ class ProfileUpdateRequest(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
+    expires_in: int  # seconds until access token expires
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 class OrcidConfig(BaseModel):
     client_id: str
@@ -132,19 +140,101 @@ async def login(
     # Create token with extended expiry for admins
     is_admin = user.is_global_admin or user.is_institution_admin
     access_token_expires = timedelta(minutes=ADMIN_SESSION_EXPIRE_MINUTES if is_admin else ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    token_data = {
+        "user_id": user.id,
+        "account_type": user.account_type.value,
+        "institution_id": user.primary_institution_id,
+        "is_global_admin": user.is_global_admin,
+        "is_institution_admin": user.is_institution_admin
+    }
+    
     access_token = create_access_token(
-        data={
-            "user_id": user.id,
-            "account_type": user.account_type.value,
-            "institution_id": user.primary_institution_id,
-            "is_global_admin": user.is_global_admin,
-            "is_institution_admin": user.is_institution_admin
-        }, 
+        data=token_data, 
         expires_delta=access_token_expires,
         is_admin=is_admin
     )
     
-    return {"access_token": access_token, "token_type": "bearer"}
+    refresh_token = create_refresh_token(data=token_data)
+    
+    expires_in = ADMIN_SESSION_EXPIRE_MINUTES if is_admin else ACCESS_TOKEN_EXPIRE_MINUTES
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": expires_in * 60  # convert to seconds
+    }
+
+@router.post("/refresh", response_model=Token)
+async def refresh_access_token(
+    refresh_data: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Refresh access token using a valid refresh token"""
+    payload = verify_refresh_token(refresh_data.refresh_token)
+    
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Verify user still exists and is active
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if user.status != UserStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is not active"
+        )
+    
+    # Create new access token
+    is_admin = user.is_global_admin or user.is_institution_admin
+    access_token_expires = timedelta(minutes=ADMIN_SESSION_EXPIRE_MINUTES if is_admin else ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    token_data = {
+        "user_id": user.id,
+        "account_type": user.account_type.value,
+        "institution_id": user.primary_institution_id,
+        "is_global_admin": user.is_global_admin,
+        "is_institution_admin": user.is_institution_admin
+    }
+    
+    access_token = create_access_token(
+        data=token_data,
+        expires_delta=access_token_expires,
+        is_admin=is_admin
+    )
+    
+    # Optionally create a new refresh token (token rotation for security)
+    new_refresh_token = create_refresh_token(data=token_data)
+    
+    expires_in = ADMIN_SESSION_EXPIRE_MINUTES if is_admin else ACCESS_TOKEN_EXPIRE_MINUTES
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+        "expires_in": expires_in * 60  # convert to seconds
+    }
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(

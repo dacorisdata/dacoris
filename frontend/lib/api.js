@@ -9,6 +9,22 @@ const api = axios.create({
   },
 });
 
+// Flag to prevent multiple simultaneous refresh attempts
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  
+  failedQueue = [];
+};
+
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
@@ -23,17 +39,86 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle errors
+// Response interceptor to handle errors and token refresh
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Token expired or invalid
-      localStorage.removeItem('token');
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+  async (error) => {
+    const originalRequest = error.config;
+    
+    // If error is 401 and we haven't already tried to refresh
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        // If already refreshing, queue this request
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(token => {
+          originalRequest.headers['Authorization'] = 'Bearer ' + token;
+          return api(originalRequest);
+        }).catch(err => {
+          return Promise.reject(err);
+        });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      const refreshToken = localStorage.getItem('refreshToken');
+      
+      if (!refreshToken) {
+        // No refresh token, logout
+        isRefreshing = false;
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('tokenExpiry');
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
+
+      try {
+        // Try to refresh the token
+        const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+          refresh_token: refreshToken
+        });
+        
+        const { access_token, refresh_token: new_refresh_token, expires_in } = response.data;
+        
+        // Update stored tokens
+        localStorage.setItem('token', access_token);
+        localStorage.setItem('refreshToken', new_refresh_token);
+        
+        // Update expiry
+        const expiryTime = Date.now() + (expires_in * 1000);
+        localStorage.setItem('tokenExpiry', expiryTime.toString());
+        
+        // Update the authorization header
+        api.defaults.headers.common['Authorization'] = 'Bearer ' + access_token;
+        originalRequest.headers['Authorization'] = 'Bearer ' + access_token;
+        
+        // Process queued requests
+        processQueue(null, access_token);
+        isRefreshing = false;
+        
+        // Retry the original request
+        return api(originalRequest);
+      } catch (refreshError) {
+        // Refresh failed, logout
+        processQueue(refreshError, null);
+        isRefreshing = false;
+        
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('tokenExpiry');
+        
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        
+        return Promise.reject(refreshError);
       }
     }
+    
     return Promise.reject(error);
   }
 );
@@ -46,6 +131,9 @@ export const authAPI = {
     }),
   
   getCurrentUser: () => api.get('/auth/me'),
+  
+  refreshToken: (refreshToken) => 
+    api.post('/auth/refresh', { refresh_token: refreshToken }),
 };
 
 // ORCID endpoints

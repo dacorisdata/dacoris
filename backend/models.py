@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Enum, Table, UniqueConstraint, Float, Date
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -1146,6 +1147,10 @@ class Manuscript(Base):
     status = Column(String(50), default='draft')  # draft, in_review, submitted, published
     version = Column(Integer, default=1)
     
+    # Version control
+    current_version_number = Column(Integer, default=0)
+    last_auto_save_at = Column(DateTime(timezone=True), nullable=True)
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -1154,6 +1159,9 @@ class Manuscript(Base):
     user = relationship("User", back_populates="manuscripts")
     co_authors = relationship("ManuscriptCoAuthor", back_populates="manuscript", cascade="all, delete-orphan")
     citations = relationship("ManuscriptCitation", back_populates="manuscript", cascade="all, delete-orphan")
+    comments = relationship("ManuscriptComment", back_populates="manuscript", cascade="all, delete-orphan")
+    reviewers = relationship("ManuscriptReviewer", back_populates="manuscript", cascade="all, delete-orphan")
+    versions = relationship("ManuscriptVersion", back_populates="manuscript", cascade="all, delete-orphan", order_by="ManuscriptVersion.version_number.desc()")
 
     @property
     def creator(self):
@@ -1202,6 +1210,134 @@ class ManuscriptCitation(Base):
     # Relationships
     manuscript = relationship("Manuscript", back_populates="citations")
     publication = relationship("Publication")
+
+
+class ManuscriptComment(Base):
+    __tablename__ = "manuscript_comments"
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    manuscript_id = Column(String, ForeignKey("manuscripts.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    parent_comment_id = Column(String, ForeignKey("manuscript_comments.id"), nullable=True)
+    
+    # Comment content
+    content = Column(Text, nullable=False)
+    quoted_text = Column(Text, nullable=True)
+    
+    # Selection position in document
+    selection_start = Column(Integer, nullable=True)
+    selection_end = Column(Integer, nullable=True)
+    
+    # Resolution tracking
+    is_resolved = Column(Boolean, default=False, nullable=False)
+    resolved_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    manuscript = relationship("Manuscript", back_populates="comments")
+    user = relationship("User", foreign_keys=[user_id])
+    parent_comment = relationship("ManuscriptComment", remote_side=[id], backref="replies")
+    resolved_by = relationship("User", foreign_keys=[resolved_by_id])
+
+
+class ManuscriptReviewer(Base):
+    __tablename__ = "manuscript_reviewers"
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    manuscript_id = Column(String, ForeignKey("manuscripts.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    
+    # For external/non-registered reviewers
+    email = Column(String(255), nullable=True)
+    name = Column(String(255), nullable=False)
+    
+    # Invitation status
+    status = Column(String(50), default='invited')  # invited, accepted, declined
+    invited_at = Column(DateTime(timezone=True), server_default=func.now())
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Relationships
+    manuscript = relationship("Manuscript", back_populates="reviewers")
+    user = relationship("User")
+
+
+class ManuscriptVersion(Base):
+    __tablename__ = "manuscript_versions"
+    
+    # Core fields
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    manuscript_id = Column(String, ForeignKey("manuscripts.id"), nullable=False, index=True)
+    version_number = Column(Integer, nullable=False, index=True)
+    
+    # Version metadata
+    version_type = Column(String(50), nullable=False, index=True)  # MANUAL, AUTO_SAVE, MILESTONE, BRANCH
+    version_label = Column(String(255), nullable=True)
+    change_summary = Column(Text, nullable=True)
+    
+    # Content snapshot
+    content = Column(Text, nullable=False)
+    abstract = Column(Text, nullable=True)
+    title = Column(String(500), nullable=False)
+    
+    # Statistics
+    word_count = Column(Integer, default=0)
+    character_count = Column(Integer, default=0)
+    citation_count = Column(Integer, default=0)
+    comment_count = Column(Integer, default=0)
+    resolved_comment_count = Column(Integer, default=0)
+    
+    # Status at time of version
+    status = Column(String(50), nullable=True)
+    
+    # Diff information
+    additions_count = Column(Integer, default=0)
+    deletions_count = Column(Integer, default=0)
+    diff_summary = Column(JSON, nullable=True)
+    
+    # Collaboration metadata
+    co_authors_snapshot = Column(JSON, nullable=True)
+    reviewers_snapshot = Column(JSON, nullable=True)
+    
+    # Tracking
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    parent_version_id = Column(String, ForeignKey("manuscript_versions.id"), nullable=True)
+    is_current = Column(Boolean, default=False)
+    
+    # Relationships
+    manuscript = relationship("Manuscript", back_populates="versions")
+    created_by = relationship("User")
+    parent_version = relationship("ManuscriptVersion", remote_side=[id], backref="child_versions")
+    comments_snapshot = relationship("ManuscriptVersionComment", back_populates="version", cascade="all, delete-orphan")
+
+
+class ManuscriptVersionComment(Base):
+    __tablename__ = "manuscript_version_comments"
+    
+    # Snapshot of comment at version time
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    version_id = Column(String, ForeignKey("manuscript_versions.id"), nullable=False, index=True)
+    original_comment_id = Column(String, ForeignKey("manuscript_comments.id"), nullable=True)
+    
+    # Comment data snapshot
+    content = Column(Text, nullable=False)
+    quoted_text = Column(Text, nullable=True)
+    selection_start = Column(Integer, nullable=True)
+    selection_end = Column(Integer, nullable=True)
+    is_resolved = Column(Boolean, default=False)
+    user_name = Column(String(255), nullable=False)
+    user_email = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    
+    # Thread info
+    parent_comment_id = Column(String, nullable=True)
+    replies_count = Column(Integer, default=0)
+    
+    # Relationships
+    version = relationship("ManuscriptVersion", back_populates="comments_snapshot")
+    original_comment = relationship("ManuscriptComment")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

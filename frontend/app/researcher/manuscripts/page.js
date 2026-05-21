@@ -745,6 +745,8 @@ export default function ManuscriptsPage() {
                 <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Authors</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Status</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Created</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Last Saved</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Saved By</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: 12 }} align="center">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -1112,6 +1114,14 @@ export default function ManuscriptsPage() {
                   </TableCell>
                   <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>
                     {new Date(manuscript.created_at).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>
+                    {manuscript.updated_at 
+                      ? new Date(manuscript.updated_at).toLocaleString()
+                      : new Date(manuscript.created_at).toLocaleString()}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>
+                    {manuscript.creator?.name || manuscript.creator?.email || 'Unknown'}
                   </TableCell>
                   <TableCell align="center">
                     <IconButton
