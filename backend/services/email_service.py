@@ -205,3 +205,209 @@ class EmailService:
         await db.commit()
         
         return True
+    
+    @staticmethod
+    async def send_collaboration_invite_email(
+        email: str,
+        inviter_name: str,
+        proposal_title: str,
+        role: str,
+        proposal_url: str
+    ) -> bool:
+        """
+        Send collaboration invitation email to registered users
+        
+        Args:
+            email: Recipient email address
+            inviter_name: Name of person sending invitation
+            proposal_title: Title of the proposal
+            role: Collaborator role
+            proposal_url: URL to the proposal
+            
+        Returns:
+            bool: True if email sent successfully, False otherwise
+        """
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        from_email = os.getenv("FROM_EMAIL", smtp_user)
+        
+        if not smtp_user or not smtp_password:
+            print("ERROR: SMTP credentials not configured")
+            return False
+        
+        # Create message
+        message = MIMEMultipart("alternative")
+        message["Subject"] = f"Collaboration Invitation: {proposal_title}"
+        message["From"] = from_email
+        message["To"] = email
+        
+        text_content = f"""
+        Collaboration Invitation
+        
+        {inviter_name} has invited you to collaborate on the grant proposal:
+        "{proposal_title}"
+        
+        Your role: {role}
+        
+        Click the link below to view the proposal and accept the invitation:
+        {proposal_url}
+        
+        Log in to DACORIS to get started!
+        """
+        
+        html_content = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #1ca7a1;">Collaboration Invitation</h2>
+              <p><strong>{inviter_name}</strong> has invited you to collaborate on the grant proposal:</p>
+              
+              <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #1ca7a1; border-radius: 5px;">
+                <h3 style="margin: 0 0 10px 0; color: #1ca7a1;">{proposal_title}</h3>
+                <p style="margin: 0; color: #666;"><strong>Your role:</strong> {role}</p>
+              </div>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="{proposal_url}" 
+                   style="display: inline-block; padding: 15px 30px; background-color: #1ca7a1; color: white; 
+                          text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  View Proposal & Accept Invitation
+                </a>
+              </div>
+              
+              <p style="color: #666; font-size: 14px;">Log in to DACORIS to get started!</p>
+              
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+              <p style="color: #999; font-size: 12px;">This is an automated message from DACORIS. Please do not reply to this email.</p>
+            </div>
+          </body>
+        </html>
+        """
+        
+        part1 = MIMEText(text_content, "plain")
+        part2 = MIMEText(html_content, "html")
+        message.attach(part1)
+        message.attach(part2)
+        
+        try:
+            await aiosmtplib.send(
+                message,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user,
+                password=smtp_password,
+                start_tls=True,
+            )
+            print(f"Collaboration invitation sent to {email}")
+            return True
+        except Exception as e:
+            print(f"Failed to send email to {email}: {e}")
+            return False
+    
+    @staticmethod
+    async def send_new_user_invitation_email(
+        email: str,
+        inviter_name: str,
+        proposal_title: str,
+        role: str,
+        invitation_token: str
+    ) -> bool:
+        """
+        Send invitation email to unregistered users
+        
+        Args:
+            email: Recipient email address
+            inviter_name: Name of person sending invitation
+            proposal_title: Title of the proposal
+            role: Collaborator role
+            invitation_token: Unique invitation token
+            
+        Returns:
+            bool: True if email sent successfully, False otherwise
+        """
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        from_email = os.getenv("FROM_EMAIL", smtp_user)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        
+        if not smtp_user or not smtp_password:
+            print("ERROR: SMTP credentials not configured")
+            return False
+        
+        # Create registration link with invitation token
+        registration_url = f"{frontend_url}/register?invitation={invitation_token}"
+        
+        # Create message
+        message = MIMEMultipart("alternative")
+        message["Subject"] = f"You're Invited to Collaborate: {proposal_title}"
+        message["From"] = from_email
+        message["To"] = email
+        
+        text_content = f"""
+        Collaboration Invitation
+        
+        {inviter_name} has invited you to collaborate on a grant proposal:
+        "{proposal_title}"
+        
+        Your role: {role}
+        
+        To accept this invitation, you need to create a DACORIS account:
+        {registration_url}
+        
+        Once you register, you'll automatically be added to the proposal team!
+        """
+        
+        html_content = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #1ca7a1;">You're Invited to Collaborate!</h2>
+              <p><strong>{inviter_name}</strong> has invited you to collaborate on a grant proposal:</p>
+              
+              <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #1ca7a1; border-radius: 5px;">
+                <h3 style="margin: 0 0 10px 0; color: #1ca7a1;">{proposal_title}</h3>
+                <p style="margin: 0; color: #666;"><strong>Your role:</strong> {role}</p>
+              </div>
+              
+              <p>To accept this invitation, you need to create a DACORIS account:</p>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="{registration_url}" 
+                   style="display: inline-block; padding: 15px 30px; background-color: #1ca7a1; color: white; 
+                          text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  Create Account & Accept Invitation
+                </a>
+              </div>
+              
+              <p style="color: #666; font-size: 14px;">Once you register, you'll automatically be added to the proposal team!</p>
+              
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+              <p style="color: #999; font-size: 12px;">This is an automated message from DACORIS. Please do not reply to this email.</p>
+            </div>
+          </body>
+        </html>
+        """
+        
+        part1 = MIMEText(text_content, "plain")
+        part2 = MIMEText(html_content, "html")
+        message.attach(part1)
+        message.attach(part2)
+        
+        try:
+            await aiosmtplib.send(
+                message,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user,
+                password=smtp_password,
+                start_tls=True,
+            )
+            print(f"New user invitation sent to {email}")
+            return True
+        except Exception as e:
+            print(f"Failed to send email to {email}: {e}")
+            return False

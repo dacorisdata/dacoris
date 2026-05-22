@@ -39,6 +39,7 @@ from routes.scholarly_works import router as scholarly_works_router
 from routes.publications import router as publications_router
 from routes.manuscripts import router as manuscripts_router
 from routes.mou import router as mou_router
+from routes.admin_staff import router as admin_staff_router
 
 load_dotenv()
 
@@ -95,6 +96,7 @@ app.include_router(scholarly_works_router)
 app.include_router(publications_router)
 app.include_router(manuscripts_router)
 app.include_router(mou_router)
+app.include_router(admin_staff_router)
 
 class UserCreate(BaseModel):
     email: str

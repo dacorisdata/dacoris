@@ -4,7 +4,7 @@ import { Box, Typography, Chip } from '@mui/material';
 import {
   Dashboard as DashIcon, Person as PersonIcon,
   Search as DiscoverIcon, Description as ProposalIcon,
-  Assignment as ApplicationIcon, Science as ProjectIcon,
+  Science as ProjectIcon,
   Gavel as EthicsIcon, CheckCircle as MilestoneIcon,
   LibraryBooks as PublicationsIcon, Storage as DatasetsIcon,
   Summarize as ReportsIcon, DynamicForm as FormsIcon,
@@ -30,7 +30,6 @@ const NAV_SECTIONS = [
     items: [
       { icon: DiscoverIcon,     label: 'Discover Opportunities', path: '/researcher/grants/discover' },
       { icon: ProposalIcon,     label: 'My Proposals',           path: '/researcher/grants/proposals' },
-      { icon: ApplicationIcon,  label: 'My Applications',        path: '/researcher/grants/applications' },
       { icon: AwardIcon,        label: 'My Awards',              path: '/researcher/grants/awards' },
     ],
   },

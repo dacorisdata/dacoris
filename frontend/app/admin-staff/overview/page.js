@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import {
   Box, Typography, Button, CircularProgress, Alert,
   Chip, Divider, LinearProgress, useTheme,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
+  Grid, Card as MuiCard, CardContent,
 } from '@mui/material';
 import {
   Assignment as AssignmentIcon,
@@ -189,6 +191,8 @@ export default function AdminStaffOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState('');
   const [stats, setStats]   = useState({});
+  const [institutionalMetrics, setInstitutionalMetrics] = useState(null);
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
 
   useEffect(() => { checkAuth(); }, []);
 
@@ -199,7 +203,7 @@ export default function AdminStaffOverview() {
     if (u.is_institution_admin) { router.push('/institution-admin/dashboard'); return; }
     if (u.primary_account_type === 'RESEARCHER') { router.push('/researcher/dashboard'); return; }
     setUser(u);
-    await loadStats(u);
+    await Promise.all([loadStats(u), loadInstitutionalMetrics()]);
     setLoading(false);
   };
 
@@ -236,6 +240,19 @@ export default function AdminStaffOverview() {
       setStats(s);
     } catch (e) {
       console.error('Failed to load stats:', e);
+    }
+  };
+
+  const loadInstitutionalMetrics = async () => {
+    setLoadingMetrics(true);
+    try {
+      const response = await api.get('/admin-staff/analytics/overview');
+      setInstitutionalMetrics(response.data);
+    } catch (e) {
+      console.error('Failed to load institutional metrics:', e);
+      setError('Failed to load institutional metrics');
+    } finally {
+      setLoadingMetrics(false);
     }
   };
 
@@ -285,7 +302,418 @@ export default function AdminStaffOverview() {
         </Button>
       </Box>
 
-      {/* Stat cards */}
+      {/* Institutional Overview Section - Visible to all admin staff */}
+      {institutionalMetrics && (
+        <>
+          <Typography sx={{ fontSize: 18, fontWeight: 700, color: 'text.primary', mb: 2, mt: 4 }}>
+            Institutional Overview
+          </Typography>
+          
+          {/* Key Metrics Grid */}
+          <Grid container spacing={2.5} sx={{ mb: 3.5 }}>
+            {/* Total Proposals */}
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ cursor: 'pointer', transition: 'all 0.2s', '&:hover': { borderColor: '#16a699', transform: 'translateY(-2px)' } }}
+                onClick={() => router.push('/admin-staff/grants/proposals')}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ width: 50, height: 50, borderRadius: 2, bgcolor: 'rgba(22,166,153,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <AssignmentIcon sx={{ color: '#16a699', fontSize: 24 }} />
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>
+                      Total Proposals
+                    </Typography>
+                    <Typography sx={{ color: 'text.primary', fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
+                      {institutionalMetrics.proposals.total}
+                    </Typography>
+                    <Typography sx={{ color: 'text.secondary', fontSize: 11, mt: 0.5 }}>
+                      {institutionalMetrics.proposals.awarded} awarded
+                    </Typography>
+                  </Box>
+                </Box>
+              </Card>
+            </Grid>
+
+            {/* Active Projects */}
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ cursor: 'pointer', transition: 'all 0.2s', '&:hover': { borderColor: '#3b82f6', transform: 'translateY(-2px)' } }}
+                onClick={() => router.push('/admin-staff/research/projects')}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ width: 50, height: 50, borderRadius: 2, bgcolor: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <ProjectsIcon sx={{ color: '#3b82f6', fontSize: 24 }} />
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>
+                      Active Projects
+                    </Typography>
+                    <Typography sx={{ color: 'text.primary', fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
+                      {institutionalMetrics.projects.active}
+                    </Typography>
+                    <Typography sx={{ color: 'text.secondary', fontSize: 11, mt: 0.5 }}>
+                      of {institutionalMetrics.projects.total} total
+                    </Typography>
+                  </Box>
+                </Box>
+              </Card>
+            </Grid>
+
+            {/* Submissions for Review */}
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ cursor: 'pointer', transition: 'all 0.2s', '&:hover': { borderColor: '#f59e0b', transform: 'translateY(-2px)' } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ width: 50, height: 50, borderRadius: 2, bgcolor: 'rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <ReviewIcon sx={{ color: '#f59e0b', fontSize: 24 }} />
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>
+                      Pending Reviews
+                    </Typography>
+                    <Typography sx={{ color: 'text.primary', fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
+                      {institutionalMetrics.submissions_for_review.total}
+                    </Typography>
+                    <Typography sx={{ color: 'text.secondary', fontSize: 11, mt: 0.5 }}>
+                      across all modules
+                    </Typography>
+                  </Box>
+                </Box>
+              </Card>
+            </Grid>
+
+            {/* Success Rate */}
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ cursor: 'pointer', transition: 'all 0.2s', '&:hover': { borderColor: '#10b981', transform: 'translateY(-2px)' } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ width: 50, height: 50, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <AwardsIcon sx={{ color: '#10b981', fontSize: 24 }} />
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>
+                      Success Rate
+                    </Typography>
+                    <Typography sx={{ color: 'text.primary', fontSize: 28, fontWeight: 700, lineHeight: 1 }}>
+                      {institutionalMetrics.proposals.success_rate}%
+                    </Typography>
+                    <Typography sx={{ color: 'text.secondary', fontSize: 11, mt: 0.5 }}>
+                      proposals awarded
+                    </Typography>
+                  </Box>
+                </Box>
+              </Card>
+            </Grid>
+          </Grid>
+
+          {/* Detailed Breakdown Tables */}
+          <Grid container spacing={2.5} sx={{ mb: 3.5 }}>
+            {/* Proposals Breakdown */}
+            <Grid item xs={12} md={6}>
+              <Card>
+                <Box sx={{ p: 2.5, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                  <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'text.primary' }}>
+                    Proposals by Status
+                  </Typography>
+                </Box>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Status</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12 }}>Count</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12 }}>%</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#94a3b8' }} />
+                            <Typography sx={{ fontSize: 13 }}>Draft</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.proposals.draft}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.proposals.total > 0 
+                            ? Math.round((institutionalMetrics.proposals.draft / institutionalMetrics.proposals.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b' }} />
+                            <Typography sx={{ fontSize: 13 }}>In Review</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.proposals.in_review}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.proposals.total > 0 
+                            ? Math.round((institutionalMetrics.proposals.in_review / institutionalMetrics.proposals.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981' }} />
+                            <Typography sx={{ fontSize: 13 }}>Awarded</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.proposals.awarded}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.proposals.total > 0 
+                            ? Math.round((institutionalMetrics.proposals.awarded / institutionalMetrics.proposals.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444' }} />
+                            <Typography sx={{ fontSize: 13 }}>Declined</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.proposals.declined}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.proposals.total > 0 
+                            ? Math.round((institutionalMetrics.proposals.declined / institutionalMetrics.proposals.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Card>
+            </Grid>
+
+            {/* Submissions for Review Breakdown */}
+            <Grid item xs={12} md={6}>
+              <Card>
+                <Box sx={{ p: 2.5, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                  <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'text.primary' }}>
+                    Submissions for Review
+                  </Typography>
+                </Box>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Type</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12 }}>Count</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12 }}>%</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <AssignmentIcon sx={{ fontSize: 16, color: '#16a699' }} />
+                            <Typography sx={{ fontSize: 13 }}>Proposals</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.submissions_for_review.proposals}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.submissions_for_review.total > 0 
+                            ? Math.round((institutionalMetrics.submissions_for_review.proposals / institutionalMetrics.submissions_for_review.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <ProjectsIcon sx={{ fontSize: 16, color: '#3b82f6' }} />
+                            <Typography sx={{ fontSize: 13 }}>Projects</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.submissions_for_review.projects}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.submissions_for_review.total > 0 
+                            ? Math.round((institutionalMetrics.submissions_for_review.projects / institutionalMetrics.submissions_for_review.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <EthicsIcon sx={{ fontSize: 16, color: '#10b981' }} />
+                            <Typography sx={{ fontSize: 13 }}>Ethics Applications</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.submissions_for_review.ethics}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.submissions_for_review.total > 0 
+                            ? Math.round((institutionalMetrics.submissions_for_review.ethics / institutionalMetrics.submissions_for_review.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <DataIcon sx={{ fontSize: 16, color: '#0ea5e9' }} />
+                            <Typography sx={{ fontSize: 13 }}>Data Management Plans</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.submissions_for_review.dmps}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.submissions_for_review.total > 0 
+                            ? Math.round((institutionalMetrics.submissions_for_review.dmps / institutionalMetrics.submissions_for_review.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Card>
+            </Grid>
+
+            {/* Projects Status */}
+            <Grid item xs={12} md={6}>
+              <Card>
+                <Box sx={{ p: 2.5, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                  <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'text.primary' }}>
+                    Projects Overview
+                  </Typography>
+                </Box>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Status</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12 }}>Count</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12 }}>%</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#3b82f6' }} />
+                            <Typography sx={{ fontSize: 13 }}>Active</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.projects.active}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.projects.total > 0 
+                            ? Math.round((institutionalMetrics.projects.active / institutionalMetrics.projects.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b' }} />
+                            <Typography sx={{ fontSize: 13 }}>Proposed</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.projects.proposed}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.projects.total > 0 
+                            ? Math.round((institutionalMetrics.projects.proposed / institutionalMetrics.projects.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981' }} />
+                            <Typography sx={{ fontSize: 13 }}>Completed</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.projects.completed}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {institutionalMetrics.projects.total > 0 
+                            ? Math.round((institutionalMetrics.projects.completed / institutionalMetrics.projects.total) * 100)
+                            : 0}%
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Card>
+            </Grid>
+
+            {/* Recent Activity */}
+            <Grid item xs={12} md={6}>
+              <Card>
+                <Box sx={{ p: 2.5, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                  <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'text.primary' }}>
+                    Recent Activity (Last 30 Days)
+                  </Typography>
+                </Box>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Type</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12 }}>New Items</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <AssignmentIcon sx={{ fontSize: 16, color: '#16a699' }} />
+                            <Typography sx={{ fontSize: 13 }}>Proposals</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.recent_activity.proposals}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <ProjectsIcon sx={{ fontSize: 16, color: '#3b82f6' }} />
+                            <Typography sx={{ fontSize: 13 }}>Projects</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.recent_activity.projects}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <EthicsIcon sx={{ fontSize: 16, color: '#10b981' }} />
+                            <Typography sx={{ fontSize: 13 }}>Ethics Applications</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, fontWeight: 600 }}>
+                          {institutionalMetrics.recent_activity.ethics}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Card>
+            </Grid>
+          </Grid>
+
+          <Divider sx={{ my: 4 }} />
+        </>
+      )}
+
+      {/* Role-specific stat cards */}
       {config.modules.length > 0 && (
         <Box sx={{ display: 'flex', gap: 2.5, mb: 3.5, flexWrap: 'wrap' }}>
           {config.modules.map(({ label, icon: Icon, color, bg, path, stat, prefix = '' }) => (

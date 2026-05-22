@@ -177,6 +177,8 @@ export default function ProposalWorkspacePage() {
   const [newCommentText, setNewCommentText] = useState('');
   const [pendingComment, setPendingComment] = useState(null); // { commentId, selectedText }
   const [currentUser, setCurrentUser] = useState(null);
+  const [editTitleDialog, setEditTitleDialog] = useState(false);
+  const [editedTitle, setEditedTitle] = useState('');
 
   // Drag and drop sensors
   const sensors = useSensors(
@@ -633,6 +635,27 @@ export default function ProposalWorkspacePage() {
     };
   };
 
+  const updateProposalTitle = async () => {
+    if (!editedTitle.trim()) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(
+        `${API_URL}/grants/proposals/${params.id}/title?title=${encodeURIComponent(editedTitle.trim())}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setSuccess('Proposal title updated successfully');
+      setEditTitleDialog(false);
+      setEditedTitle('');
+      await loadProposal();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to update proposal title');
+      console.error('Update title error:', e);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
@@ -774,7 +797,21 @@ export default function ProposalWorkspacePage() {
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box sx={{ flex: 1 }}>
-            <Typography sx={{ fontSize: 24, fontWeight: 700, mb: 0.5 }}>{proposal.title}</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography sx={{ fontSize: 24, fontWeight: 700, mb: 0.5 }}>{proposal.title}</Typography>
+              {isDraft && (
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setEditedTitle(proposal.title);
+                    setEditTitleDialog(true);
+                  }}
+                  sx={{ color: 'text.secondary', '&:hover': { color: ACCENT } }}
+                >
+                  <EditIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              )}
+            </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Chip
                 label={isDraft ? 'Draft' : proposal.status?.replace(/_/g, ' ')}
@@ -1488,6 +1525,51 @@ export default function ProposalWorkspacePage() {
           </MenuItem>
         ))}
       </Menu>
+
+      {/* Edit Title Dialog */}
+      <Dialog 
+        open={editTitleDialog} 
+        onClose={() => {
+          setEditTitleDialog(false);
+          setEditedTitle('');
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Edit Proposal Title</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Proposal Title"
+            value={editedTitle}
+            onChange={(e) => setEditedTitle(e.target.value)}
+            sx={{ mt: 2 }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && editedTitle.trim()) {
+                updateProposalTitle();
+              }
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={() => {
+            setEditTitleDialog(false);
+            setEditedTitle('');
+          }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={updateProposalTitle}
+            variant="contained"
+            disabled={!editedTitle.trim()}
+            sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
+            startIcon={<EditIcon />}
+          >
+            Update Title
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

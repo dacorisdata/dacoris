@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 import json
 
@@ -70,6 +70,25 @@ class CitationResponse(BaseModel):
     
     class Config:
         from_attributes = True
+    
+    @field_validator('publication', mode='before')
+    @classmethod
+    def validate_publication(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            return v
+        # Convert ORM object to dict
+        if hasattr(v, '__dict__'):
+            return {
+                'id': str(v.id),
+                'title': v.title,
+                'authors': v.authors,
+                'year': v.year,
+                'journal': v.journal,
+                'doi': v.doi
+            }
+        return v
 
 
 class CitationReorder(BaseModel):

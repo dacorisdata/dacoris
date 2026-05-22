@@ -35,10 +35,14 @@ function MyProposalsContent() {
   const [selectedOpp, setSelectedOpp] = useState(null);
   
   // ORCID search
+  const [searchMode, setSearchMode] = useState('orcid'); // 'orcid' or 'dacoris'
   const [givenName, setGivenName] = useState('');
   const [familyName, setFamilyName] = useState('');
+  const [dacorisQuery, setDacorisQuery] = useState('');
   const [orcidResults, setOrcidResults] = useState([]);
+  const [dacorisResults, setDacorisResults] = useState([]);
   const [searchingOrcid, setSearchingOrcid] = useState(false);
+  const [searchingDacoris, setSearchingDacoris] = useState(false);
   const [invitedCollaborators, setInvitedCollaborators] = useState([]);
   
   // Pagination
@@ -52,6 +56,9 @@ function MyProposalsContent() {
   const [selectedProposal, setSelectedProposal] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [proposalToDelete, setProposalToDelete] = useState(null);
+  const [editTitleDialog, setEditTitleDialog] = useState(false);
+  const [editingProposal, setEditingProposal] = useState(null);
+  const [editedTitle, setEditedTitle] = useState('');
 
   useEffect(() => {
     fetchUser().then(u => { 
@@ -109,6 +116,28 @@ function MyProposalsContent() {
     }
   };
 
+  const updateProposalTitle = async () => {
+    if (!editingProposal || !editedTitle.trim()) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(
+        `${API_URL}/grants/proposals/${editingProposal.id}/title?title=${encodeURIComponent(editedTitle.trim())}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setSuccess('Proposal title updated successfully');
+      setEditTitleDialog(false);
+      setEditingProposal(null);
+      setEditedTitle('');
+      await loadProposals();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to update proposal title');
+      console.error('Update title error:', e);
+    }
+  };
+
   const searchOrcid = async () => {
     if (!givenName.trim() && !familyName.trim()) return;
     setSearchingOrcid(true);
@@ -130,22 +159,50 @@ function MyProposalsContent() {
     }
   };
 
-  const addCollaborator = (person) => {
-    if (!invitedCollaborators.find(c => c.orcid === person.orcid)) {
-      setInvitedCollaborators([...invitedCollaborators, { ...person, role: 'Co-Investigator' }]);
-      setGivenName('');
-      setFamilyName('');
-      setOrcidResults([]);
+  const searchDacoris = async () => {
+    if (!dacorisQuery.trim() || dacorisQuery.trim().length < 2) return;
+    setSearchingDacoris(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/grants/proposals/collaborators/search`, {
+        params: { query: dacorisQuery.trim() },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setDacorisResults(res.data || []);
+    } catch (e) {
+      console.error('Dacoris search failed:', e);
+      setDacorisResults([]);
+    } finally {
+      setSearchingDacoris(false);
     }
   };
 
-  const removeCollaborator = (orcid) => {
-    setInvitedCollaborators(invitedCollaborators.filter(c => c.orcid !== orcid));
+  const addCollaborator = (person) => {
+    const identifier = person.orcid || person.user_id || person.email;
+    if (!invitedCollaborators.find(c => (c.orcid || c.user_id || c.email) === identifier)) {
+      setInvitedCollaborators([...invitedCollaborators, { 
+        ...person, 
+        role: 'Co-Investigator',
+        affiliation: person.affiliation || '',
+        email: person.email || ''
+      }]);
+      setGivenName('');
+      setFamilyName('');
+      setDacorisQuery('');
+      setOrcidResults([]);
+      setDacorisResults([]);
+    }
   };
 
-  const updateCollaboratorRole = (orcid, role) => {
+  const removeCollaborator = (identifier) => {
+    setInvitedCollaborators(invitedCollaborators.filter(c => 
+      (c.orcid || c.user_id || c.email) !== identifier
+    ));
+  };
+
+  const updateCollaborator = (identifier, field, value) => {
     setInvitedCollaborators(invitedCollaborators.map(c => 
-      c.orcid === orcid ? { ...c, role } : c
+      (c.orcid || c.user_id || c.email) === identifier ? { ...c, [field]: value } : c
     ));
   };
 
@@ -158,9 +215,11 @@ function MyProposalsContent() {
           title: newTitle, 
           opportunity_id: selectedOpp?.id,
           collaborators: invitedCollaborators.map(c => ({
+            user_id: c.user_id,
             orcid: c.orcid,
             name: c.name,
-            email: c.email,
+            email: c.email || '',
+            affiliation: c.affiliation || '',
             role: c.role
           }))
         },
@@ -172,6 +231,7 @@ function MyProposalsContent() {
       setSelectedOpp(null);
       setInvitedCollaborators([]);
       setActiveStep(0);
+      setSearchMode('orcid');
       setTimeout(() => router.push(`/researcher/grants/proposals/${res.data.id}`), 1500);
     } catch (e) {
       setError('Failed to create proposal: ' + (e.response?.data?.detail || e.message));
@@ -238,9 +298,45 @@ function MyProposalsContent() {
                       }}
                     >
                       <TableCell>
-                        <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'text.primary' }}>
-                          {p.title}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography 
+                            sx={{ 
+                              fontSize: 14, 
+                              fontWeight: 600, 
+                              color: ACCENT,
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              '&:hover': { opacity: 0.8 }
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/researcher/grants/proposals/${p.id}`);
+                            }}
+                          >
+                            {p.title}
+                          </Typography>
+                          {(() => {
+                            const isDraft = p.status === 'draft' || p.status?.toUpperCase() === 'DRAFT';
+                            return isDraft && (
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingProposal(p);
+                                  setEditedTitle(p.title);
+                                  setEditTitleDialog(true);
+                                }}
+                                sx={{ 
+                                  opacity: 0, 
+                                  transition: 'opacity 0.2s',
+                                  '.MuiTableRow-root:hover &': { opacity: 1 }
+                                }}
+                              >
+                                <EditIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                            );
+                          })()}
+                        </Box>
                       </TableCell>
                       
                       <TableCell>
@@ -474,7 +570,10 @@ function MyProposalsContent() {
           setInvitedCollaborators([]);
           setGivenName('');
           setFamilyName('');
+          setDacorisQuery('');
           setOrcidResults([]);
+          setDacorisResults([]);
+          setSearchMode('orcid');
         }} 
         maxWidth="md" 
         fullWidth
@@ -525,71 +624,183 @@ function MyProposalsContent() {
           {/* Step 2: Invite Collaborators */}
           {activeStep === 1 && (
             <Box>
-              <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 2 }}>Search & Invite Collaborators via ORCID</Typography>
+              <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 2 }}>Search & Invite Collaborators</Typography>
               
-              <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
-                <TextField
+              {/* Search Mode Toggle */}
+              <Box sx={{ mb: 3, display: 'flex', gap: 1, p: 0.5, bgcolor: 'background.default', borderRadius: 2, width: 'fit-content' }}>
+                <Button
+                  variant={searchMode === 'orcid' ? 'contained' : 'text'}
                   size="small"
-                  placeholder="Given Name"
-                  value={givenName}
-                  onChange={(e) => setGivenName(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && searchOrcid()}
-                  sx={{ flex: 1 }}
-                />
-                <TextField
-                  size="small"
-                  placeholder="Family Name"
-                  value={familyName}
-                  onChange={(e) => setFamilyName(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && searchOrcid()}
-                  sx={{ flex: 1 }}
-                />
-                <Button 
-                  variant="contained" 
-                  onClick={searchOrcid}
-                  disabled={searchingOrcid || (!givenName.trim() && !familyName.trim())}
-                  sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, minWidth: 100 }}
+                  onClick={() => {
+                    setSearchMode('orcid');
+                    setDacorisResults([]);
+                    setDacorisQuery('');
+                  }}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    bgcolor: searchMode === 'orcid' ? ACCENT : 'transparent',
+                    color: searchMode === 'orcid' ? 'white' : 'text.secondary',
+                    '&:hover': { bgcolor: searchMode === 'orcid' ? '#14958a' : 'action.hover' }
+                  }}
                 >
-                  {searchingOrcid ? <CircularProgress size={20} /> : <SearchIcon />}
+                  Search from ORCID
+                </Button>
+                <Button
+                  variant={searchMode === 'dacoris' ? 'contained' : 'text'}
+                  size="small"
+                  onClick={() => {
+                    setSearchMode('dacoris');
+                    setOrcidResults([]);
+                    setGivenName('');
+                    setFamilyName('');
+                  }}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    bgcolor: searchMode === 'dacoris' ? ACCENT : 'transparent',
+                    color: searchMode === 'dacoris' ? 'white' : 'text.secondary',
+                    '&:hover': { bgcolor: searchMode === 'dacoris' ? '#14958a' : 'action.hover' }
+                  }}
+                >
+                  Search from Dacoris
                 </Button>
               </Box>
 
-              {/* ORCID Search Results */}
-              {orcidResults.length > 0 && (
-                <Box sx={{ mb: 3, maxHeight: 200, overflow: 'auto', border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
-                  {orcidResults.map((person, idx) => (
-                    <Box 
-                      key={idx}
-                      sx={{ 
-                        p: 1.5, 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center',
-                        borderBottom: idx < orcidResults.length - 1 ? `1px solid ${theme.palette.divider}` : 'none',
-                        '&:hover': { bgcolor: 'action.hover' }
-                      }}
+              {/* ORCID Search */}
+              {searchMode === 'orcid' && (
+                <>
+                  <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
+                    <TextField
+                      size="small"
+                      placeholder="Given Name"
+                      value={givenName}
+                      onChange={(e) => setGivenName(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && searchOrcid()}
+                      sx={{ flex: 1 }}
+                    />
+                    <TextField
+                      size="small"
+                      placeholder="Family Name"
+                      value={familyName}
+                      onChange={(e) => setFamilyName(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && searchOrcid()}
+                      sx={{ flex: 1 }}
+                    />
+                    <Button 
+                      variant="contained" 
+                      onClick={searchOrcid}
+                      disabled={searchingOrcid || (!givenName.trim() && !familyName.trim())}
+                      sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, minWidth: 100 }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <Avatar sx={{ width: 32, height: 32, bgcolor: ACCENT, fontSize: 14 }}>
-                          {person.name?.charAt(0) || '?'}
-                        </Avatar>
-                        <Box>
-                          <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{person.name || 'Unknown'}</Typography>
-                          <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-                            {person.email || person.orcid}
-                          </Typography>
+                      {searchingOrcid ? <CircularProgress size={20} /> : <SearchIcon />}
+                    </Button>
+                  </Box>
+
+                  {/* ORCID Search Results */}
+                  {orcidResults.length > 0 && (
+                    <Box sx={{ mb: 3, maxHeight: 200, overflow: 'auto', border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
+                      {orcidResults.map((person, idx) => (
+                        <Box 
+                          key={idx}
+                          sx={{ 
+                            p: 1.5, 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            borderBottom: idx < orcidResults.length - 1 ? `1px solid ${theme.palette.divider}` : 'none',
+                            '&:hover': { bgcolor: 'action.hover' }
+                          }}
+                        >
+                          <Box sx={{ flex: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                              <Avatar sx={{ width: 32, height: 32, bgcolor: ACCENT, fontSize: 14 }}>
+                                {person.name?.charAt(0) || '?'}
+                              </Avatar>
+                              <Box sx={{ flex: 1 }}>
+                                <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{person.name || 'Unknown'}</Typography>
+                                <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+                                  {person.affiliation || person.email || person.orcid}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Box>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => addCollaborator(person)}
+                            sx={{ color: ACCENT }}
+                          >
+                            <InviteIcon fontSize="small" />
+                          </IconButton>
                         </Box>
-                      </Box>
-                      <IconButton 
-                        size="small" 
-                        onClick={() => addCollaborator(person)}
-                        sx={{ color: ACCENT }}
-                      >
-                        <InviteIcon fontSize="small" />
-                      </IconButton>
+                      ))}
                     </Box>
-                  ))}
-                </Box>
+                  )}
+                </>
+              )}
+
+              {/* Dacoris Search */}
+              {searchMode === 'dacoris' && (
+                <>
+                  <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      placeholder="Search by name, email, or department..."
+                      value={dacorisQuery}
+                      onChange={(e) => setDacorisQuery(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && searchDacoris()}
+                    />
+                    <Button 
+                      variant="contained" 
+                      onClick={searchDacoris}
+                      disabled={searchingDacoris || dacorisQuery.trim().length < 2}
+                      sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, minWidth: 100 }}
+                    >
+                      {searchingDacoris ? <CircularProgress size={20} /> : <SearchIcon />}
+                    </Button>
+                  </Box>
+
+                  {/* Dacoris Search Results */}
+                  {dacorisResults.length > 0 && (
+                    <Box sx={{ mb: 3, maxHeight: 200, overflow: 'auto', border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
+                      {dacorisResults.map((person, idx) => (
+                        <Box 
+                          key={idx}
+                          sx={{ 
+                            p: 1.5, 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            borderBottom: idx < dacorisResults.length - 1 ? `1px solid ${theme.palette.divider}` : 'none',
+                            '&:hover': { bgcolor: 'action.hover' }
+                          }}
+                        >
+                          <Box sx={{ flex: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                              <Avatar sx={{ width: 32, height: 32, bgcolor: '#8b5cf6', fontSize: 14 }}>
+                                {person.name?.charAt(0) || '?'}
+                              </Avatar>
+                              <Box sx={{ flex: 1 }}>
+                                <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{person.name || 'Unknown'}</Typography>
+                                <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+                                  {person.department || person.email}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Box>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => addCollaborator(person)}
+                            sx={{ color: ACCENT }}
+                          >
+                            <InviteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
+                </>
               )}
 
               {/* Invited Collaborators */}
@@ -601,44 +812,61 @@ function MyProposalsContent() {
                   No collaborators invited yet. Search above to add team members.
                 </Typography>
               ) : (
-                <Table size="small">
-                  <TableBody>
-                    {invitedCollaborators.map((collab) => (
-                      <TableRow key={collab.orcid}>
-                        <TableCell sx={{ py: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Avatar sx={{ width: 28, height: 28, bgcolor: ACCENT, fontSize: 12 }}>
-                              {collab.name?.charAt(0)}
-                            </Avatar>
-                            <Box>
-                              <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{collab.name}</Typography>
-                              <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>{collab.email}</Typography>
-                            </Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {invitedCollaborators.map((collab) => {
+                    const identifier = collab.orcid || collab.user_id || collab.email;
+                    return (
+                      <Box key={identifier} sx={{ p: 2, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1.5 }}>
+                          <Avatar sx={{ width: 28, height: 28, bgcolor: ACCENT, fontSize: 12, mt: 0.5 }}>
+                            {collab.name?.charAt(0)}
+                          </Avatar>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{collab.name}</Typography>
+                            <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+                              {collab.source === 'dacoris' ? 'Institutional Researcher' : 'ORCID'}
+                            </Typography>
                           </Box>
-                        </TableCell>
-                        <TableCell sx={{ py: 1, width: 180 }}>
-                          <Select
-                            size="small"
-                            value={collab.role}
-                            onChange={(e) => updateCollaboratorRole(collab.orcid, e.target.value)}
-                            fullWidth
-                            sx={{ fontSize: 12 }}
-                          >
-                            <MenuItem value="Co-Investigator">Co-Investigator</MenuItem>
-                            <MenuItem value="Consultant">Consultant</MenuItem>
-                            <MenuItem value="Advisor">Advisor</MenuItem>
-                            <MenuItem value="Collaborator">Collaborator</MenuItem>
-                          </Select>
-                        </TableCell>
-                        <TableCell sx={{ py: 1, width: 50 }}>
-                          <IconButton size="small" onClick={() => removeCollaborator(collab.orcid)}>
+                          <IconButton size="small" onClick={() => removeCollaborator(identifier)}>
                             <DeleteIcon fontSize="small" />
                           </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        </Box>
+                        
+                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
+                          <TextField
+                            size="small"
+                            label="Email"
+                            value={collab.email || ''}
+                            onChange={(e) => updateCollaborator(identifier, 'email', e.target.value)}
+                            placeholder="email@example.com"
+                            sx={{ fontSize: 12 }}
+                          />
+                          <TextField
+                            size="small"
+                            label="Affiliation"
+                            value={collab.affiliation || ''}
+                            onChange={(e) => updateCollaborator(identifier, 'affiliation', e.target.value)}
+                            placeholder="Institution/Department"
+                            sx={{ fontSize: 12 }}
+                          />
+                        </Box>
+                        
+                        <Select
+                          size="small"
+                          fullWidth
+                          value={collab.role}
+                          onChange={(e) => updateCollaborator(identifier, 'role', e.target.value)}
+                          sx={{ fontSize: 12 }}
+                        >
+                          <MenuItem value="Co-Investigator">Co-Investigator</MenuItem>
+                          <MenuItem value="Consultant">Consultant</MenuItem>
+                          <MenuItem value="Advisor">Advisor</MenuItem>
+                          <MenuItem value="Collaborator">Collaborator</MenuItem>
+                        </Select>
+                      </Box>
+                    );
+                  })}
+                </Box>
               )}
             </Box>
           )}
@@ -670,12 +898,35 @@ function MyProposalsContent() {
                     No collaborators
                   </Typography>
                 ) : (
-                  invitedCollaborators.map((c) => (
-                    <Box key={c.orcid} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
-                      <Typography sx={{ fontSize: 13 }}>{c.name}</Typography>
-                      <Chip label={c.role} size="small" sx={{ fontSize: 10, height: 20 }} />
-                    </Box>
-                  ))
+                  invitedCollaborators.map((c, idx) => {
+                    const identifier = c.orcid || c.user_id || c.email;
+                    return (
+                      <Box key={identifier} sx={{ 
+                        py: 1.5, 
+                        borderBottom: idx < invitedCollaborators.length - 1 ? `1px solid ${theme.palette.divider}` : 'none' 
+                      }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                          <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{c.name}</Typography>
+                          <Chip label={c.role} size="small" sx={{ fontSize: 10, height: 20 }} />
+                        </Box>
+                        {c.email && (
+                          <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+                            Email: {c.email}
+                          </Typography>
+                        )}
+                        {c.affiliation && (
+                          <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+                            Affiliation: {c.affiliation}
+                          </Typography>
+                        )}
+                        {c.source && (
+                          <Typography sx={{ fontSize: 10, color: 'text.disabled', mt: 0.5 }}>
+                            Source: {c.source === 'dacoris' ? 'Institutional Researcher' : 'ORCID'}
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  })
                 )}
               </Box>
 
@@ -691,6 +942,7 @@ function MyProposalsContent() {
             setCreateDialog(false);
             setActiveStep(0);
             setInvitedCollaborators([]);
+            setSearchMode('orcid');
           }}>
             Cancel
           </Button>
@@ -1032,6 +1284,53 @@ function MyProposalsContent() {
             startIcon={<DeleteIcon />}
           >
             Delete Proposal
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Title Dialog */}
+      <Dialog 
+        open={editTitleDialog} 
+        onClose={() => {
+          setEditTitleDialog(false);
+          setEditingProposal(null);
+          setEditedTitle('');
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Edit Proposal Title</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Proposal Title"
+            value={editedTitle}
+            onChange={(e) => setEditedTitle(e.target.value)}
+            sx={{ mt: 2 }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && editedTitle.trim()) {
+                updateProposalTitle();
+              }
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={() => {
+            setEditTitleDialog(false);
+            setEditingProposal(null);
+            setEditedTitle('');
+          }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={updateProposalTitle}
+            variant="contained"
+            disabled={!editedTitle.trim()}
+            sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
+            startIcon={<EditIcon />}
+          >
+            Update Title
           </Button>
         </DialogActions>
       </Dialog>

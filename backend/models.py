@@ -426,8 +426,10 @@ class ProposalCollaborator(Base):
     invited_email = Column(String(200))  # For pending invites
     invited_orcid = Column(String(100))  # For pending invites
     invited_name = Column(String(200))  # For pending invites
+    invited_affiliation = Column(String(500))  # For pending invites
     invited_at = Column(DateTime(timezone=True), server_default=func.now())
     responded_at = Column(DateTime(timezone=True))
+    invitation_token = Column(String(100), unique=True, nullable=True)  # Token for invitation link
 
     proposal = relationship("Proposal", back_populates="collaborators")
     user = relationship("User", foreign_keys=[user_id])
@@ -661,6 +663,7 @@ class NotificationType(str, enum.Enum):
     PROPOSAL_SUBMITTED = "proposal_submitted"
     PROPOSAL_APPROVED = "proposal_approved"
     PROPOSAL_REJECTED = "proposal_rejected"
+    PROPOSAL_INVITATION = "proposal_invitation"
     REVIEW_ASSIGNED = "review_assigned"
     COMMENT_ADDED = "comment_added"
     SYSTEM_ANNOUNCEMENT = "system_announcement"

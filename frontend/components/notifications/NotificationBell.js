@@ -5,39 +5,18 @@ import {
   IconButton,
   Badge,
   Menu,
-  MenuItem,
   Typography,
   Box,
   Divider,
   Button,
   CircularProgress,
-  Chip,
   alpha,
 } from '@mui/material';
 import {
   Notifications as NotificationsIcon,
-  Circle,
-  CheckCircle,
-  Error,
-  Info,
-  Warning,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
-
-const priorityColors = {
-  urgent: '#d32f2f',
-  high: '#f57c00',
-  medium: '#1976d2',
-  low: '#757575',
-};
-
-const typeIcons = {
-  new_registration: Info,
-  account_approved: CheckCircle,
-  account_rejected: Error,
-  role_assigned: CheckCircle,
-  system_announcement: Warning,
-};
+import NotificationItem from './NotificationItem';
 
 export default function NotificationBell() {
   const router = useRouter();
@@ -141,14 +120,6 @@ export default function NotificationBell() {
     setAnchorEl(null);
   };
 
-  const handleNotificationClick = (notification) => {
-    markAsRead(notification.id);
-    if (notification.action_url) {
-      router.push(notification.action_url);
-    }
-    handleClose();
-  };
-
   useEffect(() => {
     fetchUnreadCount();
     
@@ -157,23 +128,6 @@ export default function NotificationBell() {
     
     return () => clearInterval(interval);
   }, []);
-
-  const getNotificationIcon = (type) => {
-    const IconComponent = typeIcons[type] || Info;
-    return <IconComponent sx={{ fontSize: 20, mr: 1.5, color: '#1ca7a1' }} />;
-  };
-
-  const formatTimeAgo = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const seconds = Math.floor((now - date) / 1000);
-
-    if (seconds < 60) return 'Just now';
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-    return date.toLocaleDateString();
-  };
 
   return (
     <>
@@ -232,50 +186,15 @@ export default function NotificationBell() {
         ) : (
           <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
             {notifications.map((notification) => (
-              <MenuItem
+              <NotificationItem
                 key={notification.id}
-                onClick={() => handleNotificationClick(notification)}
-                sx={{
-                  py: 1.5,
-                  px: 2,
-                  bgcolor: notification.is_read ? 'transparent' : alpha('#1ca7a1', 0.05),
-                  borderLeft: notification.is_read ? 'none' : `3px solid ${priorityColors[notification.priority]}`,
-                  '&:hover': {
-                    bgcolor: alpha('#1ca7a1', 0.1),
-                  },
+                notification={notification}
+                onMarkAsRead={markAsRead}
+                onRefresh={() => {
+                  fetchNotifications();
+                  fetchUnreadCount();
                 }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', width: '100%' }}>
-                  {getNotificationIcon(notification.type)}
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                      <Typography variant="subtitle2" fontWeight="600" noWrap>
-                        {notification.title}
-                      </Typography>
-                      {!notification.is_read && (
-                        <Circle sx={{ fontSize: 8, color: '#1ca7a1' }} />
-                      )}
-                    </Box>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        mb: 0.5,
-                      }}
-                    >
-                      {notification.message}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {formatTimeAgo(notification.created_at)}
-                    </Typography>
-                  </Box>
-                </Box>
-              </MenuItem>
+              />
             ))}
           </Box>
         )}

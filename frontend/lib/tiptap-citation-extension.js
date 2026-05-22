@@ -16,13 +16,20 @@ export const Citation = Node.create({
     return {
       suggestion: {
         char: '@',
+        allowSpaces: true,
+        startOfLine: false,
         command: ({ editor, range, props }) => {
+          // Delete the trigger character and query text
           editor
             .chain()
             .focus()
             .deleteRange(range)
-            .insertCitation(props)
             .run();
+          
+          // Insert the citation inline
+          if (props.onSelect) {
+            props.onSelect(props);
+          }
         },
       },
     };
@@ -68,9 +75,14 @@ export const Citation = Node.create({
       },
       inlineText: {
         default: '',
-        parseHTML: element => element.textContent,
+        parseHTML: element => element.getAttribute('data-inline-text') || element.textContent,
         renderHTML: attributes => {
-          return {};
+          if (!attributes.inlineText) {
+            return {};
+          }
+          return {
+            'data-inline-text': attributes.inlineText,
+          };
         },
       },
     };
@@ -84,13 +96,13 @@ export const Citation = Node.create({
     ];
   },
 
-  renderHTML({ HTMLAttributes }) {
+  renderHTML({ node, HTMLAttributes }) {
     return [
       'span',
       mergeAttributes(HTMLAttributes, {
         class: 'citation-node',
       }),
-      HTMLAttributes.inlineText || '[Citation]',
+      node.attrs.inlineText || '[Citation]',
     ];
   },
 

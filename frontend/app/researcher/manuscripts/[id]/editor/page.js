@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -9,15 +9,20 @@ import Highlight from '@tiptap/extension-highlight';
 import FontFamily from '@tiptap/extension-font-family';
 import FontSize from 'tiptap-extension-font-size';
 import TextStyle from '@tiptap/extension-text-style';
+import Mathematics from '@tiptap/extension-mathematics';
 import Citation from '@/lib/tiptap-citation-extension';
 import Comment from '@/lib/tiptap-comment-extension';
 import PageBreak from '@/lib/tiptap-pagebreak-extension';
+import 'katex/dist/katex.min.css';
 import CitationSidebar from '@/components/CitationSidebar';
 import BibliographyManager from '@/components/BibliographyManager';
 import CommentSidebar from '@/components/CommentSidebar';
 import CommentForm from '@/components/CommentForm';
 import PagedEditor from '@/components/PagedEditor';
 import DocumentOutline from '@/components/DocumentOutline';
+import CitationSuggestion from '@/components/CitationSuggestion';
+import { ReactRenderer } from '@tiptap/react';
+import tippy from 'tippy.js';
 import { PAGE_SIZE_OPTIONS, DEFAULT_PAGE_SIZE } from '@/lib/page-config';
 import './editor.css';
 import {
@@ -62,9 +67,15 @@ import {
   InsertPageBreak as PageBreakIcon,
   Description as PageSizeIcon,
   FormatClear as ParagraphIcon,
+  Functions as MathIcon,
 } from '@mui/icons-material';
 
 const ACCENT = '#1ca7a1';
+
+const getInitials = (name) => {
+  if (!name) return '?';
+  return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+};
 
 export default function ManuscriptEditorPage() {
   const router = useRouter();
@@ -76,10 +87,6 @@ export default function ManuscriptEditorPage() {
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState([
-    { id: 1, name: 'John Doe', avatar: 'JD', color: '#1ca7a1' },
-    { id: 2, name: 'Jane Smith', avatar: 'JS', color: '#3b82f6' },
-  ]);
   const [menuAnchor, setMenuAnchor] = useState(null);
   
   // Menu bar anchors
@@ -92,6 +99,9 @@ export default function ManuscriptEditorPage() {
   const [citationSidebarOpen, setCitationSidebarOpen] = useState(false);
   const [citationStyle, setCitationStyle] = useState('APA');
   const [citations, setCitations] = useState([]);
+  const [publications, setPublications] = useState([]);
+  const publicationsRef = useRef([]);
+  const editorRef = useRef(null);
   
   // Comment state
   const [comments, setComments] = useState([]);
@@ -145,7 +155,90 @@ export default function ManuscriptEditorPage() {
       Highlight.configure({
         multicolor: true,
       }),
-      Citation,
+      Mathematics,
+      Citation.configure({
+        suggestion: {
+          char: '@',
+          allowSpaces: true,
+          startOfLine: false,
+          items: ({ query }) => {
+            // Filter publications by query using ref to get latest data
+            const lowerQuery = query.toLowerCase();
+            const currentPublications = publicationsRef.current || [];
+            console.log('🔍 Filtering publications:', currentPublications.length, 'total, query:', query);
+            
+            const filtered = currentPublications
+              .filter(pub => {
+                const authors = (pub.authors || '').toLowerCase();
+                const title = (pub.title || '').toLowerCase();
+                return authors.includes(lowerQuery) || title.includes(lowerQuery);
+              })
+              .slice(0, 10);
+            
+            console.log('✅ Filtered results:', filtered.length, 'items');
+            return filtered;
+          },
+          render: () => {
+            let component;
+            let popup;
+
+            return {
+              onStart: props => {
+                component = new ReactRenderer(CitationSuggestion, {
+                  props,
+                  editor: props.editor,
+                });
+
+                if (!props.clientRect) {
+                  return;
+                }
+
+                popup = tippy('body', {
+                  getReferenceClientRect: props.clientRect,
+                  appendTo: () => document.body,
+                  content: component.element,
+                  showOnCreate: true,
+                  interactive: true,
+                  trigger: 'manual',
+                  placement: 'bottom-start',
+                });
+              },
+
+              onUpdate(props) {
+                component.updateProps(props);
+
+                if (!props.clientRect) {
+                  return;
+                }
+
+                popup[0].setProps({
+                  getReferenceClientRect: props.clientRect,
+                });
+              },
+
+              onKeyDown(props) {
+                if (props.event.key === 'Escape') {
+                  popup[0].hide();
+                  return true;
+                }
+
+                return component.ref?.onKeyDown(props);
+              },
+
+              onExit() {
+                popup[0].destroy();
+                component.destroy();
+              },
+            };
+          },
+          command: ({ editor, range, props }) => {
+            // Delete the trigger character and query text
+            editor.chain().focus().deleteRange(range).run();
+            // Insert citation - pass the editor from the command context
+            handleInsertCitationFromSuggestion(props, editor);
+          },
+        },
+      }),
       Comment.configure({
         onCommentDeleted: handleCommentDeletedFromText,
         onCommentClick: (commentId) => {
@@ -175,6 +268,7 @@ export default function ManuscriptEditorPage() {
     fetchCitations();
     fetchComments();
     fetchCurrentUser();
+    fetchPublications();
     
     // Load page size preference
     const savedPageSize = localStorage.getItem('manuscript-page-size');
@@ -515,54 +609,245 @@ export default function ManuscriptEditorPage() {
     }
   };
 
-  const handleInsertCitation = (citation) => {
-    if (!editor) return;
-
-    console.log('📝 Inserting citation:', citation);
-
-    const inlineText = formatInlineCitation(citation);
-    
-    // Insert citation as a styled span
-    editor
-      .chain()
-      .focus()
-      .insertContent(`<span class="citation-node" data-citation-id="${citation.id}" data-citation-key="${citation.citation_key}" data-publication-id="${citation.publication_id}">${inlineText}</span> `)
-      .run();
-
-    // Update citations list
-    setCitations((prev) => {
-      // Check if citation already exists in state
-      if (prev.some(c => c.id === citation.id)) {
-        return prev;
+  const fetchPublications = async () => {
+    try {
+      console.log('🔄 Fetching publications...');
+      const token = localStorage.getItem('token');
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || '/api';
+      const response = await fetch(`${apiBase}/publications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      console.log('📡 Publications response status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('📚 Publications fetched:', data.length, 'items');
+        console.log('📚 First publication:', data[0]);
+        setPublications(data);
+        publicationsRef.current = data; // Also update the ref for real-time access
+        console.log('✅ Publications ref updated:', publicationsRef.current.length, 'items');
+      } else {
+        console.error('❌ Failed to fetch publications:', response.status, response.statusText);
       }
-      return [...prev, citation];
+    } catch (error) {
+      console.error('❌ Error fetching publications:', error);
+    }
+  };
+
+  const handleInsertCitationFromSuggestion = async (publication, editorInstance = null) => {
+    console.log('🎯 handleInsertCitationFromSuggestion called');
+    console.log('🎯 Publication:', publication);
+    console.log('🎯 Editor from state:', !!editor);
+    console.log('🎯 Editor from parameter:', !!editorInstance);
+    
+    // Use the editor passed as parameter, or fall back to state
+    const activeEditor = editorInstance || editor;
+    
+    if (!activeEditor) {
+      console.error('❌ Editor not available');
+      setSnackbar({ open: true, message: 'Editor not ready. Please try again.', severity: 'error' });
+      return;
+    }
+    
+    console.log('✅ Using editor:', !!activeEditor);
+    
+    // Check if already cited
+    const alreadyCited = citations.some(c => c.publication_id === publication.id);
+    console.log('📋 Already cited:', alreadyCited);
+    
+    if (alreadyCited) {
+      // Find existing citation and insert it
+      const existingCitation = citations.find(c => c.publication_id === publication.id);
+      if (existingCitation) {
+        console.log('📌 Inserting existing citation');
+        insertCitationInline(existingCitation, activeEditor);
+      }
+      return;
+    }
+
+    // Create new citation
+    try {
+      console.log('➕ Creating new citation for publication:', publication.id);
+      const token = localStorage.getItem('token');
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || '/api';
+      const response = await fetch(
+        `${apiBase}/manuscripts/${params.id}/citations`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            publication_id: publication.id,
+            citation_style: citationStyle,
+          }),
+        }
+      );
+
+      console.log('📡 Citation creation response:', response.status);
+
+      if (response.ok) {
+        const citation = await response.json();
+        console.log('✅ Citation created:', citation);
+        setCitations(prev => [...prev, citation]);
+        insertCitationInline(citation, activeEditor);
+      } else {
+        const error = await response.json();
+        console.error('❌ Citation creation failed:', error);
+        
+        if (error.detail && error.detail.includes('already exists')) {
+          console.log('⚠️ Citation exists, fetching...');
+          // Fetch and insert existing citation
+          const citationsResponse = await fetch(
+            `${apiBase}/manuscripts/${params.id}/citations`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (citationsResponse.ok) {
+            const allCitations = await citationsResponse.json();
+            const existingCitation = allCitations.find(c => c.publication_id === publication.id);
+            if (existingCitation) {
+              console.log('📌 Inserting existing citation from server');
+              setCitations(allCitations);
+              insertCitationInline(existingCitation, activeEditor);
+            }
+          }
+        } else {
+          setSnackbar({ open: true, message: error.detail || 'Failed to create citation', severity: 'error' });
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error creating citation:', error);
+      setSnackbar({ open: true, message: 'Network error creating citation', severity: 'error' });
+    }
+  };
+
+  const insertCitationInline = (citation, editorInstance = null) => {
+    const activeEditor = editorInstance || editor;
+    
+    if (!activeEditor) {
+      console.error('❌ Editor not ready for citation insertion');
+      return;
+    }
+
+    console.log('📝 Inserting citation inline:', citation);
+    console.log('📝 Using editor:', !!activeEditor);
+    console.log('📝 Citation data:', {
+      id: citation.id,
+      citation_key: citation.citation_key,
+      publication_id: citation.publication_id,
+      publication: citation.publication
     });
     
-    setHasUnsavedChanges(true);
+    const inlineText = formatInlineCitation(citation);
+    console.log('📝 Formatted citation text:', inlineText);
     
-    console.log('✅ Citation inserted successfully');
+    try {
+      // Get current cursor position
+      const { from, to } = activeEditor.state.selection;
+      console.log('📍 Current cursor position:', { from, to });
+      
+      // Use the custom insertCitation command from the Citation extension
+      const result = activeEditor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'citation',
+          attrs: {
+            citationId: citation.id,
+            citationKey: citation.citation_key,
+            publicationId: citation.publication_id,
+            inlineText: inlineText,
+          },
+        })
+        .run();
+      
+      console.log('📝 Insert result:', result);
+      
+      // Verify insertion
+      setTimeout(() => {
+        const newContent = activeEditor.getHTML();
+        if (newContent.includes(citation.id)) {
+          console.log('✅ Citation verified in content');
+        } else {
+          console.warn('⚠️ Citation not found in content after insertion');
+          console.log('Current content:', newContent.substring(0, 500));
+        }
+      }, 100);
+      
+      setHasUnsavedChanges(true);
+      console.log('✅ Citation insertion command executed');
+    } catch (error) {
+      console.error('❌ Error inserting citation:', error);
+      console.error('Error stack:', error.stack);
+    }
+  };
+
+  const handleInsertCitation = (citation) => {
+    console.log('🎯 handleInsertCitation called with:', citation);
+    console.log('🎯 Editor ready:', !!editor);
+    
+    if (!editor) {
+      console.error('❌ Editor not initialized');
+      setSnackbar({ open: true, message: 'Editor not ready. Please wait a moment.', severity: 'error' });
+      return;
+    }
+
+    console.log('📝 Inserting citation:', citation);
+    
+    try {
+      insertCitationInline(citation);
+
+      // Update citations list if not already present
+      setCitations((prev) => {
+        const exists = prev.some(c => c.id === citation.id);
+        console.log('📋 Citation already in list:', exists);
+        if (exists) {
+          return prev;
+        }
+        return [...prev, citation];
+      });
+      
+      setSnackbar({ open: true, message: 'Citation inserted!', severity: 'success' });
+      console.log('✅ Citation insertion completed');
+    } catch (error) {
+      console.error('❌ Error in handleInsertCitation:', error);
+      setSnackbar({ open: true, message: 'Failed to insert citation', severity: 'error' });
+    }
   };
 
   const formatInlineCitation = (citation) => {
+    console.log('🔤 Formatting citation:', { citation, style: citationStyle });
+    
     const pub = citation.publication;
-    if (!pub) return '[Citation]';
+    if (!pub) {
+      console.warn('⚠️ No publication data in citation');
+      return '[Citation]';
+    }
 
     const style = citationStyle.toUpperCase();
     const authors = pub.authors || 'Unknown';
     const year = pub.year || 'n.d.';
     const lastName = authors.split(';')[0].split(',')[0].trim();
+    
+    console.log('🔤 Citation formatting:', { style, authors, year, lastName });
 
+    let formatted;
     if (style === 'APA') {
-      return `(${lastName}, ${year})`;
+      formatted = `(${lastName}, ${year})`;
     } else if (style === 'MLA') {
-      return `(${lastName})`;
+      formatted = `(${lastName})`;
     } else if (style === 'CHICAGO') {
-      return `[${citation.order}]`;
+      formatted = `[${citation.order}]`;
     } else if (style === 'HARVARD') {
-      return `(${lastName} ${year})`;
+      formatted = `(${lastName} ${year})`;
+    } else {
+      formatted = `[${citation.order}]`;
     }
-
-    return `[${citation.order}]`;
+    
+    console.log('🔤 Formatted result:', formatted);
+    return formatted;
   };
 
   // Track content changes
@@ -684,6 +969,26 @@ export default function ManuscriptEditorPage() {
     }
   };
 
+  const handleInsertInlineMath = () => {
+    if (editor) {
+      const latex = prompt('Enter LaTeX formula (e.g., n = 50):');
+      if (latex) {
+        editor.chain().focus().setInlineMath(latex).run();
+      }
+      setInsertMenuAnchor(null);
+    }
+  };
+
+  const handleInsertBlockMath = () => {
+    if (editor) {
+      const latex = prompt('Enter LaTeX formula (e.g., \\sum_{i=1}^{n} x_i):');
+      if (latex) {
+        editor.chain().focus().setBlockMath(latex).run();
+      }
+      setInsertMenuAnchor(null);
+    }
+  };
+
   const handleToggleOutline = () => {
     const newState = !outlineOpen;
     setOutlineOpen(newState);
@@ -737,23 +1042,89 @@ export default function ManuscriptEditorPage() {
           )}
         </Box>
 
-        <AvatarGroup max={4} sx={{ mr: 2 }}>
-          {onlineUsers.map((user) => (
-            <Tooltip key={user.id} title={user.name}>
-              <Avatar 
-                sx={{ 
-                  width: 32, 
-                  height: 32, 
-                  bgcolor: user.color,
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
+        {manuscript && (
+          <AvatarGroup max={4} sx={{ mr: 2 }}>
+            {/* Creator */}
+            {manuscript.creator && (
+              <Tooltip 
+                arrow
+                title={
+                  <Box sx={{ p: 0.5 }}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 700 }}>
+                      {manuscript.creator.name || manuscript.creator.email || 'Creator'}
+                    </Typography>
+                    {manuscript.creator.orcid_id && (
+                      <Typography sx={{ fontSize: 10, opacity: 0.85, mt: 0.3 }}>
+                        ORCID: {manuscript.creator.orcid_id}
+                      </Typography>
+                    )}
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mt: 0.8, bgcolor: '#10b98125', borderRadius: 1, px: 0.8, py: 0.3 }}>
+                      <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: '#10b981' }} />
+                      <Typography sx={{ fontSize: 9, color: '#10b981', fontWeight: 700 }}>Creator</Typography>
+                    </Box>
+                  </Box>
+                }
               >
-                {user.avatar}
-              </Avatar>
-            </Tooltip>
-          ))}
-        </AvatarGroup>
+                <Avatar 
+                  sx={{ 
+                    width: 32, 
+                    height: 32, 
+                    bgcolor: ACCENT,
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {getInitials(manuscript.creator.name || manuscript.creator.email)}
+                </Avatar>
+              </Tooltip>
+            )}
+            
+            {/* Co-authors */}
+            {manuscript.co_authors?.map((ca) => (
+              <Tooltip
+                key={ca.id}
+                arrow
+                title={
+                  <Box sx={{ p: 0.5 }}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 700 }}>
+                      {ca.given_name} {ca.family_name}
+                    </Typography>
+                    {ca.orcid && (
+                      <Typography sx={{ fontSize: 10, opacity: 0.85, mt: 0.3 }}>
+                        ORCID: {ca.orcid}
+                      </Typography>
+                    )}
+                    {ca.email && (
+                      <Typography sx={{ fontSize: 10, opacity: 0.7, mt: 0.2 }}>{ca.email}</Typography>
+                    )}
+                    <Box sx={{
+                      display: 'inline-flex', alignItems: 'center', gap: 0.5, mt: 0.8,
+                      bgcolor: ca.status === 'accepted' ? '#10b98125' : '#f59e0b25',
+                      borderRadius: 1, px: 0.8, py: 0.3,
+                    }}>
+                      <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: ca.status === 'accepted' ? '#10b981' : '#f59e0b' }} />
+                      <Typography sx={{ fontSize: 9, color: ca.status === 'accepted' ? '#10b981' : '#f59e0b', fontWeight: 700 }}>
+                        {ca.status === 'accepted' ? 'Active' : 'Pending'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                }
+              >
+                <Avatar 
+                  sx={{ 
+                    width: 32, 
+                    height: 32, 
+                    bgcolor: ca.status === 'accepted' ? '#10b981' : '#94a3b8',
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {`${(ca.given_name[0] || '?')}${(ca.family_name[0] || '?')}`.toUpperCase()}
+                </Avatar>
+              </Tooltip>
+            ))}
+          </AvatarGroup>
+        )}
 
         <Button
           variant="contained"
@@ -888,6 +1259,17 @@ export default function ManuscriptEditorPage() {
           <MenuItem onClick={() => { /* TODO: Insert Link */ setInsertMenuAnchor(null); }}>
             <ListItemIcon><LinkIcon fontSize="small" /></ListItemIcon>
             <ListItemText>Link</ListItemText>
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={handleInsertInlineMath}>
+            <ListItemIcon><MathIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Inline Math</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>$...$</Typography>
+          </MenuItem>
+          <MenuItem onClick={handleInsertBlockMath}>
+            <ListItemIcon><MathIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Block Math</ListItemText>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>$$...$$</Typography>
           </MenuItem>
           <Divider />
           <MenuItem onClick={handleInsertPageBreak}>
@@ -1303,6 +1685,16 @@ export default function ManuscriptEditorPage() {
             onClick={handleInsertPageBreak}
           >
             <PageBreakIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+
+        {/* Math Equation */}
+        <Tooltip title="Insert Inline Math Formula">
+          <IconButton
+            size="small"
+            onClick={handleInsertInlineMath}
+          >
+            <MathIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
 
