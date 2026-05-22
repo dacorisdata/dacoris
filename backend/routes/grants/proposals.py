@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from database import get_db
 from models import (Proposal, ProposalSection, ProposalSectionVersion, ProposalDocument,
                     ProposalCollaborator, ProposalStatus, GrantOpportunity, User, UserStatus,
-                    ProposalStageHistory, ProposalStageAssignment, STAGE_INTENDED_DAYS, Award, BudgetLine)
+                    ProposalStageHistory, ProposalStageAssignment, STAGE_INTENDED_DAYS, Award, BudgetLine,
+                    PrimaryAccountType)
 from auth import require_roles, ResearchRole, get_current_user
 from services.workflow import can_transition_proposal
 from services.notifications import create_notification
@@ -313,18 +314,34 @@ async def list_proposals(
         ResearchRole.INSTITUTIONAL_LEAD
     ]))
 ):
-    # Get proposals where user is lead PI OR accepted collaborator
-    query = select(Proposal).where(
-        or_(
-            Proposal.lead_pi_id == current_user.id,
-            Proposal.id.in_(
-                select(ProposalCollaborator.proposal_id).where(
-                    ProposalCollaborator.user_id == current_user.id,
-                    ProposalCollaborator.status == "accepted"
+    # Admin staff (GRANT_OFFICER, INSTITUTIONAL_LEAD) and admins see all institutional proposals
+    # Researchers only see their own proposals (lead PI or accepted collaborator)
+    is_admin_staff = (
+        current_user.primary_account_type in [PrimaryAccountType.ADMIN_STAFF, PrimaryAccountType.GRANT_MANAGER, PrimaryAccountType.INSTITUTIONAL_LEADERSHIP]
+        or current_user.is_global_admin
+        or current_user.is_institution_admin
+    )
+    
+    if is_admin_staff:
+        # Admin staff: show all proposals from their institution
+        query = select(Proposal).where(
+            Proposal.institution_id == current_user.primary_institution_id
+        )
+    else:
+        # Researchers: only show proposals where they are lead PI or accepted collaborator
+        query = select(Proposal).where(
+            or_(
+                Proposal.lead_pi_id == current_user.id,
+                Proposal.id.in_(
+                    select(ProposalCollaborator.proposal_id).where(
+                        ProposalCollaborator.user_id == current_user.id,
+                        ProposalCollaborator.status == "accepted"
+                    )
                 )
             )
         )
-    ).options(
+    
+    query = query.options(
         selectinload(Proposal.opportunity),
         selectinload(Proposal.collaborators).selectinload(ProposalCollaborator.user),
         selectinload(Proposal.lead_pi),

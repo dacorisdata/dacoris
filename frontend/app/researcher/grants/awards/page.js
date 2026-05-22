@@ -286,90 +286,13 @@ export default function ResearcherAwardsPage() {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      // Fetch live proposals from database
-      const res = await axios.get(`${API_URL}/grants/proposals`, {
+      // Fetch awards from database (only proposals marked as awarded)
+      const res = await axios.get(`${API_URL}/grants/awards`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      const proposals = res.data || [];
-      
-      // Transform proposals into awards for demonstration
-      // In production, this would fetch from a real awards endpoint
-      const transformedAwards = proposals.map((proposal, index) => {
-        // Generate mock award details based on proposal
-        const baseAmount = 5000000 + (index * 2500000);
-        const totalAmount = baseAmount + Math.floor(Math.random() * 5000000);
-        const startDate = new Date();
-        startDate.setMonth(startDate.getMonth() - (index * 3));
-        const endDate = new Date(startDate);
-        endDate.setFullYear(endDate.getFullYear() + 2);
-        
-        // Generate budget breakdown
-        const personnelAmt = Math.floor(totalAmount * 0.45);
-        const equipmentAmt = Math.floor(totalAmount * 0.25);
-        const travelAmt = Math.floor(totalAmount * 0.15);
-        const materialsAmt = Math.floor(totalAmount * 0.10);
-        const otherAmt = totalAmount - (personnelAmt + equipmentAmt + travelAmt + materialsAmt);
-        
-        return {
-          id: proposal.id,
-          award_number: `AWD-2026-${String(proposal.id).padStart(3, '0')}`,
-          proposal_id: proposal.id,
-          proposal_title: proposal.title,
-          opportunity_title: proposal.opportunity?.title || 'Research Grant',
-          opportunity_sponsor: proposal.opportunity?.sponsor || 'Funding Agency',
-          funder_name: proposal.opportunity?.sponsor || 'Funding Agency',
-          total_amount: totalAmount,
-          currency: 'KES',
-          status: index === 0 ? 'active' : (index % 3 === 0 ? 'completed' : 'active'),
-          start_date: startDate.toISOString().split('T')[0],
-          end_date: endDate.toISOString().split('T')[0],
-          issued_at: new Date(startDate.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          conditions: 'Quarterly progress reports required. Annual financial audits mandatory. All publications must acknowledge funding source.',
-          project_id: null,
-          // PI / team data from proposal
-          pi_name:        proposal.submitted_by?.name  || proposal.lead_pi?.name  || '',
-          pi_email:       proposal.submitted_by?.email || proposal.lead_pi?.email || '',
-          pi_orcid:       proposal.submitted_by?.orcid || proposal.lead_pi?.orcid || '',
-          pi_institution: proposal.submitted_by?.institution_name || '',
-          pi_department:  proposal.submitted_by?.department       || '',
-          collaborators:  proposal.collaborators || [],
-          budget_lines: [
-            { 
-              category: 'Personnel', 
-              amount: personnelAmt, 
-              spent_to_date: Math.floor(personnelAmt * 0.2), 
-              description: 'Research staff salaries and benefits' 
-            },
-            { 
-              category: 'Equipment', 
-              amount: equipmentAmt, 
-              spent_to_date: Math.floor(equipmentAmt * 0.6), 
-              description: 'Research equipment and infrastructure' 
-            },
-            { 
-              category: 'Travel', 
-              amount: travelAmt, 
-              spent_to_date: Math.floor(travelAmt * 0.15), 
-              description: 'Field research and conference attendance' 
-            },
-            { 
-              category: 'Materials', 
-              amount: materialsAmt, 
-              spent_to_date: Math.floor(materialsAmt * 0.25), 
-              description: 'Research materials and supplies' 
-            },
-            { 
-              category: 'Other', 
-              amount: otherAmt, 
-              spent_to_date: Math.floor(otherAmt * 0.1), 
-              description: 'Miscellaneous project expenses' 
-            },
-          ],
-        };
-      });
-      
-      setAwards(transformedAwards);
+      const awardsData = res.data || [];
+      setAwards(awardsData);
     } catch (e) {
       if (e.response?.status === 401) {
         localStorage.removeItem('token');

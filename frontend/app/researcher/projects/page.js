@@ -6,7 +6,7 @@ import {
   LinearProgress, Avatar, Alert, TextField, InputAdornment,
 } from '@mui/material';
 import {
-  Add as AddIcon, Groups as TeamIcon, CheckCircle as MilestoneIcon,
+  Groups as TeamIcon, CheckCircle as MilestoneIcon,
   Search as SearchIcon, Science as ScienceIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
@@ -99,9 +99,15 @@ export default function ResearcherProjects() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const live = res.data || [];
-      setProjects(live.length > 0 ? live : SAMPLE_PROJECTS);
+      
+      // Filter to show only projects converted from awards and in draft/proposed status
+      const filteredProjects = live.filter(p => 
+        p.award_id && (p.status === 'proposed' || p.status === 'draft')
+      );
+      
+      setProjects(filteredProjects);
     } catch (e) {
-      setProjects(SAMPLE_PROJECTS);
+      setProjects([]);
     } finally {
       setLoading(false);
     }
@@ -128,31 +134,30 @@ export default function ResearcherProjects() {
       <Box sx={{ display:'flex', justifyContent:'space-between', alignItems:'center', mb:3, gap:2, flexWrap:'wrap' }}>
         <Box>
           <Typography sx={{ fontSize:22, fontWeight:700 }}>My Projects</Typography>
-          <Typography sx={{ fontSize:13, color:'text.secondary', mt:0.3 }}>Research project portfolio — milestones, teams, and ethics status</Typography>
+          <Typography sx={{ fontSize:13, color:'text.secondary', mt:0.3 }}>
+            Projects converted from awards — drafts and proposals in review
+          </Typography>
         </Box>
-        <Button variant="contained" size="small" startIcon={<AddIcon />}
-          onClick={() => router.push('/researcher/projects/new')}
-          sx={{ bgcolor:ACCENT, textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#0e7490' } }}>
-          Register Project
-        </Button>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb:2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {/* Summary stats */}
-      <Box sx={{ display:'flex', gap:1.5, mb:3, flexWrap:'wrap' }}>
-        {[
-          { label:'Active',    value: projects.filter(p => p.status === 'active').length,    color: '#10b981' },
-          { label:'Proposed',  value: projects.filter(p => p.status === 'proposed').length,  color: '#f59e0b' },
-          { label:'Completed', value: projects.filter(p => p.status === 'completed').length, color: '#0ea5e9' },
-          { label:'Milestones Done', value:`${doneMilestones}/${totalMilestones}`, color:'#8b5cf6' },
-        ].map(s => (
-          <Box key={s.label} sx={{ flex:'1 1 120px', bgcolor:'background.paper', border:`1px solid ${theme.palette.divider}`, borderRadius:2, p:1.5, textAlign:'center' }}>
-            <Typography sx={{ fontSize:20, fontWeight:700, color:s.color }}>{s.value}</Typography>
-            <Typography sx={{ fontSize:11, color:'text.secondary', fontWeight:600 }}>{s.label}</Typography>
-          </Box>
-        ))}
-      </Box>
+      {projects.length > 0 && (
+        <Box sx={{ display:'flex', gap:1.5, mb:3, flexWrap:'wrap' }}>
+          {[
+            { label:'Total Projects',  value: projects.length, color: '#1ca7a1' },
+            { label:'Draft',          value: projects.filter(p => p.status === 'draft').length,    color: '#64748b' },
+            { label:'Proposed',       value: projects.filter(p => p.status === 'proposed').length,  color: '#f59e0b' },
+            { label:'Milestones Done', value:`${doneMilestones}/${totalMilestones}`, color:'#8b5cf6' },
+          ].map(s => (
+            <Box key={s.label} sx={{ flex:'1 1 120px', bgcolor:'background.paper', border:`1px solid ${theme.palette.divider}`, borderRadius:2, p:1.5, textAlign:'center' }}>
+              <Typography sx={{ fontSize:20, fontWeight:700, color:s.color }}>{s.value}</Typography>
+              <Typography sx={{ fontSize:11, color:'text.secondary', fontWeight:600 }}>{s.label}</Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
 
       {/* Search */}
       <TextField size="small" placeholder="Search projects…" value={search} onChange={e => setSearch(e.target.value)}
@@ -163,18 +168,13 @@ export default function ResearcherProjects() {
         <Box sx={{ textAlign:'center', py:8 }}>
           <ScienceIcon sx={{ fontSize:52, color:'text.disabled', mb:2 }} />
           <Typography sx={{ fontWeight:700, mb:0.5 }}>
-            {projects.length === 0 ? 'No projects yet' : 'No results found'}
+            {projects.length === 0 ? 'No projects in draft/proposed status' : 'No results found'}
           </Typography>
-          <Typography sx={{ fontSize:13, color:'text.secondary', mb:3 }}>
-            {projects.length === 0 ? 'Register your first research project to get started.' : 'Try a different search.'}
+          <Typography sx={{ fontSize:13, color:'text.secondary' }}>
+            {projects.length === 0 
+              ? 'Projects converted from awards will appear here when they are in draft or proposed status.' 
+              : 'Try a different search.'}
           </Typography>
-          {projects.length === 0 && (
-            <Button variant="contained" startIcon={<AddIcon />}
-              onClick={() => router.push('/researcher/projects/new')}
-              sx={{ bgcolor:ACCENT, textTransform:'none', borderRadius:2, '&:hover':{ bgcolor:'#0e7490' } }}>
-              Register Project
-            </Button>
-          )}
         </Box>
       ) : (
         <Box sx={{ display:'flex', flexDirection:'column', gap:2 }}>

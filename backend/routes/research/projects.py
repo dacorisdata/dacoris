@@ -10,7 +10,7 @@ import os, uuid, shutil
 from database import get_db
 from models import (ResearchProject, ProjectStatus, ProjectMember,
                     ProjectMilestone, ProjectTask, ProjectDocument,
-                    User, EthicsApplication)
+                    User, EthicsApplication, PrimaryAccountType)
 from auth import require_roles, ResearchRole
 from services.notifications import create_notification
 
@@ -200,7 +200,8 @@ async def list_projects(
     q = select(ResearchProject).options(*_PROJECT_OPTS).where(
         ResearchProject.institution_id == current_user.primary_institution_id
     )
-    if current_user.role == ResearchRole.PRINCIPAL_INVESTIGATOR:
+    # For researchers (non-admin users), only show their own projects
+    if current_user.primary_account_type == PrimaryAccountType.RESEARCHER and not current_user.is_global_admin and not current_user.is_institution_admin:
         q = q.where(ResearchProject.pi_id == current_user.id)
     result = await db.execute(q.order_by(ResearchProject.created_at.desc()))
     return [_serialize_project(p) for p in result.scalars().all()]

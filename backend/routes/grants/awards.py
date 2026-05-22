@@ -173,7 +173,12 @@ async def issue_award(
     )
 
     await db.commit()
-    await db.refresh(award)
+    
+    # Reload with eager loading to avoid lazy loading issues
+    result = await db.execute(
+        select(Award).where(Award.id == award.id).options(*_AWARD_LOAD_OPTIONS)
+    )
+    award = result.scalar_one()
 
     return _enrich(award)
 
