@@ -504,7 +504,7 @@ async def add_citation(
             ManuscriptCitation.manuscript_id == manuscript_id
         ).order_by(ManuscriptCitation.order.desc())
     )
-    max_citation = max_order_result.scalar_one_or_none()
+    max_citation = max_order_result.scalars().first()
     next_order = (max_citation.order + 1) if max_citation else 1
     
     # Create citation
