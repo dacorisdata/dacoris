@@ -126,6 +126,8 @@ async def list_datasets(
         ResearchRole.GRANT_OFFICER,
     ]))
 ):
+    from models import PrimaryAccountType
+    
     q = (
         select(Dataset)
         .options(*_DATASET_LOAD)
@@ -133,7 +135,7 @@ async def list_datasets(
         .order_by(Dataset.created_at.desc())
     )
     # Researchers only see their own datasets
-    if current_user.role == ResearchRole.PRINCIPAL_INVESTIGATOR:
+    if current_user.primary_account_type == PrimaryAccountType.RESEARCHER:
         q = q.where(Dataset.created_by_id == current_user.id)
     result = await db.execute(q)
     return [_enrich(ds) for ds in result.scalars().all()]

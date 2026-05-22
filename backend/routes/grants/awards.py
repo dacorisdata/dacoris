@@ -114,16 +114,25 @@ async def list_awards(
         ResearchRole.INSTITUTIONAL_LEAD
     ]))
 ):
-    q = select(Award).options(*_AWARD_LOAD_OPTIONS).where(
-        Award.institution_id == current_user.primary_institution_id
-    )
-    if current_user.role == ResearchRole.PRINCIPAL_INVESTIGATOR:
+    from models import PrimaryAccountType
+    
+    # Researchers (PIs) should only see their own awards
+    if current_user.primary_account_type == PrimaryAccountType.RESEARCHER:
         q = (
             select(Award)
             .join(Proposal, Award.proposal_id == Proposal.id)
-            .where(Proposal.lead_pi_id == current_user.id)
+            .where(
+                Award.institution_id == current_user.primary_institution_id,
+                Proposal.lead_pi_id == current_user.id
+            )
             .options(*_AWARD_LOAD_OPTIONS)
         )
+    else:
+        # Grant officers and institutional leadership see all awards in their institution
+        q = select(Award).options(*_AWARD_LOAD_OPTIONS).where(
+            Award.institution_id == current_user.primary_institution_id
+        )
+    
     result = await db.execute(q.order_by(Award.issued_at.desc()))
     return [_enrich(a) for a in result.scalars().all()]
 

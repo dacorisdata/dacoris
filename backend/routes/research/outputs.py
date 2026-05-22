@@ -100,13 +100,18 @@ async def list_outputs(
         ResearchRole.INSTITUTIONAL_LEAD,
     ]))
 ):
+    from models import PrimaryAccountType
+    
     q = select(ResearchOutput).options(*_OUTPUT_OPTS).where(
         ResearchOutput.institution_id == current_user.primary_institution_id
     )
     if project_id:
         q = q.where(ResearchOutput.project_id == project_id)
-    if current_user.role == ResearchRole.PRINCIPAL_INVESTIGATOR:
+    
+    # Researchers should only see their own outputs
+    if current_user.primary_account_type == PrimaryAccountType.RESEARCHER:
         q = q.where(ResearchOutput.created_by_id == current_user.id)
+    
     result = await db.execute(q.order_by(ResearchOutput.updated_at.desc().nullsfirst(),
                                           ResearchOutput.created_at.desc()))
     return [_serialize_output(o) for o in result.scalars().all()]
