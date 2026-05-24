@@ -653,7 +653,7 @@ class EthicsApplication(Base):
     __tablename__ = "ethics_applications"
 
     id = Column(String, primary_key=True, index=True, default=generate_uuid)
-    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=True)
     institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
     application_type = Column(String(100), default="full_review")
     status = Column(Enum(EthicsStatus), default=EthicsStatus.DRAFT)

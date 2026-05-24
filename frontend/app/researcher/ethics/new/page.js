@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Box, Typography, Button, Paper, TextField, CircularProgress, Alert,
@@ -20,6 +21,8 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import api from '../../../../lib/api';
 import { SAMPLE_PROJECTS } from '../../projects/page';
 import { accentScrollbarSx } from '../../../../lib/scrollStyles';
+
+const RichTextField = dynamic(() => import('../../../../components/RichTextField'), { ssr: false });
 
 const ACCENT = '#1ca7a1';
 
@@ -110,6 +113,9 @@ export default function NewEthicsApplicationPage() {
   const [error,      setError]      = useState('');
   const [success,    setSuccess]    = useState('');
   const [projects,   setProjects]   = useState([]);
+  const [customVulnerableGroup, setCustomVulnerableGroup] = useState('');
+  const [customRiskCategory, setCustomRiskCategory] = useState('');
+  const [customEthicalCode, setCustomEthicalCode] = useState('');
 
   const [formData, setFormData] = useState({
     // Step 1
@@ -171,6 +177,60 @@ export default function NewEthicsApplicationPage() {
     ...p,
     [field]: p[field].includes(val) ? p[field].filter(x => x !== val) : [...p[field], val],
   }));
+
+  const customVulnerableGroups = formData.vulnerableGroups.filter(g => !VULNERABLE_GROUPS.includes(g));
+
+  const addCustomVulnerableGroup = () => {
+    const trimmed = customVulnerableGroup.trim();
+    if (!trimmed || formData.vulnerableGroups.includes(trimmed)) {
+      setCustomVulnerableGroup('');
+      return;
+    }
+    setFormData(p => ({ ...p, vulnerableGroups: [...p.vulnerableGroups, trimmed] }));
+    setCustomVulnerableGroup('');
+  };
+
+  const customRiskCategories = formData.riskCategories.filter(r => !RISK_CATEGORIES.includes(r));
+
+  const addCustomRiskCategory = () => {
+    const trimmed = customRiskCategory.trim();
+    if (!trimmed || formData.riskCategories.includes(trimmed)) {
+      setCustomRiskCategory('');
+      return;
+    }
+    setFormData(p => ({ ...p, riskCategories: [...p.riskCategories, trimmed] }));
+    setCustomRiskCategory('');
+  };
+
+  const riskChipSx = (selected) => ({
+    fontSize: 11,
+    borderRadius: 1.5,
+    bgcolor: selected ? 'rgba(239,68,68,0.12)' : dark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
+    color: selected ? '#ef4444' : 'text.secondary',
+    border: selected ? '1px solid rgba(239,68,68,0.4)' : '1px solid transparent',
+    fontWeight: selected ? 700 : 400,
+  });
+
+  const customEthicalCodes = formData.ethicalCodes.filter(c => !ETHICAL_CODES.includes(c));
+
+  const addCustomEthicalCode = () => {
+    const trimmed = customEthicalCode.trim();
+    if (!trimmed || formData.ethicalCodes.includes(trimmed)) {
+      setCustomEthicalCode('');
+      return;
+    }
+    setFormData(p => ({ ...p, ethicalCodes: [...p.ethicalCodes, trimmed] }));
+    setCustomEthicalCode('');
+  };
+
+  const ethicalChipSx = (selected) => ({
+    fontSize: 11,
+    borderRadius: 1.5,
+    bgcolor: selected ? `${ACCENT}20` : dark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
+    color: selected ? ACCENT : 'text.secondary',
+    border: selected ? `1px solid ${ACCENT}50` : '1px solid transparent',
+    fontWeight: selected ? 700 : 400,
+  });
 
   useEffect(() => {
     fetchUser().then(async u => {
@@ -341,7 +401,7 @@ export default function NewEthicsApplicationPage() {
 
       <Box sx={{ mb: 2.5 }}>
         <Typography sx={{ fontSize: 12.5, fontWeight: 600, mb: 1 }}>Vulnerable Groups Involved</Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
           {VULNERABLE_GROUPS.map(g => (
             <Chip key={g} label={g} size="small" clickable
               onClick={() => toggleArr('vulnerableGroups', g)}
@@ -353,24 +413,60 @@ export default function NewEthicsApplicationPage() {
                 fontWeight: formData.vulnerableGroups.includes(g) ? 700 : 400,
               }} />
           ))}
+          {customVulnerableGroups.map(g => (
+            <Chip key={g} label={g} size="small"
+              onDelete={() => toggleArr('vulnerableGroups', g)}
+              sx={{
+                fontSize: 11, borderRadius: 1.5,
+                bgcolor: `${ACCENT}20`,
+                color: ACCENT,
+                border: `1px solid ${ACCENT}50`,
+                fontWeight: 700,
+              }} />
+          ))}
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+          <TextField size="small" placeholder="Add custom vulnerable group…"
+            value={customVulnerableGroup}
+            onChange={e => setCustomVulnerableGroup(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addCustomVulnerableGroup();
+              }
+            }}
+            sx={{ flex: '1 1 240px', maxWidth: 420, ...inp }} />
+          <Button size="small" variant="outlined" startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+            onClick={addCustomVulnerableGroup}
+            disabled={!customVulnerableGroup.trim()}
+            sx={{ textTransform: 'none', borderRadius: 2, fontSize: 12, flexShrink: 0 }}>
+            Add Group
+          </Button>
         </Box>
       </Box>
 
-      <TextField fullWidth size="small" multiline minRows={3} label="Recruitment Method"
-        value={formData.recruitmentMethod} onChange={e => set('recruitmentMethod', e.target.value)}
+      <RichTextField
+        label="Recruitment Method"
+        value={formData.recruitmentMethod}
+        onChange={v => set('recruitmentMethod', v)}
         placeholder="Describe how participants will be identified and approached…"
-        sx={{ mb: 2.5, ...multilineInp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="2.2 Sample Size & Rationale" />
       <FieldRow>
         <TextField size="small" label="Total Participants" type="number" value={formData.totalParticipants}
           onChange={e => set('totalParticipants', e.target.value)} sx={{ flex: '1 1 160px', ...inp }} />
-        <TextField size="small" multiline minRows={2} label="Statistical Power / Justification"
-          value={formData.statisticalPower} onChange={e => set('statisticalPower', e.target.value)}
-          placeholder="Briefly justify the sample size is sufficient…"
-          sx={{ flex: '3 1 360px', ...multilineInp }} />
       </FieldRow>
+      <RichTextField
+        label="Statistical Power / Justification"
+        value={formData.statisticalPower}
+        onChange={v => set('statisticalPower', v)}
+        placeholder="Briefly justify the sample size is sufficient…"
+        minRows={3}
+      />
     </Box>
   );
 
@@ -382,44 +478,74 @@ export default function NewEthicsApplicationPage() {
       <SubLabel label="3.1 Potential Risks" />
       <Box sx={{ mb: 2.5 }}>
         <Typography sx={{ fontSize: 12.5, fontWeight: 600, mb: 1 }}>Risk Categories Applicable</Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
           {RISK_CATEGORIES.map(r => (
             <Chip key={r} label={r} size="small" clickable
               onClick={() => toggleArr('riskCategories', r)}
-              sx={{
-                fontSize: 11, borderRadius: 1.5,
-                bgcolor: formData.riskCategories.includes(r) ? 'rgba(239,68,68,0.12)' : dark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
-                color:   formData.riskCategories.includes(r) ? '#ef4444' : 'text.secondary',
-                border:  formData.riskCategories.includes(r) ? '1px solid rgba(239,68,68,0.4)' : '1px solid transparent',
-                fontWeight: formData.riskCategories.includes(r) ? 700 : 400,
-              }} />
+              sx={riskChipSx(formData.riskCategories.includes(r))} />
           ))}
+          {customRiskCategories.map(r => (
+            <Chip key={r} label={r} size="small"
+              onDelete={() => toggleArr('riskCategories', r)}
+              sx={riskChipSx(true)} />
+          ))}
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+          <TextField size="small" placeholder="Add custom risk category…"
+            value={customRiskCategory}
+            onChange={e => setCustomRiskCategory(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addCustomRiskCategory();
+              }
+            }}
+            sx={{ flex: '1 1 240px', maxWidth: 420, ...inp }} />
+          <Button size="small" variant="outlined" startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+            onClick={addCustomRiskCategory}
+            disabled={!customRiskCategory.trim()}
+            sx={{ textTransform: 'none', borderRadius: 2, fontSize: 12, flexShrink: 0 }}>
+            Add Category
+          </Button>
         </Box>
       </Box>
 
-      <TextField fullWidth size="small" multiline minRows={3} label="Risk Mitigation Procedures"
-        value={formData.riskMitigation} onChange={e => set('riskMitigation', e.target.value)}
+      <RichTextField
+        label="Risk Mitigation Procedures"
+        value={formData.riskMitigation}
+        onChange={v => set('riskMitigation', v)}
         placeholder="Describe procedures in place to minimize identified risks…"
-        sx={{ mb: 2.5, ...multilineInp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
-      <TextField fullWidth size="small" multiline minRows={3} label="Adverse Event Protocol"
-        value={formData.adverseEventProtocol} onChange={e => set('adverseEventProtocol', e.target.value)}
+      <RichTextField
+        label="Adverse Event Protocol"
+        value={formData.adverseEventProtocol}
+        onChange={v => set('adverseEventProtocol', v)}
         placeholder="Describe the plan for handling and reporting unexpected harm to participants…"
-        sx={{ mb: 2.5, ...multilineInp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="3.2 Potential Benefits" />
 
-      <FieldRow>
-        <TextField size="small" multiline minRows={3} label="Direct Benefits to Participants"
-          value={formData.directBenefits} onChange={e => set('directBenefits', e.target.value)}
-          placeholder="Describe any direct benefits to individual participants, if any…"
-          sx={{ flex: '1 1 280px', ...multilineInp }} />
-        <TextField size="small" multiline minRows={3} label="Indirect / Societal Benefits"
-          value={formData.indirectBenefits} onChange={e => set('indirectBenefits', e.target.value)}
-          placeholder="Describe contributions to scientific knowledge or society…"
-          sx={{ flex: '1 1 280px', ...multilineInp }} />
-      </FieldRow>
+      <RichTextField
+        label="Direct Benefits to Participants"
+        value={formData.directBenefits}
+        onChange={v => set('directBenefits', v)}
+        placeholder="Describe any direct benefits to individual participants, if any…"
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
+      <RichTextField
+        label="Indirect / Societal Benefits"
+        value={formData.indirectBenefits}
+        onChange={v => set('indirectBenefits', v)}
+        placeholder="Describe contributions to scientific knowledge or society…"
+        minRows={3}
+      />
     </Box>
   );
 
@@ -442,15 +568,23 @@ export default function NewEthicsApplicationPage() {
         </FormControl>
       </FieldRow>
 
-      <TextField fullWidth size="small" multiline minRows={3} label="Consent Process Description"
-        value={formData.consentProcess} onChange={e => set('consentProcess', e.target.value)}
+      <RichTextField
+        label="Consent Process Description"
+        value={formData.consentProcess}
+        onChange={v => set('consentProcess', v)}
         placeholder="When and where will consent be sought, and by whom?…"
-        sx={{ mb: 2.5, ...multilineInp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
-      <TextField fullWidth size="small" multiline minRows={2} label="Language & Literacy Provisions"
-        value={formData.languageProvisions} onChange={e => set('languageProvisions', e.target.value)}
+      <RichTextField
+        label="Language & Literacy Provisions"
+        value={formData.languageProvisions}
+        onChange={v => set('languageProvisions', v)}
         placeholder="Provisions for non-primary language speakers or participants with limited literacy…"
-        sx={{ mb: 2.5, ...multilineInp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="4.2 Documentation Upload" />
@@ -513,17 +647,24 @@ export default function NewEthicsApplicationPage() {
         subtitle="Identify potential biases and financial relationships that could influence the research." />
 
       <SubLabel label="Financial Disclosure" />
-      <TextField fullWidth size="small" multiline minRows={3} label="Financial Interests in Study Outcomes"
-        value={formData.financialDisclosure} onChange={e => set('financialDisclosure', e.target.value)}
+      <RichTextField
+        label="Financial Interests in Study Outcomes"
+        value={formData.financialDisclosure}
+        onChange={v => set('financialDisclosure', v)}
         placeholder="Describe any financial interests, equity holdings, or consultancy fees related to the study outcomes. Enter 'None' if not applicable…"
-        sx={{ mb: 2.5, ...multilineInp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="Dual Roles" />
-      <TextField fullWidth size="small" multiline minRows={3} label="Dual Role Identification"
-        value={formData.dualRoles} onChange={e => set('dualRoles', e.target.value)}
+      <RichTextField
+        label="Dual Role Identification"
+        value={formData.dualRoles}
+        onChange={v => set('dualRoles', v)}
         placeholder="Identify if the researcher also serves as a clinician, teacher, employer, or other role to participants. Describe how this potential coercion will be managed…"
-        sx={multilineInp} />
+        minRows={3}
+      />
     </Box>
   );
 
@@ -533,24 +674,47 @@ export default function NewEthicsApplicationPage() {
         subtitle="Formal commitment to ethical standards and PI accountability." />
 
       <SubLabel label="Ethical Codes of Conduct" />
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2.5 }}>
-        {ETHICAL_CODES.map(c => (
-          <Chip key={c} label={c} size="small" clickable
-            onClick={() => toggleArr('ethicalCodes', c)}
-            sx={{
-              fontSize: 11, borderRadius: 1.5,
-              bgcolor: formData.ethicalCodes.includes(c) ? `${ACCENT}20` : dark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
-              color:   formData.ethicalCodes.includes(c) ? ACCENT : 'text.secondary',
-              border:  formData.ethicalCodes.includes(c) ? `1px solid ${ACCENT}50` : '1px solid transparent',
-              fontWeight: formData.ethicalCodes.includes(c) ? 700 : 400,
-            }} />
-        ))}
+      <Box sx={{ mb: 2.5 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+          {ETHICAL_CODES.map(c => (
+            <Chip key={c} label={c} size="small" clickable
+              onClick={() => toggleArr('ethicalCodes', c)}
+              sx={ethicalChipSx(formData.ethicalCodes.includes(c))} />
+          ))}
+          {customEthicalCodes.map(c => (
+            <Chip key={c} label={c} size="small"
+              onDelete={() => toggleArr('ethicalCodes', c)}
+              sx={ethicalChipSx(true)} />
+          ))}
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+          <TextField size="small" placeholder="Add custom ethical code…"
+            value={customEthicalCode}
+            onChange={e => setCustomEthicalCode(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addCustomEthicalCode();
+              }
+            }}
+            sx={{ flex: '1 1 240px', maxWidth: 420, ...inp }} />
+          <Button size="small" variant="outlined" startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+            onClick={addCustomEthicalCode}
+            disabled={!customEthicalCode.trim()}
+            sx={{ textTransform: 'none', borderRadius: 2, fontSize: 12, flexShrink: 0 }}>
+            Add Code
+          </Button>
+        </Box>
       </Box>
 
-      <TextField fullWidth size="small" multiline minRows={3} label="Additional Notes or Special Considerations"
-        value={formData.additionalNotes} onChange={e => set('additionalNotes', e.target.value)}
+      <RichTextField
+        label="Additional Notes or Special Considerations"
+        value={formData.additionalNotes}
+        onChange={v => set('additionalNotes', v)}
         placeholder="Any additional ethical considerations not covered above…"
-        sx={{ mb: 2.5, ...multilineInp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
       <FieldRow>
         <TextField size="small" label="Declaration Date" type="date"

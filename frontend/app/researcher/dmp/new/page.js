@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import {
   Box, Typography, Button, Paper, TextField, CircularProgress, Alert,
@@ -18,6 +19,8 @@ import { useDropzone } from 'react-dropzone';
 import { useAuth } from '../../../../contexts/AuthContext';
 import api from '../../../../lib/api';
 import { SAMPLE_PROJECTS } from '../../projects/page';
+
+const RichTextField = dynamic(() => import('../../../../components/RichTextField'), { ssr: false });
 
 const ACCENT = '#1ca7a1';
 
@@ -59,7 +62,9 @@ function SubLabel({ label }) {
   );
 }
 
-const DATA_FORMATS = ['.csv', '.json', '.xlsx', '.tiff', '.jpg', '.png', '.fasta', '.vcf', '.bam', '.pdf', '.xml', '.hdf5', '.nc', 'Other'];
+const DATA_FORMATS = ['.csv', '.json', '.xlsx', '.tiff', '.jpg', '.png', '.fasta', '.vcf', '.bam', '.pdf', '.xml', '.hdf5', '.nc'];
+const DATA_SOURCE_TYPES = ['Experimental', 'Observational', 'Simulation', 'Derived / Compiled', 'Administrative Records', 'Survey / Questionnaire'];
+const STORAGE_LOCATIONS = ['Institutional Network Drive', 'Managed Cloud (AWS / Azure / GCP)', 'Encrypted Physical Drive', 'University HPC Cluster', 'Personal Computer (not recommended)', 'External Hard Drive'];
 const METADATA_SCHEMAS = ['Dublin Core', 'DDI', 'DataCite', 'ISO 19115', 'Darwin Core', 'PREMIS', 'Other'];
 const REPOSITORIES = ['Zenodo', 'Figshare', 'DRYAD', 'Harvard Dataverse', 'PANGAEA', 'Open Science Framework (OSF)', 'Institutional Repository', 'Other'];
 const FUNDERS = ['NIH', 'Horizon Europe', 'Wellcome Trust', 'Bill & Melinda Gates Foundation', 'CGIAR', 'USAID', 'UK Research & Innovation', 'Other'];
@@ -77,6 +82,9 @@ export default function NewDmpPage() {
   const [error,      setError]      = useState('');
   const [success,    setSuccess]    = useState('');
   const [projects,   setProjects]   = useState([]);
+  const [customDataSource, setCustomDataSource] = useState('');
+  const [customDataFormat, setCustomDataFormat] = useState('');
+  const [customStorageLocation, setCustomStorageLocation] = useState('');
 
   const [formData, setFormData] = useState({
     // Step 1
@@ -92,6 +100,7 @@ export default function NewDmpPage() {
     dataSteward:         '',
     dataStewardEmail:    '',
     funderRequirement:   '',
+    funderOther:         '',
     institutionalPolicy: false,
 
     // Step 2
@@ -112,6 +121,7 @@ export default function NewDmpPage() {
 
     // Step 4
     metadataSchema:     '',
+    metadataSchemaOther: '',
     documentationContent: '',
 
     // Step 5
@@ -143,6 +153,70 @@ export default function NewDmpPage() {
     ...p,
     [field]: p[field].includes(val) ? p[field].filter(x => x !== val) : [...p[field], val],
   }));
+
+  const accentChipSx = (selected) => ({
+    fontSize: 11,
+    borderRadius: 1.5,
+    bgcolor: selected ? `${ACCENT}20` : dark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
+    color: selected ? ACCENT : 'text.secondary',
+    border: selected ? `1px solid ${ACCENT}50` : '1px solid transparent',
+    fontWeight: selected ? 700 : 400,
+  });
+
+  const customDataSources = formData.dataSources.filter(s => !DATA_SOURCE_TYPES.includes(s));
+  const customDataFormats = formData.dataFormats.filter(f => !DATA_FORMATS.includes(f));
+  const customStorageLocations = formData.storageLocations.filter(s => !STORAGE_LOCATIONS.includes(s));
+
+  const addCustomChip = (field, value, clear) => {
+    const trimmed = value.trim();
+    if (!trimmed || formData[field].includes(trimmed)) {
+      clear('');
+      return;
+    }
+    setFormData(p => ({ ...p, [field]: [...p[field], trimmed] }));
+    clear('');
+  };
+
+  const renderCustomChipGroup = ({
+    label, helperText, predefined, field, customItems, inputValue, setInputValue, addLabel,
+  }) => (
+    <Box sx={{ mb: 2.5 }}>
+      <Typography sx={{ fontSize: 12.5, fontWeight: 600, mb: helperText ? 0.5 : 1 }}>{label}</Typography>
+      {helperText && (
+        <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 1 }}>{helperText}</Typography>
+      )}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+        {predefined.map(item => (
+          <Chip key={item} label={item} size="small" clickable
+            onClick={() => toggleArr(field, item)}
+            sx={accentChipSx(formData[field].includes(item))} />
+        ))}
+        {customItems.map(item => (
+          <Chip key={item} label={item} size="small"
+            onDelete={() => toggleArr(field, item)}
+            sx={accentChipSx(true)} />
+        ))}
+      </Box>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+        <TextField size="small" placeholder={`Add custom ${addLabel}…`}
+          value={inputValue}
+          onChange={e => setInputValue(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addCustomChip(field, inputValue, setInputValue);
+            }
+          }}
+          sx={{ flex: '1 1 240px', maxWidth: 420, ...inp }} />
+        <Button size="small" variant="outlined" startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+          onClick={() => addCustomChip(field, inputValue, setInputValue)}
+          disabled={!inputValue.trim()}
+          sx={{ textTransform: 'none', borderRadius: 2, fontSize: 12, flexShrink: 0 }}>
+          Add {addLabel}
+        </Button>
+      </Box>
+    </Box>
+  );
 
   useEffect(() => {
     fetchUser().then(async u => {
@@ -269,6 +343,10 @@ export default function NewDmpPage() {
             {FUNDERS.map(f => <MenuItem key={f} value={f}>{f}</MenuItem>)}
           </Select>
         </FormControl>
+        {formData.funderRequirement === 'Other' && (
+          <TextField size="small" label="Specify Funder" value={formData.funderOther}
+            onChange={e => set('funderOther', e.target.value)} sx={{ flex: '1 1 220px', ...inp }} />
+        )}
       </FieldRow>
       <FormControlLabel
         control={<Checkbox checked={formData.institutionalPolicy}
@@ -285,38 +363,26 @@ export default function NewDmpPage() {
         subtitle="Define the scope, volume, and quality control approach for your data." />
 
       <SubLabel label="2.1 Data Types & Formats" />
-      <Box sx={{ mb: 2.5 }}>
-        <Typography sx={{ fontSize: 12.5, fontWeight: 600, mb: 1 }}>Data Source Types</Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {['Experimental', 'Observational', 'Simulation', 'Derived / Compiled', 'Administrative Records', 'Survey / Questionnaire'].map(s => (
-            <Chip key={s} label={s} size="small" clickable onClick={() => toggleArr('dataSources', s)}
-              sx={{
-                fontSize: 11, borderRadius: 1.5,
-                bgcolor: formData.dataSources.includes(s) ? `${ACCENT}20` : dark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
-                color:   formData.dataSources.includes(s) ? ACCENT : 'text.secondary',
-                border:  formData.dataSources.includes(s) ? `1px solid ${ACCENT}50` : '1px solid transparent',
-                fontWeight: formData.dataSources.includes(s) ? 700 : 400,
-              }} />
-          ))}
-        </Box>
-      </Box>
+      {renderCustomChipGroup({
+        label: 'Data Source Types',
+        predefined: DATA_SOURCE_TYPES,
+        field: 'dataSources',
+        customItems: customDataSources,
+        inputValue: customDataSource,
+        setInputValue: setCustomDataSource,
+        addLabel: 'Source',
+      })}
 
-      <Box sx={{ mb: 2.5 }}>
-        <Typography sx={{ fontSize: 12.5, fontWeight: 600, mb: 1 }}>File Formats (select all that apply)</Typography>
-        <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 1 }}>Non-proprietary open formats are recommended for long-term preservation.</Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {DATA_FORMATS.map(f => (
-            <Chip key={f} label={f} size="small" clickable onClick={() => toggleArr('dataFormats', f)}
-              sx={{
-                fontSize: 11, borderRadius: 1.5,
-                bgcolor: formData.dataFormats.includes(f) ? `${ACCENT}20` : dark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
-                color:   formData.dataFormats.includes(f) ? ACCENT : 'text.secondary',
-                border:  formData.dataFormats.includes(f) ? `1px solid ${ACCENT}50` : '1px solid transparent',
-                fontWeight: formData.dataFormats.includes(f) ? 700 : 400,
-              }} />
-          ))}
-        </Box>
-      </Box>
+      {renderCustomChipGroup({
+        label: 'File Formats (select all that apply)',
+        helperText: 'Non-proprietary open formats are recommended for long-term preservation.',
+        predefined: DATA_FORMATS,
+        field: 'dataFormats',
+        customItems: customDataFormats,
+        inputValue: customDataFormat,
+        setInputValue: setCustomDataFormat,
+        addLabel: 'Format',
+      })}
 
       <FieldRow>
         <TextField size="small" label="Estimated Data Volume" type="number" value={formData.estimatedVolume}
@@ -332,10 +398,13 @@ export default function NewDmpPage() {
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="2.2 Quality Control" />
-      <TextField fullWidth size="small" multiline rows={3} label="Validation & QC Procedures"
-        value={formData.validationMethods} onChange={e => set('validationMethods', e.target.value)}
+      <RichTextField
+        label="Validation & QC Procedures"
+        value={formData.validationMethods}
+        onChange={v => set('validationMethods', v)}
         placeholder="Describe methods for ensuring data integrity (e.g., double data entry, instrument calibration, range checks)…"
-        sx={{ ...inp }} />
+        minRows={3}
+      />
     </Box>
   );
 
@@ -345,21 +414,15 @@ export default function NewDmpPage() {
         subtitle="Protection of data during the active research phase." />
 
       <SubLabel label="3.1 Storage Infrastructure" />
-      <Box sx={{ mb: 2.5 }}>
-        <Typography sx={{ fontSize: 12.5, fontWeight: 600, mb: 1 }}>Storage Location(s)</Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {['Institutional Network Drive', 'Managed Cloud (AWS / Azure / GCP)', 'Encrypted Physical Drive', 'University HPC Cluster', 'Personal Computer (not recommended)', 'External Hard Drive'].map(s => (
-            <Chip key={s} label={s} size="small" clickable onClick={() => toggleArr('storageLocations', s)}
-              sx={{
-                fontSize: 11, borderRadius: 1.5,
-                bgcolor: formData.storageLocations.includes(s) ? `${ACCENT}20` : dark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
-                color:   formData.storageLocations.includes(s) ? ACCENT : 'text.secondary',
-                border:  formData.storageLocations.includes(s) ? `1px solid ${ACCENT}50` : '1px solid transparent',
-                fontWeight: formData.storageLocations.includes(s) ? 700 : 400,
-              }} />
-          ))}
-        </Box>
-      </Box>
+      {renderCustomChipGroup({
+        label: 'Storage Location(s)',
+        predefined: STORAGE_LOCATIONS,
+        field: 'storageLocations',
+        customItems: customStorageLocations,
+        inputValue: customStorageLocation,
+        setInputValue: setCustomStorageLocation,
+        addLabel: 'Location',
+      })}
 
       <FieldRow>
         <FormControl sx={{ flex: '1 1 180px', ...inp }}>
@@ -376,10 +439,14 @@ export default function NewDmpPage() {
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="3.2 Access Control & Security" />
-      <TextField fullWidth size="small" multiline rows={2} label="Access List — Roles / Individuals"
-        value={formData.accessList} onChange={e => set('accessList', e.target.value)}
+      <RichTextField
+        label="Access List — Roles / Individuals"
+        value={formData.accessList}
+        onChange={v => set('accessList', v)}
         placeholder="List roles or named individuals permitted to view/edit raw data…"
-        sx={{ mb: 2.5, ...inp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
         {[
@@ -395,9 +462,13 @@ export default function NewDmpPage() {
         ))}
       </Box>
 
-      <TextField fullWidth size="small" multiline rows={2} label="Additional Security Measures"
-        value={formData.securityNotes} onChange={e => set('securityNotes', e.target.value)}
-        placeholder="Describe any additional security controls…" sx={{ ...inp }} />
+      <RichTextField
+        label="Additional Security Measures"
+        value={formData.securityNotes}
+        onChange={v => set('securityNotes', v)}
+        placeholder="Describe any additional security controls…"
+        minRows={3}
+      />
     </Box>
   );
 
@@ -415,12 +486,19 @@ export default function NewDmpPage() {
             {METADATA_SCHEMAS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
           </Select>
         </FormControl>
+        {formData.metadataSchema === 'Other' && (
+          <TextField size="small" label="Specify Metadata Schema" value={formData.metadataSchemaOther}
+            onChange={e => set('metadataSchemaOther', e.target.value)} sx={{ flex: '1 1 220px', ...inp }} />
+        )}
       </FieldRow>
 
-      <TextField fullWidth size="small" multiline rows={5} label="Documentation Content Description"
-        value={formData.documentationContent} onChange={e => set('documentationContent', e.target.value)}
+      <RichTextField
+        label="Documentation Content Description"
+        value={formData.documentationContent}
+        onChange={v => set('documentationContent', v)}
         placeholder="Describe the ReadMe files, codebooks, variable dictionaries, lab notebooks, or instrument logs that will accompany the dataset. Include naming conventions and directory structure…"
-        sx={{ ...inp }} />
+        minRows={5}
+      />
     </Box>
   );
 
@@ -451,10 +529,14 @@ export default function NewDmpPage() {
       </FieldRow>
 
       {(formData.license === 'Embargo – specify below') && (
-        <TextField fullWidth size="small" multiline rows={2} label="Embargo / Delayed Release Details"
-          value={formData.embargoDetails} onChange={e => set('embargoDetails', e.target.value)}
+        <RichTextField
+          label="Embargo / Delayed Release Details"
+          value={formData.embargoDetails}
+          onChange={v => set('embargoDetails', v)}
           placeholder="Specify the embargo period and reason (e.g., pending patent, publication, commercial exploitation)…"
-          sx={{ mb: 2.5, ...inp }} />
+          minRows={3}
+          sx={{ mb: 2.5 }}
+        />
       )}
 
       <Divider sx={{ my: 2.5 }} />
@@ -474,10 +556,13 @@ export default function NewDmpPage() {
       </Box>
 
       {(formData.containsPii || formData.containsSpi) && (
-        <TextField fullWidth size="small" multiline rows={3} label="Sensitivity Management Notes"
-          value={formData.sensitivityNotes} onChange={e => set('sensitivityNotes', e.target.value)}
+        <RichTextField
+          label="Sensitivity Management Notes"
+          value={formData.sensitivityNotes}
+          onChange={v => set('sensitivityNotes', v)}
           placeholder="Describe how PII/SPI will be protected, anonymised, or access-controlled…"
-          sx={{ ...inp }} />
+          minRows={3}
+        />
       )}
     </Box>
   );
@@ -502,10 +587,14 @@ export default function NewDmpPage() {
         )}
       </FieldRow>
 
-      <TextField fullWidth size="small" multiline rows={2} label="Persistent Identifier / DOI Plan"
-        value={formData.doiPlan} onChange={e => set('doiPlan', e.target.value)}
+      <RichTextField
+        label="Persistent Identifier / DOI Plan"
+        value={formData.doiPlan}
+        onChange={v => set('doiPlan', v)}
         placeholder="Describe the plan for obtaining a DOI for the dataset upon deposit…"
-        sx={{ mb: 2.5, ...inp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="6.2 Data Retention & Destruction" />
@@ -513,11 +602,14 @@ export default function NewDmpPage() {
         <TextField size="small" label="Retention Duration (years)" type="number"
           value={formData.retentionYears} onChange={e => set('retentionYears', e.target.value)}
           helperText="Years to preserve data post-project" sx={{ flex: '1 1 160px', ...inp }} />
-        <TextField size="small" multiline rows={2} label="Secure Destruction Plan"
-          value={formData.destructionPlan} onChange={e => set('destructionPlan', e.target.value)}
-          placeholder="Procedures for secure deletion of data that cannot be preserved…"
-          sx={{ flex: '3 1 360px', ...inp }} />
       </FieldRow>
+      <RichTextField
+        label="Secure Destruction Plan"
+        value={formData.destructionPlan}
+        onChange={v => set('destructionPlan', v)}
+        placeholder="Procedures for secure deletion of data that cannot be preserved…"
+        minRows={3}
+      />
     </Box>
   );
 
@@ -539,10 +631,14 @@ export default function NewDmpPage() {
           placeholder="e.g. External drives, servers" sx={{ flex: '1 1 180px', ...inp }} />
       </FieldRow>
 
-      <TextField fullWidth size="small" multiline rows={3} label="Additional Notes for Reviewer"
-        value={formData.additionalNotes} onChange={e => set('additionalNotes', e.target.value)}
+      <RichTextField
+        label="Additional Notes for Reviewer"
+        value={formData.additionalNotes}
+        onChange={v => set('additionalNotes', v)}
         placeholder="Provide any context or special considerations for the RDM office reviewer…"
-        sx={{ mb: 2.5, ...inp }} />
+        minRows={3}
+        sx={{ mb: 2.5 }}
+      />
 
       <Divider sx={{ mb: 2.5 }} />
 
