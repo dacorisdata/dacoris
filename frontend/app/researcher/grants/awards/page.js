@@ -238,27 +238,15 @@ function AwardCertificate({ award, onOpenProject }) {
               sx={{ textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5 }}>
               View Proposal
             </Button>
-            {award.project_id ? (
-              <Button size="small" variant="contained"
-                startIcon={<ProjectIcon sx={{ fontSize: 13 }} />}
-                onClick={() => onOpenProject('project', award.project_id)}
-                sx={{
-                  textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5,
-                  bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' },
-                }}>
-                Open Project
-              </Button>
-            ) : (
-              <Button size="small" variant="contained"
-                startIcon={<ProjectIcon sx={{ fontSize: 13 }} />}
-                onClick={() => onOpenProject('convert', award)}
-                sx={{
-                  textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5,
-                  bgcolor: GOLD, '&:hover': { bgcolor: '#d97706' },
-                }}>
-                Convert to Project
-              </Button>
-            )}
+            <Button size="small" variant="contained"
+              startIcon={<ProjectIcon sx={{ fontSize: 13 }} />}
+              onClick={() => onOpenProject('convert', award)}
+              sx={{
+                textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5,
+                bgcolor: GOLD, '&:hover': { bgcolor: '#d97706' },
+              }}>
+              Convert to Project
+            </Button>
           </Box>
         </Box>
       </Box>
@@ -311,9 +299,12 @@ export default function ResearcherAwardsPage() {
     } else if (type === 'project') {
       router.push(`/researcher/projects/${data}`);
     } else if (type === 'convert') {
-      // Store award data in sessionStorage for the create project form
-      sessionStorage.setItem('awardData', JSON.stringify(data));
-      router.push('/researcher/projects/create');
+      if (data.project_id) {
+        router.push(`/researcher/projects/${data.project_id}`);
+      } else {
+        sessionStorage.setItem('awardData', JSON.stringify(data));
+        router.push('/researcher/projects/create');
+      }
     }
   };
 

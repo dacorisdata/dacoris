@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from database import get_db
 from models import (Proposal, ProposalSection, ProposalSectionVersion, ProposalDocument,
-                    ProposalCollaborator, ProposalStatus, GrantOpportunity, User, UserStatus,
+                    ProposalDocumentRequirement, ProposalCollaborator, ProposalStatus, GrantOpportunity, User, UserStatus,
                     ProposalStageHistory, ProposalStageAssignment, STAGE_INTENDED_DAYS, Award, BudgetLine,
                     PrimaryAccountType)
 from auth import require_roles, ResearchRole, get_current_user
@@ -20,13 +20,30 @@ from services.file_upload import save_upload
 
 router = APIRouter(prefix="/api/grants/proposals", tags=["proposals"])
 
-DEFAULT_SECTIONS = [
-    {"section_type": "executive_summary", "title": "Executive Summary"},
-    {"section_type": "problem_statement", "title": "Problem Statement"},
-    {"section_type": "methodology", "title": "Methodology"},
-    {"section_type": "budget_justification", "title": "Budget Justification"},
-    {"section_type": "mel_plan", "title": "M&E Plan"},
-]
+
+async def _normalize_section_orders(db: AsyncSession, proposal_id: str, sections: Optional[list] = None) -> None:
+    """Ensure sections have unique sequential order (fixes legacy rows with duplicate order)."""
+    if sections is None:
+        result = await db.execute(
+            select(ProposalSection)
+            .where(ProposalSection.proposal_id == proposal_id)
+            .order_by(ProposalSection.section_order, ProposalSection.id)
+        )
+        sections = list(result.scalars().all())
+    else:
+        sections = sorted(sections, key=lambda s: (s.section_order, s.id))
+
+    changed = False
+    for index, section in enumerate(sections):
+        if section.section_order != index:
+            section.section_order = index
+            changed = True
+    if changed:
+        await db.commit()
+
+
+def _sort_sections(sections: list) -> None:
+    sections.sort(key=lambda s: (s.section_order, s.id))
 
 
 class CollaboratorInvite(BaseModel):
@@ -104,6 +121,16 @@ class SectionSummary(BaseModel):
     section_order: int
     content_html: Optional[str] = None
     section_type: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentRequirementOut(BaseModel):
+    id: str
+    label: str
+    item_order: int
+    document: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -191,6 +218,15 @@ async def create_proposal(
     if not opp:
         raise HTTPException(404, "Opportunity not found")
 
+    existing = await db.execute(
+        select(Proposal).where(
+            Proposal.opportunity_id == data.opportunity_id,
+            Proposal.lead_pi_id == current_user.id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "You have already applied for this opportunity")
+
     proposal = Proposal(
         opportunity_id=data.opportunity_id,
         institution_id=current_user.primary_institution_id,
@@ -199,10 +235,6 @@ async def create_proposal(
     )
     db.add(proposal)
     await db.flush()
-
-    # Create default sections
-    for s in DEFAULT_SECTIONS:
-        db.add(ProposalSection(proposal_id=proposal.id, **s))
 
     # Invite collaborators
     if data.collaborators:
@@ -369,6 +401,7 @@ async def get_proposal(
             selectinload(Proposal.opportunity),
             selectinload(Proposal.sections),
             selectinload(Proposal.documents),
+            selectinload(Proposal.document_requirements).selectinload(ProposalDocumentRequirement.document),
             selectinload(Proposal.collaborators).selectinload(ProposalCollaborator.user),
             selectinload(Proposal.lead_pi),
             selectinload(Proposal.reviews),
@@ -384,11 +417,16 @@ async def get_proposal(
     proposal = result.scalar_one_or_none()
     if not proposal:
         raise HTTPException(404, "Proposal not found")
-    
-    # Sort sections by section_order
+
+    await _normalize_section_orders(db, proposal_id, proposal.sections)
+
+    # Sort sections by section_order (stable tie-breaker on id)
     if proposal.sections:
-        proposal.sections.sort(key=lambda s: s.section_order)
-    
+        _sort_sections(proposal.sections)
+
+    if proposal.document_requirements:
+        proposal.document_requirements.sort(key=lambda r: (r.item_order, r.id))
+
     return proposal
 
 
@@ -571,16 +609,12 @@ async def create_section(
     
     if proposal.status != ProposalStatus.DRAFT:
         raise HTTPException(400, "Cannot add sections to non-draft proposals")
-    
-    # Get max section_order
+
     result = await db.execute(
-        select(ProposalSection)
-        .where(ProposalSection.proposal_id == proposal_id)
-        .order_by(ProposalSection.section_order.desc())
-        .limit(1)
+        select(ProposalSection).where(ProposalSection.proposal_id == proposal_id)
     )
-    last_section = result.scalar_one_or_none()
-    next_order = (last_section.section_order + 1) if last_section else 0
+    existing_sections = result.scalars().all()
+    next_order = len(existing_sections)
     
     # Create new section
     section = ProposalSection(
@@ -707,6 +741,7 @@ async def upload_document(
     proposal_id: str,
     document_type: str = Form(...),
     file: UploadFile = File(...),
+    requirement_id: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
 ):
@@ -718,16 +753,147 @@ async def upload_document(
     if not proposal:
         raise HTTPException(404, "Proposal not found")
 
+    if proposal.status != ProposalStatus.DRAFT:
+        raise HTTPException(400, "Cannot upload documents to non-draft proposals")
+
+    requirement = None
+    if requirement_id:
+        req_result = await db.execute(select(ProposalDocumentRequirement).where(
+            ProposalDocumentRequirement.id == requirement_id,
+            ProposalDocumentRequirement.proposal_id == proposal_id,
+        ))
+        requirement = req_result.scalar_one_or_none()
+        if not requirement:
+            raise HTTPException(404, "Document requirement not found")
+        if requirement.document:
+            await db.delete(requirement.document)
+            await db.flush()
+
     file_info = await save_upload(file, subfolder="documents")
     doc = ProposalDocument(
         proposal_id=proposal_id,
-        document_type=document_type,
+        requirement_id=requirement_id,
+        document_type=document_type or (requirement.label if requirement else "other"),
         uploaded_by_id=current_user.id,
         **file_info,
     )
     db.add(doc)
     await db.commit()
     return {"id": doc.id, "filename": file_info["original_filename"]}
+
+
+class DocumentRequirementCreate(BaseModel):
+    label: str
+
+
+class DocumentRequirementReorder(BaseModel):
+    requirement_ids: List[str]
+
+
+@router.post("/{proposal_id}/document-requirements", status_code=201)
+async def create_document_requirement(
+    proposal_id: str,
+    data: DocumentRequirementCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
+):
+    result = await db.execute(select(Proposal).where(
+        Proposal.id == proposal_id,
+        Proposal.institution_id == current_user.primary_institution_id
+    ))
+    proposal = result.scalar_one_or_none()
+    if not proposal:
+        raise HTTPException(404, "Proposal not found")
+    if proposal.status != ProposalStatus.DRAFT:
+        raise HTTPException(400, "Cannot modify document requirements on non-draft proposals")
+
+    label = data.label.strip()
+    if not label:
+        raise HTTPException(400, "Document label is required")
+
+    existing = await db.execute(
+        select(ProposalDocumentRequirement).where(ProposalDocumentRequirement.proposal_id == proposal_id)
+    )
+    next_order = len(existing.scalars().all())
+
+    requirement = ProposalDocumentRequirement(
+        proposal_id=proposal_id,
+        label=label,
+        item_order=next_order,
+    )
+    db.add(requirement)
+    await db.commit()
+    await db.refresh(requirement)
+    return {"id": requirement.id, "label": requirement.label, "item_order": requirement.item_order}
+
+
+@router.delete("/{proposal_id}/document-requirements/{requirement_id}")
+async def delete_document_requirement(
+    proposal_id: str,
+    requirement_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
+):
+    result = await db.execute(select(Proposal).where(
+        Proposal.id == proposal_id,
+        Proposal.institution_id == current_user.primary_institution_id
+    ))
+    proposal = result.scalar_one_or_none()
+    if not proposal:
+        raise HTTPException(404, "Proposal not found")
+    if proposal.status != ProposalStatus.DRAFT:
+        raise HTTPException(400, "Cannot modify document requirements on non-draft proposals")
+
+    req_result = await db.execute(select(ProposalDocumentRequirement).where(
+        ProposalDocumentRequirement.id == requirement_id,
+        ProposalDocumentRequirement.proposal_id == proposal_id,
+    ))
+    requirement = req_result.scalar_one_or_none()
+    if not requirement:
+        raise HTTPException(404, "Document requirement not found")
+
+    await db.delete(requirement)
+    await db.commit()
+
+    remaining = await db.execute(
+        select(ProposalDocumentRequirement)
+        .where(ProposalDocumentRequirement.proposal_id == proposal_id)
+        .order_by(ProposalDocumentRequirement.item_order, ProposalDocumentRequirement.id)
+    )
+    for index, item in enumerate(remaining.scalars().all()):
+        item.item_order = index
+    await db.commit()
+    return {"message": "Document requirement deleted"}
+
+
+@router.put("/{proposal_id}/document-requirements/reorder")
+async def reorder_document_requirements(
+    proposal_id: str,
+    data: DocumentRequirementReorder,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
+):
+    result = await db.execute(select(Proposal).where(
+        Proposal.id == proposal_id,
+        Proposal.institution_id == current_user.primary_institution_id
+    ))
+    proposal = result.scalar_one_or_none()
+    if not proposal:
+        raise HTTPException(404, "Proposal not found")
+    if proposal.status != ProposalStatus.DRAFT:
+        raise HTTPException(400, "Cannot modify document requirements on non-draft proposals")
+
+    for index, requirement_id in enumerate(data.requirement_ids):
+        req_result = await db.execute(select(ProposalDocumentRequirement).where(
+            ProposalDocumentRequirement.id == requirement_id,
+            ProposalDocumentRequirement.proposal_id == proposal_id,
+        ))
+        requirement = req_result.scalar_one_or_none()
+        if requirement:
+            requirement.item_order = index
+
+    await db.commit()
+    return {"message": "Document requirements reordered"}
 
 
 @router.patch("/{proposal_id}/status")
@@ -1110,7 +1276,8 @@ async def get_proposal_completion(
     result = await db.execute(
         select(Proposal).options(
             selectinload(Proposal.sections),
-            selectinload(Proposal.documents)
+            selectinload(Proposal.documents),
+            selectinload(Proposal.document_requirements),
         ).where(
             Proposal.id == proposal_id,
             Proposal.institution_id == current_user.primary_institution_id
@@ -1122,22 +1289,17 @@ async def get_proposal_completion(
     
     total_sections = len(proposal.sections)
     completed_sections = sum(1 for s in proposal.sections if s.word_count > 50)
-    
-    required_docs = ["cv", "budget", "support_letter"]
-    uploaded_doc_types = {d.document_type for d in proposal.documents}
-    completed_docs = sum(1 for dt in required_docs if dt in uploaded_doc_types)
-    
+
     section_pct = (completed_sections / total_sections * 100) if total_sections > 0 else 0
-    doc_pct = (completed_docs / len(required_docs) * 100) if required_docs else 0
-    overall_pct = (section_pct * 0.7 + doc_pct * 0.3)
-    
+    overall_pct = section_pct
+
     return {
         "overall_percentage": round(overall_pct, 1),
         "sections_completed": completed_sections,
         "sections_total": total_sections,
-        "documents_completed": completed_docs,
-        "documents_required": len(required_docs),
-        "missing_documents": [dt for dt in required_docs if dt not in uploaded_doc_types]
+        "documents_completed": len(proposal.documents),
+        "documents_required": len(proposal.document_requirements or []),
+        "missing_documents": []
     }
 
 

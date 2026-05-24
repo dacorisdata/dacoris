@@ -350,6 +350,9 @@ class Proposal(Base):
                             cascade="all, delete-orphan")
     documents = relationship("ProposalDocument", back_populates="proposal",
                              cascade="all, delete-orphan")
+    document_requirements = relationship("ProposalDocumentRequirement", back_populates="proposal",
+                                         cascade="all, delete-orphan",
+                                         order_by="ProposalDocumentRequirement.item_order")
     collaborators = relationship("ProposalCollaborator", back_populates="proposal",
                                  cascade="all, delete-orphan")
     reviews = relationship("ProposalReview", back_populates="proposal",
@@ -397,11 +400,30 @@ class ProposalSectionVersion(Base):
     saved_by = relationship("User", foreign_keys=[saved_by_id])
 
 
+class ProposalDocumentRequirement(Base):
+    __tablename__ = "proposal_document_requirements"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    proposal_id = Column(String, ForeignKey("proposals.id", ondelete="CASCADE"), nullable=False)
+    label = Column(String(300), nullable=False)
+    item_order = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    proposal = relationship("Proposal", back_populates="document_requirements")
+    document = relationship(
+        "ProposalDocument",
+        back_populates="requirement",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
 class ProposalDocument(Base):
     __tablename__ = "proposal_documents"
 
     id = Column(String, primary_key=True, index=True, default=generate_uuid)
     proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False)
+    requirement_id = Column(String, ForeignKey("proposal_document_requirements.id", ondelete="CASCADE"), nullable=True)
     document_type = Column(String(100))
     original_filename = Column(String(500))
     stored_filename = Column(String(500))
@@ -411,6 +433,7 @@ class ProposalDocument(Base):
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     proposal = relationship("Proposal", back_populates="documents")
+    requirement = relationship("ProposalDocumentRequirement", back_populates="document")
     uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
 
 
@@ -555,6 +578,46 @@ class ResearchProject(Base):
     start_date = Column(DateTime(timezone=True))
     end_date = Column(DateTime(timezone=True))
     involves_human_subjects = Column(Boolean, default=False)
+    involves_animal_subjects = Column(Boolean, default=False)
+    involves_sensitive_data = Column(Boolean, default=False)
+    is_clinical_trial = Column(Boolean, default=False)
+    uses_hazardous_materials = Column(Boolean, default=False)
+    project_code = Column(String(50), nullable=True)
+    short_title = Column(String(50), nullable=True)
+    research_area = Column(String(200), nullable=True)
+    lead_institution = Column(String(300), nullable=True)
+    department = Column(String(300), nullable=True)
+    pi_full_name = Column(String(300), nullable=True)
+    pi_academic_title = Column(String(50), nullable=True)
+    pi_email = Column(String(200), nullable=True)
+    pi_phone = Column(String(50), nullable=True)
+    pi_orcid = Column(String(100), nullable=True)
+    pi_staff_id = Column(String(100), nullable=True)
+    project_abstract = Column(Text, nullable=True)
+    background_rationale = Column(Text, nullable=True)
+    problem_statement = Column(Text, nullable=True)
+    research_methodology = Column(Text, nullable=True)
+    research_design = Column(String(100), nullable=True)
+    target_population = Column(String(500), nullable=True)
+    research_keywords = Column(Text, nullable=True)
+    research_objectives = Column(Text, nullable=True)
+    dmp_entry_mode = Column(String(20), default="upload")
+    dmp_types_of_data = Column(Text, nullable=True)
+    dmp_estimated_volume = Column(String(200), nullable=True)
+    dmp_data_formats = Column(String(500), nullable=True)
+    dmp_primary_storage = Column(String(200), nullable=True)
+    dmp_backup_procedure = Column(Text, nullable=True)
+    dmp_access_controls = Column(Text, nullable=True)
+    dmp_retention_period = Column(String(100), nullable=True)
+    dmp_sharing_plan = Column(Text, nullable=True)
+    dmp_repository = Column(String(300), nullable=True)
+    dmp_linked_document_id = Column(String, ForeignKey("project_documents.id"), nullable=True)
+    financial_overhead_rate = Column(String(100), nullable=True)
+    financial_notes = Column(Text, nullable=True)
+    reporting_currency = Column(String(10), default="KES")
+    conflict_of_interest = Column(Text, nullable=True)
+    declaration_responses = Column(Text, nullable=True)
+    declaration_date = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -570,8 +633,19 @@ class ResearchProject(Base):
     milestones = relationship("ProjectMilestone", back_populates="project",
                               cascade="all, delete-orphan",
                               order_by="ProjectMilestone.due_date")
+    teams = relationship("ProjectTeam", back_populates="project",
+                         cascade="all, delete-orphan")
+    deliverables = relationship("ProjectDeliverable", back_populates="project",
+                                cascade="all, delete-orphan",
+                                foreign_keys="ProjectDeliverable.project_id")
+    budget_lines = relationship("ProjectBudgetLine", back_populates="project",
+                                cascade="all, delete-orphan",
+                                order_by="ProjectBudgetLine.item_order")
     project_documents = relationship("ProjectDocument", back_populates="project",
-                                     cascade="all, delete-orphan")
+                                     cascade="all, delete-orphan",
+                                     foreign_keys="ProjectDocument.project_id")
+    dmp_linked_document = relationship("ProjectDocument", foreign_keys=[dmp_linked_document_id],
+                                       post_update=True)
     research_outputs = relationship("ResearchOutput", back_populates="project")
 
 
@@ -831,7 +905,7 @@ class ProjectMilestone(Base):
     due_date = Column(DateTime(timezone=True))
     completed_at = Column(DateTime(timezone=True))
     assigned_to_id = Column(String, ForeignKey("users.id"))
-    status = Column(String(50), default="pending")    # pending | in_progress | completed | overdue
+    status = Column(String(50), default="planned")    # planned | in_progress | completed | overdue
     priority = Column(String(20), default="medium")   # low | medium | high | critical
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -839,6 +913,84 @@ class ProjectMilestone(Base):
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
     tasks = relationship("ProjectTask", back_populates="milestone",
                          cascade="all, delete-orphan")
+    deliverables = relationship("ProjectDeliverable", back_populates="milestone",
+                                foreign_keys="ProjectDeliverable.milestone_id")
+
+
+class ProjectTeam(Base):
+    __tablename__ = "project_teams"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
+    name = Column(String(200), nullable=False)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("ResearchProject", back_populates="teams")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    members = relationship("ProjectTeamMember", back_populates="team",
+                           cascade="all, delete-orphan")
+    deliverable_assignments = relationship("ProjectDeliverable", back_populates="assignee_team",
+                                           foreign_keys="ProjectDeliverable.assignee_team_id")
+
+
+class ProjectTeamMember(Base):
+    __tablename__ = "project_team_members"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    team_id = Column(String, ForeignKey("project_teams.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    project_member_id = Column(String, ForeignKey("project_members.id"), nullable=True)
+    display_name = Column(String(200), nullable=False)
+    role_label = Column(String(100), nullable=True)
+
+    team = relationship("ProjectTeam", back_populates="members")
+    user = relationship("User", foreign_keys=[user_id])
+    project_member = relationship("ProjectMember", foreign_keys=[project_member_id])
+
+
+class ProjectDeliverable(Base):
+    __tablename__ = "project_deliverables"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
+    name = Column(String(500), nullable=False)
+    deliverable_type = Column(String(100), nullable=True)
+    description = Column(Text)
+    due_date = Column(DateTime(timezone=True))
+    status = Column(String(50), default="pending")
+    milestone_id = Column(String, ForeignKey("project_milestones.id"), nullable=True)
+    assignee_kind = Column(String(20), nullable=True)   # individual | team
+    assignee_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    assignee_member_id = Column(String, ForeignKey("project_members.id"), nullable=True)
+    assignee_team_id = Column(String, ForeignKey("project_teams.id"), nullable=True)
+    responsible_label = Column(String(500), nullable=True)
+    item_order = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("ResearchProject", back_populates="deliverables",
+                           foreign_keys=[project_id])
+    milestone = relationship("ProjectMilestone", back_populates="deliverables",
+                             foreign_keys=[milestone_id])
+    assignee_user = relationship("User", foreign_keys=[assignee_user_id])
+    assignee_member = relationship("ProjectMember", foreign_keys=[assignee_member_id])
+    assignee_team = relationship("ProjectTeam", back_populates="deliverable_assignments",
+                                 foreign_keys=[assignee_team_id])
+
+
+class ProjectBudgetLine(Base):
+    __tablename__ = "project_budget_lines"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
+    category = Column(String(200), nullable=False)
+    description = Column(String(500))
+    amount = Column(Integer, default=0)
+    spent_to_date = Column(Integer, default=0)
+    item_order = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("ResearchProject", back_populates="budget_lines")
 
 
 class ProjectTask(Base):
@@ -870,7 +1022,8 @@ class ProjectDocument(Base):
     uploaded_by_id = Column(String, ForeignKey("users.id"))
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    project = relationship("ResearchProject", back_populates="project_documents")
+    project = relationship("ResearchProject", back_populates="project_documents",
+                           foreign_keys=[project_id])
     uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
 
 

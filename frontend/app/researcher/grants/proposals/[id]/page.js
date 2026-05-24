@@ -153,13 +153,17 @@ export default function ProposalWorkspacePage() {
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [editingSectionId, setEditingSectionId] = useState(null);
   const [editingSectionTitle, setEditingSectionTitle] = useState('');
-  const [currentSection, setCurrentSection] = useState('executive_summary');
+  const [currentSection, setCurrentSection] = useState(null);
   const [sectionContent, setSectionContent] = useState('');
   const [wordCount, setWordCount] = useState(0);
   
   const [uploadDialog, setUploadDialog] = useState(false);
   const [uploadFiles, setUploadFiles] = useState([]);
+  const [uploadRequirementId, setUploadRequirementId] = useState(null);
   const [documents, setDocuments] = useState([]);
+  const [documentRequirements, setDocumentRequirements] = useState([]);
+  const [addDocDialog, setAddDocDialog] = useState(false);
+  const [newDocLabel, setNewDocLabel] = useState('');
   
   const [sectionsExpanded, setSectionsExpanded] = useState(true);
   const [docsExpanded, setDocsExpanded] = useState(true);
@@ -189,50 +193,99 @@ export default function ProposalWorkspacePage() {
   );
 
   useEffect(() => {
-    loadProposal();
+    loadProposal({ initialLoad: true });
   }, [params.id]);
 
-  // Auto-save every 30 seconds
+  const isSectionDirty = (sectionId, content, count, sectionsMap = sections) => {
+    if (!sectionId) return false;
+    const saved = sectionsMap[sectionId];
+    if (!saved?.id) return false;
+    return content !== (saved.content ?? '') || count !== (saved.wordCount ?? 0);
+  };
+
+  const persistCurrentSection = async (
+    sectionId = currentSection,
+    content = sectionContent,
+    count = wordCount,
+    { silent = true } = {}
+  ) => {
+    if (!proposal || proposal.status?.toUpperCase() !== 'DRAFT') return true;
+    if (!sectionId || !isSectionDirty(sectionId, content, count)) return true;
+
+    const sectionData = sections[sectionId];
+    if (!sectionData?.id) return true;
+
+    const token = localStorage.getItem('token');
+    if (!token) return false;
+
+    try {
+      if (silent) setAutoSaving(true);
+      await axios.put(
+        `${API_URL}/grants/proposals/${params.id}/sections/${sectionData.id}`,
+        { content_html: content, word_count: count },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSections(prev => ({
+        ...prev,
+        [sectionId]: { ...prev[sectionId], content, wordCount: count },
+      }));
+      return true;
+    } catch (e) {
+      console.error('Failed to save section:', e);
+      if (e.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        setTimeout(() => router.push('/login'), 2000);
+      }
+      return false;
+    } finally {
+      if (silent) setAutoSaving(false);
+    }
+  };
+
+  // Auto-save every 30 seconds when the active section has unsaved changes
   useEffect(() => {
-    if (!proposal || proposal.status?.toUpperCase() !== 'DRAFT') return;
-    
+    if (!proposal || proposal.status?.toUpperCase() !== 'DRAFT' || !currentSection) return;
+
     const interval = setInterval(() => {
-      if (sectionContent && wordCount > 0) {
-        autoSaveSection();
+      if (isSectionDirty(currentSection, sectionContent, wordCount)) {
+        persistCurrentSection();
       }
     }, 30000);
-    
+
     return () => clearInterval(interval);
-  }, [sectionContent, wordCount, proposal]);
+  }, [sectionContent, wordCount, proposal, currentSection, sections]);
 
   // Auto-save when leaving the page
   useEffect(() => {
-    const handleBeforeUnload = async (e) => {
-      if (currentSection && sectionContent !== sections[currentSection]?.content) {
-        // Try to save before leaving
-        const token = localStorage.getItem('token');
-        const sectionData = sections[currentSection];
-        
-        if (token && sectionData?.id && proposal) {
-          // Use sendBeacon for reliable save on page unload
-          const data = JSON.stringify({
-            content_html: sectionContent,
-            word_count: wordCount
-          });
-          
-          navigator.sendBeacon(
-            `${API_URL}/grants/proposals/${params.id}/sections/${sectionData.id}`,
-            new Blob([data], { type: 'application/json' })
-          );
-        }
-      }
+    const handleBeforeUnload = () => {
+      if (!currentSection || !isSectionDirty(currentSection, sectionContent, wordCount)) return;
+
+      const sectionData = sections[currentSection];
+      if (!sectionData?.id || !proposal) return;
+
+      const data = JSON.stringify({
+        content_html: sectionContent,
+        word_count: wordCount,
+      });
+
+      navigator.sendBeacon(
+        `${API_URL}/grants/proposals/${params.id}/sections/${sectionData.id}`,
+        new Blob([data], { type: 'application/json' })
+      );
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [currentSection, sectionContent, sections, proposal, wordCount, params.id]);
 
-  const loadProposal = async () => {
+  const sortSections = (sections) =>
+    [...sections].sort(
+      (a, b) => (a.section_order ?? 0) - (b.section_order ?? 0) || String(a.id).localeCompare(String(b.id))
+    );
+
+  const loadProposal = async (options = {}) => {
+    const preserveSectionId = options.preserveSectionId;
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
@@ -249,12 +302,17 @@ export default function ProposalWorkspacePage() {
       
       setProposal(res.data);
       setDocuments(res.data.documents || []);
+      setDocumentRequirements(
+        [...(res.data.document_requirements || [])].sort(
+          (a, b) => (a.item_order ?? 0) - (b.item_order ?? 0) || String(a.id).localeCompare(String(b.id))
+        )
+      );
       
-      // Load sections
       if (res.data.sections && res.data.sections.length > 0) {
-        setProposalSections(res.data.sections);
+        const sortedSections = sortSections(res.data.sections);
+        setProposalSections(sortedSections);
         const sectionsMap = {};
-        res.data.sections.forEach(section => {
+        sortedSections.forEach(section => {
           sectionsMap[section.id] = {
             content: section.content_html || '',
             wordCount: section.word_count || 0,
@@ -264,16 +322,21 @@ export default function ProposalWorkspacePage() {
           };
         });
         setSections(sectionsMap);
-        
-        // Load first section
-        const firstSection = res.data.sections[0];
-        setCurrentSection(firstSection.id);
-        setSectionContent(sectionsMap[firstSection.id]?.content || '');
-        setWordCount(sectionsMap[firstSection.id]?.wordCount || 0);
+
+        const activeSectionId =
+          preserveSectionId && sectionsMap[preserveSectionId]
+            ? preserveSectionId
+            : null;
+
+        setCurrentSection(activeSectionId);
+        setSectionContent(activeSectionId ? (sectionsMap[activeSectionId]?.content || '') : '');
+        setWordCount(activeSectionId ? (sectionsMap[activeSectionId]?.wordCount || 0) : 0);
       } else {
-        // No sections yet - this is okay, user can add them
         setProposalSections([]);
         setSections({});
+        setCurrentSection(null);
+        setSectionContent('');
+        setWordCount(0);
       }
     } catch (e) {
       if (e.response?.status === 401) {
@@ -290,44 +353,7 @@ export default function ProposalWorkspacePage() {
   };
 
   const autoSaveSection = async () => {
-    if (!proposal || !currentSection) return;
-    
-    try {
-      setAutoSaving(true);
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        console.error('No auth token found');
-        router.push('/login');
-        return;
-      }
-      
-      const sectionData = sections[currentSection];
-      if (!sectionData?.id) return;
-      
-      await axios.put(
-        `${API_URL}/grants/proposals/${params.id}/sections/${sectionData.id}`,
-        {
-          content_html: sectionContent,
-          word_count: wordCount
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      setSections(prev => ({
-        ...prev,
-        [currentSection]: { ...prev[currentSection], content: sectionContent, wordCount }
-      }));
-    } catch (e) {
-      console.error('Auto-save failed:', e);
-      if (e.response?.status === 401) {
-        setError('Session expired. Please log in again.');
-        localStorage.removeItem('token');
-        setTimeout(() => router.push('/login'), 2000);
-      }
-    } finally {
-      setAutoSaving(false);
-    }
+    await persistCurrentSection();
   };
 
   const saveSection = async () => {
@@ -335,80 +361,23 @@ export default function ProposalWorkspacePage() {
     
     try {
       setSaving(true);
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        setError('Not authenticated. Redirecting to login...');
-        setTimeout(() => router.push('/login'), 1500);
+      const ok = await persistCurrentSection(currentSection, sectionContent, wordCount, { silent: false });
+      if (!ok) {
+        setError('Failed to save section');
         return;
       }
-      
-      const sectionData = sections[currentSection];
-      if (!sectionData?.id) {
-        setError('Section not found');
-        return;
-      }
-      
-      await axios.put(
-        `${API_URL}/grants/proposals/${params.id}/sections/${sectionData.id}`,
-        {
-          content_html: sectionContent,
-          word_count: wordCount
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      setSections(prev => ({
-        ...prev,
-        [currentSection]: { ...prev[currentSection], content: sectionContent, wordCount }
-      }));
-      
       setSuccess('Section saved successfully');
       setTimeout(() => setSuccess(''), 3000);
-    } catch (e) {
-      if (e.response?.status === 401) {
-        setError('Session expired. Please log in again.');
-        localStorage.removeItem('token');
-        setTimeout(() => router.push('/login'), 2000);
-      } else {
-        setError(e.response?.data?.detail || 'Failed to save section');
-      }
-      console.error(e);
     } finally {
       setSaving(false);
     }
   };
 
   const switchSection = async (sectionKey) => {
-    // Auto-save current section before switching
-    if (currentSection && sectionContent !== sections[currentSection]?.content) {
-      // Update local state first
-      setSections(prev => ({
-        ...prev,
-        [currentSection]: { ...prev[currentSection], content: sectionContent, wordCount }
-      }));
-      
-      // Save to backend
-      try {
-        const token = localStorage.getItem('token');
-        const sectionData = sections[currentSection];
-        
-        if (token && sectionData?.id && proposal) {
-          await axios.put(
-            `${API_URL}/grants/proposals/${params.id}/sections/${sectionData.id}`,
-            {
-              content_html: sectionContent,
-              word_count: wordCount
-            },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-        }
-      } catch (e) {
-        console.error('Failed to save section on switch:', e);
-        // Don't block the switch even if save fails
-      }
-    }
-    
+    if (sectionKey === currentSection) return;
+
+    await persistCurrentSection();
+
     setCurrentSection(sectionKey);
     setSectionContent(sections[sectionKey]?.content || '');
     setWordCount(sections[sectionKey]?.wordCount || 0);
@@ -419,12 +388,15 @@ export default function ProposalWorkspacePage() {
     
     try {
       const token = localStorage.getItem('token');
+      const requirement = documentRequirements.find(r => r.id === uploadRequirementId);
       
-      // Upload each file
       for (const file of uploadFiles) {
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('document_type', 'other');
+        formData.append('document_type', requirement?.label || 'other');
+        if (uploadRequirementId) {
+          formData.append('requirement_id', uploadRequirementId);
+        }
         
         await axios.post(
           `${API_URL}/grants/proposals/${params.id}/documents`,
@@ -435,8 +407,9 @@ export default function ProposalWorkspacePage() {
       
       setUploadDialog(false);
       setUploadFiles([]);
+      setUploadRequirementId(null);
       setSuccess(`${uploadFiles.length} document(s) uploaded`);
-      await loadProposal();
+      await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
       console.error('Upload error:', e);
       console.error('Error response:', e.response?.data);
@@ -444,8 +417,50 @@ export default function ProposalWorkspacePage() {
     }
   };
 
+  const addDocumentRequirement = async () => {
+    if (!newDocLabel.trim()) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(
+        `${API_URL}/grants/proposals/${params.id}/document-requirements`,
+        { label: newDocLabel.trim() },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setAddDocDialog(false);
+      setNewDocLabel('');
+      setSuccess('Document requirement added');
+      await loadProposal({ preserveSectionId: currentSection });
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to add document requirement');
+    }
+  };
+
+  const deleteDocumentRequirement = async (requirementId) => {
+    if (!confirm('Remove this document requirement? Any uploaded file will also be deleted.')) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(
+        `${API_URL}/grants/proposals/${params.id}/document-requirements/${requirementId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSuccess('Document requirement removed');
+      await loadProposal({ preserveSectionId: currentSection });
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to remove document requirement');
+    }
+  };
+
+  const openUploadForRequirement = (requirementId) => {
+    setUploadRequirementId(requirementId);
+    setUploadFiles([]);
+    setUploadDialog(true);
+  };
+
   const submitProposal = async () => {
     try {
+      await persistCurrentSection();
       const token = localStorage.getItem('token');
       await axios.patch(
         `${API_URL}/grants/proposals/${params.id}/status?target_status=submitted`,
@@ -454,7 +469,7 @@ export default function ProposalWorkspacePage() {
       );
       
       setSuccess('Proposal submitted successfully! Your proposal is now under review.');
-      await loadProposal();
+      await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
       if (e.response?.status === 401) {
         setError('Session expired. Please log in again.');
@@ -471,6 +486,7 @@ export default function ProposalWorkspacePage() {
     if (!newSectionTitle.trim()) return;
     
     try {
+      await persistCurrentSection();
       const token = localStorage.getItem('token');
       const response = await axios.post(
         `${API_URL}/grants/proposals/${params.id}/sections`,
@@ -481,7 +497,7 @@ export default function ProposalWorkspacePage() {
       setAddSectionDialog(false);
       setNewSectionTitle('');
       setSuccess('Section added');
-      await loadProposal();
+      await loadProposal({ preserveSectionId: response.data.id });
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to add section');
       console.error('Add section error:', e);
@@ -492,6 +508,9 @@ export default function ProposalWorkspacePage() {
     if (!confirm('Are you sure you want to delete this section?')) return;
     
     try {
+      if (sectionId === currentSection) {
+        await persistCurrentSection();
+      }
       const token = localStorage.getItem('token');
       await axios.delete(
         `${API_URL}/grants/proposals/${params.id}/sections/${sectionId}`,
@@ -499,7 +518,8 @@ export default function ProposalWorkspacePage() {
       );
       
       setSuccess('Section deleted');
-      await loadProposal();
+      const nextSectionId = sectionId === currentSection ? null : currentSection;
+      await loadProposal({ preserveSectionId: nextSectionId });
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to delete section');
       console.error('Delete section error:', e);
@@ -510,6 +530,7 @@ export default function ProposalWorkspacePage() {
     if (!editingSectionTitle.trim()) return;
     
     try {
+      await persistCurrentSection();
       const token = localStorage.getItem('token');
       await axios.put(
         `${API_URL}/grants/proposals/${params.id}/sections/${editingSectionId}/rename`,
@@ -521,7 +542,7 @@ export default function ProposalWorkspacePage() {
       setEditingSectionId(null);
       setEditingSectionTitle('');
       setSuccess('Section renamed');
-      await loadProposal();
+      await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to rename section');
       console.error('Rename section error:', e);
@@ -537,26 +558,25 @@ export default function ProposalWorkspacePage() {
   const handleDragEnd = async (event) => {
     const { active, over } = event;
 
-    if (active.id !== over.id) {
-      const oldIndex = proposalSections.findIndex((s) => s.id === active.id);
-      const newIndex = proposalSections.findIndex((s) => s.id === over.id);
+    if (!over || active.id === over.id) return;
 
-      const newOrder = arrayMove(proposalSections, oldIndex, newIndex);
-      setProposalSections(newOrder);
+    const oldIndex = proposalSections.findIndex((s) => s.id === active.id);
+    const newIndex = proposalSections.findIndex((s) => s.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
 
-      // Save new order to backend
-      try {
-        const token = localStorage.getItem('token');
-        await axios.put(
-          `${API_URL}/grants/proposals/${params.id}/sections/reorder`,
-          { section_ids: newOrder.map(s => s.id) },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      } catch (e) {
-        console.error('Failed to save section order:', e);
-        // Revert on error
-        await loadProposal();
-      }
+    const newOrder = arrayMove(proposalSections, oldIndex, newIndex);
+    setProposalSections(newOrder);
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(
+        `${API_URL}/grants/proposals/${params.id}/sections/reorder`,
+        { section_ids: newOrder.map(s => s.id) },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (e) {
+      console.error('Failed to save section order:', e);
+      await loadProposal({ preserveSectionId: currentSection });
     }
   };
 
@@ -589,7 +609,7 @@ export default function ProposalWorkspacePage() {
       );
       setVersionDialog(false);
       setSuccess('Version restored successfully');
-      await loadProposal();
+      await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to restore version');
     }
@@ -611,7 +631,7 @@ export default function ProposalWorkspacePage() {
       );
       setPermissionsDialog(false);
       setSuccess('Section permissions updated');
-      await loadProposal();
+      await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to update permissions');
     }
@@ -620,18 +640,14 @@ export default function ProposalWorkspacePage() {
   const calculateCompletion = () => {
     const totalSections = proposalSections.length;
     const completedSections = proposalSections.filter(s => (sections[s.id]?.wordCount || 0) > 50).length;
-    const requiredDocs = 3; // CV, Budget, Support Letter
-    const uploadedDocs = documents.length;
-    
-    const sectionPercent = totalSections > 0 ? (completedSections / totalSections) * 70 : 0;
-    const docPercent = Math.min((uploadedDocs / requiredDocs) * 30, 30);
-    
+    const overall = totalSections > 0 ? Math.round((completedSections / totalSections) * 100) : 0;
+
     return {
-      overall: Math.round(sectionPercent + docPercent),
+      overall,
       sections: completedSections,
       totalSections,
-      docs: uploadedDocs,
-      requiredDocs
+      uploadedDocItems: documentRequirements.filter(r => r.document).length,
+      totalDocItems: documentRequirements.length,
     };
   };
 
@@ -649,7 +665,7 @@ export default function ProposalWorkspacePage() {
       setSuccess('Proposal title updated successfully');
       setEditTitleDialog(false);
       setEditedTitle('');
-      await loadProposal();
+      await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to update proposal title');
       console.error('Update title error:', e);
@@ -690,7 +706,10 @@ export default function ProposalWorkspacePage() {
       }}>
         <Button 
           startIcon={<BackIcon />} 
-          onClick={() => router.push('/researcher/grants/proposals')} 
+          onClick={async () => {
+            await persistCurrentSection();
+            router.push('/researcher/grants/proposals');
+          }}
           sx={{ mb: 2, color: 'text.secondary' }}
         >
           Back to Proposals
@@ -864,15 +883,6 @@ export default function ProposalWorkspacePage() {
               />
             )}
             <Button
-              variant="outlined"
-              startIcon={<UploadIcon />}
-              onClick={() => setUploadDialog(true)}
-              disabled={!isDraft}
-              sx={{ textTransform: 'none' }}
-            >
-              Upload Document
-            </Button>
-            <Button
               variant="contained"
               startIcon={<SendIcon />}
               onClick={submitProposal}
@@ -906,13 +916,17 @@ export default function ProposalWorkspacePage() {
             <Typography sx={{ fontSize: 12 }}>
               Sections: {completion.sections}/{completion.totalSections}
             </Typography>
-            <Typography sx={{ fontSize: 12 }}>
-              Documents: {completion.docs}/{completion.requiredDocs}
-            </Typography>
+            {completion.totalDocItems > 0 && (
+              <Typography sx={{ fontSize: 12 }}>
+                Documents uploaded: {completion.uploadedDocItems}/{completion.totalDocItems}
+              </Typography>
+            )}
           </Box>
           {completion.overall < 80 && (
             <Alert severity="warning" sx={{ mt: 2, fontSize: 12 }}>
-              Complete at least 80% to submit. Missing: {completion.requiredDocs - completion.docs} documents
+              Complete at least 80% of sections to submit.
+              {completion.totalSections - completion.sections > 0 &&
+                ` ${completion.totalSections - completion.sections} section(s) still need more content.`}
             </Alert>
           )}
         </Paper>
@@ -985,34 +999,80 @@ export default function ProposalWorkspacePage() {
 
           {/* Documents */}
           <Box sx={{ p: 2 }}>
-            <Box 
-              sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, cursor: 'pointer' }}
-              onClick={() => setDocsExpanded(!docsExpanded)}
-            >
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
               <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
-                DOCUMENTS ({documents.length})
+                DOCUMENTS ({documentRequirements.length})
               </Typography>
-              <IconButton size="small">
-                {docsExpanded ? <CollapseIcon fontSize="small" /> : <ExpandIcon fontSize="small" />}
-              </IconButton>
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <IconButton
+                  size="small"
+                  onClick={() => setAddDocDialog(true)}
+                  disabled={!isDraft}
+                  sx={{ color: ACCENT }}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+                <IconButton size="small" onClick={() => setDocsExpanded(!docsExpanded)}>
+                  {docsExpanded ? <CollapseIcon fontSize="small" /> : <ExpandIcon fontSize="small" />}
+                </IconButton>
+              </Box>
             </Box>
             
             <Collapse in={docsExpanded}>
               <List dense sx={{ py: 0 }}>
-                {documents.map((doc) => (
-                  <ListItem key={doc.id} sx={{ px: 1, py: 0.5 }}>
-                    <DocIcon sx={{ fontSize: 14, mr: 1, color: 'text.secondary' }} />
-                    <ListItemText
-                      primary={doc.original_filename || 'Document'}
-                      secondary={doc.document_type}
-                      primaryTypographyProps={{ fontSize: 12 }}
-                      secondaryTypographyProps={{ fontSize: 10 }}
-                    />
-                  </ListItem>
-                ))}
-                {documents.length === 0 && (
+                {documentRequirements.map((req) => {
+                  const uploaded = req.document;
+                  return (
+                    <ListItem
+                      key={req.id}
+                      sx={{
+                        px: 1,
+                        py: 0.75,
+                        flexDirection: 'column',
+                        alignItems: 'stretch',
+                        borderRadius: 1.5,
+                        mb: 0.5,
+                        bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                        {uploaded ? (
+                          <CheckIcon sx={{ fontSize: 14, mr: 0.75, color: '#10b981', flexShrink: 0 }} />
+                        ) : (
+                          <UncheckedIcon sx={{ fontSize: 14, mr: 0.75, color: 'text.disabled', flexShrink: 0 }} />
+                        )}
+                        <ListItemText
+                          primary={req.label}
+                          secondary={uploaded ? uploaded.original_filename : 'No file uploaded'}
+                          primaryTypographyProps={{ fontSize: 12, fontWeight: 600 }}
+                          secondaryTypographyProps={{ fontSize: 10 }}
+                          sx={{ mr: 1 }}
+                        />
+                        {isDraft && (
+                          <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0 }}>
+                            <IconButton
+                              size="small"
+                              onClick={() => openUploadForRequirement(req.id)}
+                              sx={{ color: ACCENT }}
+                            >
+                              <UploadIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              onClick={() => deleteDocumentRequirement(req.id)}
+                              sx={{ color: '#ef4444' }}
+                            >
+                              <DeleteIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Box>
+                        )}
+                      </Box>
+                    </ListItem>
+                  );
+                })}
+                {documentRequirements.length === 0 && (
                   <Typography sx={{ fontSize: 11, color: 'text.secondary', fontStyle: 'italic', px: 1 }}>
-                    No documents uploaded
+                    Add required documents as line items, then upload files for each.
                   </Typography>
                 )}
               </List>
@@ -1022,7 +1082,29 @@ export default function ProposalWorkspacePage() {
 
         {/* Editor */}
         <Box sx={{ flex: 1, p: 3, overflowY: 'auto' }}>
-          {currentSection && (
+          {!currentSection ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100%', textAlign: 'center', py: 8 }}>
+              <DocIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
+              <Typography sx={{ fontSize: 18, fontWeight: 600, mb: 1 }}>
+                {proposalSections.length === 0 ? 'No sections yet' : 'Select a section to begin'}
+              </Typography>
+              <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 3, maxWidth: 360 }}>
+                {proposalSections.length === 0
+                  ? 'Add your own proposal sections. Each section starts blank until you write in it.'
+                  : 'Choose a section from the sidebar. Your work is saved automatically when you switch sections.'}
+              </Typography>
+              {isDraft && proposalSections.length === 0 && (
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => setAddSectionDialog(true)}
+                  sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, textTransform: 'none' }}
+                >
+                  Add First Section
+                </Button>
+              )}
+            </Box>
+          ) : (
             <>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
                 <Box>
@@ -1207,8 +1289,12 @@ export default function ProposalWorkspacePage() {
       </Box>
 
       {/* Upload Dialog */}
-      <Dialog open={uploadDialog} onClose={() => setUploadDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Upload Documents</DialogTitle>
+      <Dialog open={uploadDialog} onClose={() => { setUploadDialog(false); setUploadFiles([]); setUploadRequirementId(null); }} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          {uploadRequirementId
+            ? `Upload: ${documentRequirements.find(r => r.id === uploadRequirementId)?.label || 'Document'}`
+            : 'Upload Document'}
+        </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
             <Box
@@ -1273,7 +1359,7 @@ export default function ProposalWorkspacePage() {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => { setUploadDialog(false); setUploadFiles([]); }}>Cancel</Button>
+          <Button onClick={() => { setUploadDialog(false); setUploadFiles([]); setUploadRequirementId(null); }}>Cancel</Button>
           <Button 
             onClick={uploadDocument} 
             variant="contained" 
@@ -1281,6 +1367,38 @@ export default function ProposalWorkspacePage() {
             sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
           >
             Upload {uploadFiles.length > 0 && `(${uploadFiles.length})`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Document Requirement Dialog */}
+      <Dialog open={addDocDialog} onClose={() => setAddDocDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add Required Document</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Document name"
+            placeholder="e.g. CV, Budget spreadsheet, Support letter"
+            value={newDocLabel}
+            onChange={(e) => setNewDocLabel(e.target.value)}
+            sx={{ mt: 2 }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                addDocumentRequirement();
+              }
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={() => { setAddDocDialog(false); setNewDocLabel(''); }}>Cancel</Button>
+          <Button
+            onClick={addDocumentRequirement}
+            variant="contained"
+            disabled={!newDocLabel.trim()}
+            sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
+          >
+            Add Document
           </Button>
         </DialogActions>
       </Dialog>

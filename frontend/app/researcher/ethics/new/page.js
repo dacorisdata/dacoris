@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Box, Typography, Button, Paper, TextField, CircularProgress, Alert,
   Divider, IconButton, Chip, useTheme, MenuItem, Select, FormControl,
@@ -19,6 +19,7 @@ import { useDropzone } from 'react-dropzone';
 import { useAuth } from '../../../../contexts/AuthContext';
 import api from '../../../../lib/api';
 import { SAMPLE_PROJECTS } from '../../projects/page';
+import { accentScrollbarSx } from '../../../../lib/scrollStyles';
 
 const ACCENT = '#1ca7a1';
 
@@ -33,6 +34,10 @@ const STEPS = [
 ];
 
 const inp = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
+const multilineInp = {
+  ...inp,
+  '& .MuiInputBase-inputMultiline': { overflow: 'hidden !important', resize: 'none' },
+};
 
 function FieldRow({ children }) {
   return <Box sx={{ display: 'flex', gap: 2.5, flexWrap: 'wrap', mb: 2.5 }}>{children}</Box>;
@@ -94,6 +99,7 @@ const ETHICAL_CODES     = ['Declaration of Helsinki', 'Belmont Report', 'CIOMS G
 
 export default function NewEthicsApplicationPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { fetchUser } = useAuth();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
@@ -172,7 +178,25 @@ export default function NewEthicsApplicationPage() {
       try {
         const res = await api.get('/research/projects');
         const live = res.data || [];
-        setProjects(live.length > 0 ? live : SAMPLE_PROJECTS);
+        const list = live.length > 0 ? live : SAMPLE_PROJECTS;
+        setProjects(list);
+        const linkedProjectId = searchParams.get('project');
+        if (linkedProjectId) {
+          const proj = list.find(p => String(p.id) === String(linkedProjectId));
+          if (proj) {
+            setFormData(p => ({
+              ...p,
+              linkToProject: true,
+              projectId: linkedProjectId,
+              projectTitle: proj.title || '',
+              piName: proj.pi_name || proj.submitted_by?.name || '',
+              piOrcid: proj.pi_orcid || proj.submitted_by?.orcid || '',
+              piInstitution: proj.institution || proj.lead_institution || '',
+              startDate: proj.start_date || '',
+              endDate: proj.end_date || '',
+            }));
+          }
+        }
       } catch { setProjects(SAMPLE_PROJECTS); }
       setLoading(false);
     });
@@ -212,11 +236,13 @@ export default function NewEthicsApplicationPage() {
 
   const progress = Math.round(((activeStep + 1) / STEPS.length) * 100);
 
-  if (loading) return (
-    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-      <CircularProgress sx={{ color: ACCENT }} />
-    </Box>
-  );
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, minHeight: 0 }}>
+        <CircularProgress sx={{ color: ACCENT }} />
+      </Box>
+    );
+  }
 
   // ── STEP RENDERS ─────────────────────────────────────────────────────────
 
@@ -330,20 +356,20 @@ export default function NewEthicsApplicationPage() {
         </Box>
       </Box>
 
-      <TextField fullWidth size="small" multiline rows={3} label="Recruitment Method"
+      <TextField fullWidth size="small" multiline minRows={3} label="Recruitment Method"
         value={formData.recruitmentMethod} onChange={e => set('recruitmentMethod', e.target.value)}
         placeholder="Describe how participants will be identified and approached…"
-        sx={{ mb: 2.5, ...inp }} />
+        sx={{ mb: 2.5, ...multilineInp }} />
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="2.2 Sample Size & Rationale" />
       <FieldRow>
         <TextField size="small" label="Total Participants" type="number" value={formData.totalParticipants}
           onChange={e => set('totalParticipants', e.target.value)} sx={{ flex: '1 1 160px', ...inp }} />
-        <TextField size="small" multiline rows={2} label="Statistical Power / Justification"
+        <TextField size="small" multiline minRows={2} label="Statistical Power / Justification"
           value={formData.statisticalPower} onChange={e => set('statisticalPower', e.target.value)}
           placeholder="Briefly justify the sample size is sufficient…"
-          sx={{ flex: '3 1 360px', ...inp }} />
+          sx={{ flex: '3 1 360px', ...multilineInp }} />
       </FieldRow>
     </Box>
   );
@@ -371,28 +397,28 @@ export default function NewEthicsApplicationPage() {
         </Box>
       </Box>
 
-      <TextField fullWidth size="small" multiline rows={3} label="Risk Mitigation Procedures"
+      <TextField fullWidth size="small" multiline minRows={3} label="Risk Mitigation Procedures"
         value={formData.riskMitigation} onChange={e => set('riskMitigation', e.target.value)}
         placeholder="Describe procedures in place to minimize identified risks…"
-        sx={{ mb: 2.5, ...inp }} />
+        sx={{ mb: 2.5, ...multilineInp }} />
 
-      <TextField fullWidth size="small" multiline rows={3} label="Adverse Event Protocol"
+      <TextField fullWidth size="small" multiline minRows={3} label="Adverse Event Protocol"
         value={formData.adverseEventProtocol} onChange={e => set('adverseEventProtocol', e.target.value)}
         placeholder="Describe the plan for handling and reporting unexpected harm to participants…"
-        sx={{ mb: 2.5, ...inp }} />
+        sx={{ mb: 2.5, ...multilineInp }} />
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="3.2 Potential Benefits" />
 
       <FieldRow>
-        <TextField size="small" multiline rows={3} label="Direct Benefits to Participants"
+        <TextField size="small" multiline minRows={3} label="Direct Benefits to Participants"
           value={formData.directBenefits} onChange={e => set('directBenefits', e.target.value)}
           placeholder="Describe any direct benefits to individual participants, if any…"
-          sx={{ flex: '1 1 280px', ...inp }} />
-        <TextField size="small" multiline rows={3} label="Indirect / Societal Benefits"
+          sx={{ flex: '1 1 280px', ...multilineInp }} />
+        <TextField size="small" multiline minRows={3} label="Indirect / Societal Benefits"
           value={formData.indirectBenefits} onChange={e => set('indirectBenefits', e.target.value)}
           placeholder="Describe contributions to scientific knowledge or society…"
-          sx={{ flex: '1 1 280px', ...inp }} />
+          sx={{ flex: '1 1 280px', ...multilineInp }} />
       </FieldRow>
     </Box>
   );
@@ -416,15 +442,15 @@ export default function NewEthicsApplicationPage() {
         </FormControl>
       </FieldRow>
 
-      <TextField fullWidth size="small" multiline rows={3} label="Consent Process Description"
+      <TextField fullWidth size="small" multiline minRows={3} label="Consent Process Description"
         value={formData.consentProcess} onChange={e => set('consentProcess', e.target.value)}
         placeholder="When and where will consent be sought, and by whom?…"
-        sx={{ mb: 2.5, ...inp }} />
+        sx={{ mb: 2.5, ...multilineInp }} />
 
-      <TextField fullWidth size="small" multiline rows={2} label="Language & Literacy Provisions"
+      <TextField fullWidth size="small" multiline minRows={2} label="Language & Literacy Provisions"
         value={formData.languageProvisions} onChange={e => set('languageProvisions', e.target.value)}
         placeholder="Provisions for non-primary language speakers or participants with limited literacy…"
-        sx={{ mb: 2.5, ...inp }} />
+        sx={{ mb: 2.5, ...multilineInp }} />
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="4.2 Documentation Upload" />
@@ -462,14 +488,14 @@ export default function NewEthicsApplicationPage() {
 
       {(formData.identifiability === 'coded' || formData.identifiability === 'identifiable') && (
         <FieldRow>
-          <TextField size="small" multiline rows={2} label="Key / Identifier Storage Location"
+          <TextField size="small" multiline minRows={2} label="Key / Identifier Storage Location"
             value={formData.keyStorage} onChange={e => set('keyStorage', e.target.value)}
             placeholder="Where is the key linking IDs to identities stored?…"
-            sx={{ flex: '1 1 280px', ...inp }} />
-          <TextField size="small" multiline rows={2} label="Who Has Access to the Key"
+            sx={{ flex: '1 1 280px', ...multilineInp }} />
+          <TextField size="small" multiline minRows={2} label="Who Has Access to the Key"
             value={formData.keyAccess} onChange={e => set('keyAccess', e.target.value)}
             placeholder="List roles/individuals with access to the identifying key…"
-            sx={{ flex: '1 1 280px', ...inp }} />
+            sx={{ flex: '1 1 280px', ...multilineInp }} />
         </FieldRow>
       )}
 
@@ -487,17 +513,17 @@ export default function NewEthicsApplicationPage() {
         subtitle="Identify potential biases and financial relationships that could influence the research." />
 
       <SubLabel label="Financial Disclosure" />
-      <TextField fullWidth size="small" multiline rows={3} label="Financial Interests in Study Outcomes"
+      <TextField fullWidth size="small" multiline minRows={3} label="Financial Interests in Study Outcomes"
         value={formData.financialDisclosure} onChange={e => set('financialDisclosure', e.target.value)}
         placeholder="Describe any financial interests, equity holdings, or consultancy fees related to the study outcomes. Enter 'None' if not applicable…"
-        sx={{ mb: 2.5, ...inp }} />
+        sx={{ mb: 2.5, ...multilineInp }} />
 
       <Divider sx={{ my: 2.5 }} />
       <SubLabel label="Dual Roles" />
-      <TextField fullWidth size="small" multiline rows={3} label="Dual Role Identification"
+      <TextField fullWidth size="small" multiline minRows={3} label="Dual Role Identification"
         value={formData.dualRoles} onChange={e => set('dualRoles', e.target.value)}
         placeholder="Identify if the researcher also serves as a clinician, teacher, employer, or other role to participants. Describe how this potential coercion will be managed…"
-        sx={{ ...inp }} />
+        sx={multilineInp} />
     </Box>
   );
 
@@ -521,10 +547,10 @@ export default function NewEthicsApplicationPage() {
         ))}
       </Box>
 
-      <TextField fullWidth size="small" multiline rows={3} label="Additional Notes or Special Considerations"
+      <TextField fullWidth size="small" multiline minRows={3} label="Additional Notes or Special Considerations"
         value={formData.additionalNotes} onChange={e => set('additionalNotes', e.target.value)}
         placeholder="Any additional ethical considerations not covered above…"
-        sx={{ mb: 2.5, ...inp }} />
+        sx={{ mb: 2.5, ...multilineInp }} />
 
       <FieldRow>
         <TextField size="small" label="Declaration Date" type="date"
@@ -548,119 +574,141 @@ export default function NewEthicsApplicationPage() {
   const STEP_CONTENT = [step1, step2, step3, step4, step5, step6, step7];
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
-
-      {/* Top bar */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <Button size="small" startIcon={<BackIcon sx={{ fontSize: 15 }} />}
-            onClick={() => router.push('/researcher/ethics')}
-            sx={{ textTransform: 'none', color: 'text.secondary', borderRadius: 2 }}>
-            Back to Ethics
-          </Button>
-          <Typography sx={{ color: 'divider' }}>|</Typography>
-          <Box>
-            <Typography sx={{ fontSize: 20, fontWeight: 800, lineHeight: 1.2 }}>New Ethics Application</Typography>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>IRB / Ethics Committee review submission</Typography>
+    <Box sx={{
+      display: 'flex',
+      flexDirection: 'column',
+      flex: 1,
+      minHeight: 0,
+      overflow: 'hidden',
+      bgcolor: 'background.default',
+    }}>
+      <Box sx={{
+        flexShrink: 0,
+        zIndex: 1100,
+        bgcolor: 'background.default',
+        borderBottom: '1px solid', borderColor: 'divider',
+        px: { xs: 2, md: 4 }, py: 2,
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Button size="small" startIcon={<BackIcon sx={{ fontSize: 15 }} />}
+              onClick={() => router.push('/researcher/ethics')}
+              sx={{ textTransform: 'none', color: 'text.secondary', borderRadius: 2 }}>
+              Back to Ethics
+            </Button>
+            <Typography sx={{ color: 'divider' }}>|</Typography>
+            <Box>
+              <Typography sx={{ fontSize: 20, fontWeight: 800, lineHeight: 1.2 }}>New Ethics Application</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                {formData.projectTitle || 'IRB / Ethics Committee review submission'}
+              </Typography>
+            </Box>
           </Box>
+          <Button size="small" variant="contained"
+            startIcon={saving ? <CircularProgress size={13} sx={{ color: 'inherit' }} /> : <SaveIcon sx={{ fontSize: 14 }} />}
+            onClick={handleSaveDraft} disabled={saving}
+            sx={{
+              textTransform: 'none', borderRadius: 2, fontSize: 12,
+              bgcolor: ACCENT, color: '#fff',
+              '&:hover': { bgcolor: '#0e8a85' },
+            }}>
+            Save Draft
+          </Button>
         </Box>
-        <Button size="small" variant="outlined"
-          startIcon={saving ? <CircularProgress size={13} /> : <SaveIcon sx={{ fontSize: 14 }} />}
-          onClick={handleSaveDraft} disabled={saving}
-          sx={{ textTransform: 'none', borderRadius: 2, fontSize: 12 }}>
-          Save Draft
-        </Button>
       </Box>
 
-      {error   && <Alert severity="error"   sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }}>{success}</Alert>}
-
-      {/* Two-col layout */}
-      <Box sx={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
-
-        {/* Sidebar stepper */}
-        <Paper elevation={0} variant="outlined" sx={{
-          width: 220, flexShrink: 0, borderRadius: 3, overflow: 'hidden',
-          display: { xs: 'none', lg: 'block' },
-          position: 'sticky', top: 24,
+      <Box sx={{
+        flex: 1,
+        minHeight: 0,
+        overflow: 'auto',
+        ...accentScrollbarSx(dark, { size: 10 }),
+      }}>
+        <Box sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: { xs: 0, lg: 2 },
+          px: { xs: 2, md: 4 },
+          py: 3,
         }}>
-          <Box sx={{ px: 2.5, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-            <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.7, mb: 1 }}>Progress</Typography>
-            <LinearProgress variant="determinate" value={progress}
-              sx={{ height: 5, borderRadius: 3, bgcolor: 'divider', '& .MuiLinearProgress-bar': { bgcolor: ACCENT } }} />
-            <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>{progress}% complete</Typography>
-          </Box>
-          <Box sx={{ py: 1 }}>
-            {STEPS.map((s, i) => {
-              const done   = i < activeStep;
-              const active = i === activeStep;
-              return (
-                <Box key={i} onClick={() => setActiveStep(i)} sx={{
-                  display: 'flex', alignItems: 'center', gap: 1.5,
-                  px: 2, py: 1.2, cursor: 'pointer',
-                  borderLeft: active ? `3px solid ${ACCENT}` : '3px solid transparent',
-                  bgcolor: active ? `${ACCENT}10` : 'transparent',
-                  transition: 'all 0.15s',
-                  '&:hover': { bgcolor: `${ACCENT}08` },
-                }}>
-                  <Box sx={{
-                    width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    bgcolor: done ? '#10b981' : active ? ACCENT : dark ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
-                  }}>
-                    {done
-                      ? <CheckIcon sx={{ fontSize: 13, color: '#fff' }} />
-                      : <s.Icon sx={{ fontSize: 12, color: active ? '#fff' : 'text.disabled' }} />}
-                  </Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: active ? 700 : 500, color: active ? ACCENT : done ? 'text.primary' : 'text.secondary' }}>
-                    {s.label}
-                  </Typography>
-                </Box>
-              );
-            })}
-          </Box>
-        </Paper>
-
-        {/* Form content */}
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Paper elevation={0} variant="outlined" sx={{ borderRadius: 3, p: { xs: 2.5, md: 3.5 }, mb: 2.5 }}>
-            {STEP_CONTENT[activeStep]}
-          </Paper>
-
-          {/* Navigation footer */}
-          <Paper elevation={0} variant="outlined" sx={{ borderRadius: 3, px: 3, py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Button variant="outlined" size="small"
-              disabled={activeStep === 0}
-              onClick={() => setActiveStep(s => s - 1)}
-              startIcon={<BackIcon sx={{ fontSize: 15 }} />}
-              sx={{ textTransform: 'none', borderRadius: 2, fontSize: 13 }}>
-              Previous
-            </Button>
-
-            <Box sx={{ display: 'flex', gap: 0.75 }}>
-              {STEPS.map((_, i) => (
-                <Box key={i} onClick={() => setActiveStep(i)} sx={{
-                  width: i === activeStep ? 20 : 7, height: 7, borderRadius: 4,
-                  bgcolor: i === activeStep ? ACCENT : i < activeStep ? `${ACCENT}60` : dark ? 'rgba(255,255,255,0.15)' : '#e2e8f0',
-                  cursor: 'pointer', transition: 'all 0.2s',
-                }} />
-              ))}
+          <Paper elevation={0} variant="outlined" sx={{
+            width: 220,
+            flexShrink: 0,
+            borderRadius: 3,
+            display: { xs: 'none', lg: 'block' },
+            position: 'sticky',
+            top: 0,
+            zIndex: 100,
+            bgcolor: 'background.paper',
+          }}>
+            <Box sx={{ px: 2.5, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.7, mb: 1 }}>Progress</Typography>
+              <LinearProgress variant="determinate" value={progress}
+                sx={{ height: 5, borderRadius: 3, bgcolor: 'divider', '& .MuiLinearProgress-bar': { bgcolor: ACCENT } }} />
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>{progress}% complete</Typography>
             </Box>
-
-            {activeStep < STEPS.length - 1 ? (
-              <Button variant="contained" size="small"
-                onClick={() => setActiveStep(s => s + 1)}
-                sx={{ textTransform: 'none', borderRadius: 2, fontSize: 13, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e8a85' } }}>
-                Next Step
-              </Button>
-            ) : (
-              <Button variant="contained" size="small"
-                onClick={handleSubmit} disabled={saving || !formData.piDeclaration}
-                startIcon={saving ? <CircularProgress size={13} sx={{ color: 'inherit' }} /> : null}
-                sx={{ textTransform: 'none', borderRadius: 2, fontSize: 13, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e8a85' } }}>
-                Submit Application
-              </Button>
-            )}
+            <Box sx={{ py: 1 }}>
+              {STEPS.map((s, i) => {
+                const done = i < activeStep;
+                const active = i === activeStep;
+                return (
+                  <Box key={i} onClick={() => setActiveStep(i)} sx={{
+                    display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.2, cursor: 'pointer',
+                    borderLeft: active ? `3px solid ${ACCENT}` : '3px solid transparent',
+                    bgcolor: active ? `${ACCENT}10` : 'transparent', transition: 'all 0.15s',
+                    '&:hover': { bgcolor: `${ACCENT}08` },
+                  }}>
+                    <Box sx={{
+                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      bgcolor: done ? '#10b981' : active ? ACCENT : dark ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
+                    }}>
+                      {done ? <CheckIcon sx={{ fontSize: 13, color: '#fff' }} /> : <s.Icon sx={{ fontSize: 12, color: active ? '#fff' : 'text.disabled' }} />}
+                    </Box>
+                    <Typography sx={{ fontSize: 11.5, fontWeight: active ? 700 : 500, color: active ? ACCENT : done ? 'text.primary' : 'text.secondary', lineHeight: 1.3 }}>
+                      {s.label}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
           </Paper>
+
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError('')}>{error}</Alert>}
+            {success && <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+
+            <Paper elevation={0} variant="outlined" sx={{ borderRadius: 3, p: { xs: 2.5, md: 3.5 }, mb: 2.5, overflow: 'visible' }}>
+              {STEP_CONTENT[activeStep]}
+            </Paper>
+
+            <Paper elevation={0} variant="outlined" sx={{ borderRadius: 3, px: 3, py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Button variant="outlined" size="small" disabled={activeStep === 0}
+                onClick={() => setActiveStep(s => s - 1)} startIcon={<BackIcon sx={{ fontSize: 15 }} />}
+                sx={{ textTransform: 'none', borderRadius: 2, fontSize: 13 }}>Previous</Button>
+              <Box sx={{ display: 'flex', gap: 0.75 }}>
+                {STEPS.map((_, i) => (
+                  <Box key={i} onClick={() => setActiveStep(i)} sx={{
+                    width: i === activeStep ? 20 : 7, height: 7, borderRadius: 4,
+                    bgcolor: i === activeStep ? ACCENT : i < activeStep ? `${ACCENT}60` : dark ? 'rgba(255,255,255,0.15)' : '#e2e8f0',
+                    cursor: 'pointer', transition: 'all 0.2s',
+                  }} />
+                ))}
+              </Box>
+              {activeStep < STEPS.length - 1 ? (
+                <Button variant="contained" size="small" onClick={() => setActiveStep(s => s + 1)}
+                  sx={{ textTransform: 'none', borderRadius: 2, fontSize: 13, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e8a85' } }}>
+                  Next Step
+                </Button>
+              ) : (
+                <Button variant="contained" size="small" onClick={handleSubmit}
+                  disabled={saving || !formData.piDeclaration}
+                  startIcon={saving ? <CircularProgress size={13} sx={{ color: 'inherit' }} /> : null}
+                  sx={{ textTransform: 'none', borderRadius: 2, fontSize: 13, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e8a85' } }}>
+                  Submit Application
+                </Button>
+              )}
+            </Paper>
+          </Box>
         </Box>
       </Box>
     </Box>

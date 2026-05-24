@@ -11,10 +11,13 @@ import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, MoreVert as MoreIcon,
   Article as ArticleIcon, Person as PersonIcon, Close as CloseIcon, Search as SearchIcon,
 } from '@mui/icons-material';
+import {
+  TeamInvitePanel, MANUSCRIPT_TEAM_ROLES,
+} from '../../../components/TeamInvitePanel';
 
 const ACCENT = '#1ca7a1';
 
-const STEPS = ['Manuscript Details', 'Add Authors'];
+const STEPS = ['Manuscript Details', 'Team'];
 
 const getInitials = (name) => {
   if (!name) return '?';
@@ -58,6 +61,7 @@ export default function ManuscriptsPage() {
     shortDescription: '',
     coAuthors: [],
   });
+  const [teamMembers, setTeamMembers] = useState([]);
   
   // Available departments list
   const availableDepartments = [
@@ -73,15 +77,7 @@ export default function ManuscriptsPage() {
     'Sociology',
   ];
 
-  // Co-author search state
-  const [coAuthorForm, setCoAuthorForm] = useState({
-    givenName: '',
-    familyName: '',
-    email: '',
-    orcid: '',
-  });
-  const [searchingOrcid, setSearchingOrcid] = useState(false);
-  const [orcidResults, setOrcidResults] = useState([]);
+  // Co-author search state (legacy team dialog on manuscript list)
 
   // Team management state
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
@@ -115,57 +111,57 @@ export default function ManuscriptsPage() {
     }
   };
 
-  const searchOrcid = async () => {
-    if (!coAuthorForm.givenName.trim() || !coAuthorForm.familyName.trim()) {
-      return;
-    }
-
-    setSearchingOrcid(true);
-    setOrcidResults([]);
-
+  const handleSubmit = async () => {
     try {
-      // Search ORCID public API
-      const query = `given-names:${coAuthorForm.givenName} AND family-name:${coAuthorForm.familyName}`;
-      const response = await fetch(
-        `https://pub.orcid.org/v3.0/search/?q=${encodeURIComponent(query)}`,
-        {
-          headers: {
-            'Accept': 'application/json',
-          },
-        }
-      );
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: formData.title,
+          short_description: formData.shortDescription,
+          department: formData.department,
+          keywords: JSON.stringify(formData.keywords),
+          co_authors: teamMembers.map((ca, idx) => ({
+            given_name: ca.given_name,
+            family_name: ca.family_name,
+            email: ca.email,
+            orcid: ca.orcid,
+            role: ca.role || 'author',
+            author_order: idx + 2,
+          })),
+        }),
+      });
 
       if (response.ok) {
-        const data = await response.json();
-        const results = data.result || [];
-        
-        // Extract ORCID IDs and names
-        const formattedResults = results.slice(0, 5).map(item => ({
-          orcid: item['orcid-identifier']?.path,
-          givenName: item['given-names'] || coAuthorForm.givenName,
-          familyName: item['family-name'] || coAuthorForm.familyName,
-        })).filter(r => r.orcid);
-
-        setOrcidResults(formattedResults);
-
-        // If exactly one result, auto-fill
-        if (formattedResults.length === 1) {
-          setCoAuthorForm(prev => ({
-            ...prev,
-            orcid: formattedResults[0].orcid,
-          }));
-        }
+        await fetchManuscripts();
+        handleCloseDialog();
+      } else {
+        alert('Failed to create manuscript');
       }
     } catch (error) {
-      console.error('Error searching ORCID:', error);
-    } finally {
-      setSearchingOrcid(false);
+      console.error('Error creating manuscript:', error);
+      alert('Failed to create manuscript');
     }
   };
 
+  const handleCloseDialog = () => {
+    setCreateDialogOpen(false);
+    setActiveStep(0);
+    setTeamMembers([]);
+    setFormData({
+      title: '',
+      department: '',
+      keywords: [],
+      shortDescription: '',
+      coAuthors: [],
+    });
+  };
   const handleNext = () => {
     if (activeStep === 0) {
-      // Validate step 1
       if (!formData.title.trim()) {
         alert('Please enter a manuscript title');
         return;
@@ -176,38 +172,6 @@ export default function ManuscriptsPage() {
 
   const handleBack = () => {
     setActiveStep((prev) => prev - 1);
-  };
-
-  const addCoAuthor = () => {
-    if (!coAuthorForm.givenName.trim() || !coAuthorForm.familyName.trim()) {
-      alert('Please enter given name and family name');
-      return;
-    }
-
-    const newCoAuthor = {
-      ...coAuthorForm,
-      id: Date.now(),
-      author_order: formData.coAuthors.length + 1,
-    };
-
-    setFormData(prev => ({
-      ...prev,
-      coAuthors: [...prev.coAuthors, newCoAuthor],
-    }));
-
-    setCoAuthorForm({
-      givenName: '',
-      familyName: '',
-      email: '',
-      orcid: '',
-    });
-  };
-
-  const removeCoAuthor = (id) => {
-    setFormData(prev => ({
-      ...prev,
-      coAuthors: prev.coAuthors.filter(ca => ca.id !== id),
-    }));
   };
 
   const openTeamDialog = (manuscript) => {
@@ -311,54 +275,6 @@ export default function ManuscriptsPage() {
     } finally {
       setTeamActionLoading(null);
     }
-  };
-
-  const handleSubmit = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/manuscripts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          title: formData.title,
-          short_description: formData.shortDescription,
-          department: formData.department,
-          keywords: JSON.stringify(formData.keywords),
-          co_authors: formData.coAuthors.map(ca => ({
-            given_name: ca.givenName,
-            family_name: ca.familyName,
-            email: ca.email,
-            orcid: ca.orcid,
-            author_order: ca.author_order,
-          })),
-        }),
-      });
-
-      if (response.ok) {
-        await fetchManuscripts();
-        handleCloseDialog();
-      } else {
-        alert('Failed to create manuscript');
-      }
-    } catch (error) {
-      console.error('Error creating manuscript:', error);
-      alert('Failed to create manuscript');
-    }
-  };
-
-  const handleCloseDialog = () => {
-    setCreateDialogOpen(false);
-    setActiveStep(0);
-    setFormData({
-      title: '',
-      department: '',
-      keywords: [],
-      shortDescription: '',
-      coAuthors: [],
-    });
   };
 
   const deleteManuscript = async (id) => {
@@ -530,144 +446,21 @@ export default function ManuscriptsPage() {
       case 1:
         return (
           <Box sx={{ pt: 2 }}>
-            <Paper elevation={0} sx={{ p: 2.5, mb: 3, bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)', borderRadius: 2 }}>
-              <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Add Co-Author</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
-                <TextField
-                  size="small"
-                  label="Given Name"
-                  value={coAuthorForm.givenName}
-                  onChange={(e) => {
-                    setCoAuthorForm(prev => ({ ...prev, givenName: e.target.value }));
-                    setOrcidResults([]);
-                  }}
-                  required
-                />
-                <TextField
-                  size="small"
-                  label="Family Name"
-                  value={coAuthorForm.familyName}
-                  onChange={(e) => {
-                    setCoAuthorForm(prev => ({ ...prev, familyName: e.target.value }));
-                    setOrcidResults([]);
-                  }}
-                  required
-                />
-                <TextField
-                  size="small"
-                  label="Email (optional)"
-                  type="email"
-                  value={coAuthorForm.email}
-                  onChange={(e) => setCoAuthorForm(prev => ({ ...prev, email: e.target.value }))}
-                />
-                <TextField
-                  size="small"
-                  label="ORCID"
-                  value={coAuthorForm.orcid}
-                  onChange={(e) => setCoAuthorForm(prev => ({ ...prev, orcid: e.target.value }))}
-                  placeholder="0000-0000-0000-0000"
-                  InputProps={{
-                    readOnly: true,
-                    sx: { bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }
-                  }}
-                />
-              </Box>
-              
-              <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
-                <Button
-                  variant="outlined"
-                  onClick={searchOrcid}
-                  disabled={!coAuthorForm.givenName.trim() || !coAuthorForm.familyName.trim() || searchingOrcid}
-                  startIcon={searchingOrcid ? <CircularProgress size={16} /> : <SearchIcon />}
-                  sx={{
-                    textTransform: 'none',
-                    borderRadius: 2,
-                    borderColor: 'divider',
-                    color: 'text.secondary',
-                  }}
-                >
-                  {searchingOrcid ? 'Searching...' : 'Search ORCID'}
-                </Button>
-                <Button
-                  variant="outlined"
-                  onClick={addCoAuthor}
-                  sx={{
-                    textTransform: 'none',
-                    borderRadius: 2,
-                    borderColor: ACCENT,
-                    color: ACCENT,
-                    '&:hover': { borderColor: '#0e7490', bgcolor: `${ACCENT}08` }
-                  }}
-                >
-                  Add Co-Author
-                </Button>
-              </Box>
-
-              {/* ORCID Search Results */}
-              {orcidResults.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1, color: 'text.secondary' }}>
-                    Select ORCID Profile:
-                  </Typography>
-                  {orcidResults.map((result, index) => (
-                    <Paper
-                      key={index}
-                      elevation={0}
-                      variant="outlined"
-                      sx={{
-                        p: 1.5,
-                        mb: 1,
-                        cursor: 'pointer',
-                        borderRadius: 2,
-                        transition: 'all 0.15s',
-                        '&:hover': { borderColor: ACCENT, bgcolor: `${ACCENT}05` },
-                        borderColor: coAuthorForm.orcid === result.orcid ? ACCENT : 'divider',
-                        bgcolor: coAuthorForm.orcid === result.orcid ? `${ACCENT}08` : 'transparent',
-                      }}
-                      onClick={() => setCoAuthorForm(prev => ({ ...prev, orcid: result.orcid }))}
-                    >
-                      <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
-                        {result.givenName} {result.familyName}
-                      </Typography>
-                      <Typography sx={{ fontSize: 11, color: 'text.secondary', fontFamily: 'monospace' }}>
-                        ORCID: {result.orcid}
-                      </Typography>
-                    </Paper>
-                  ))}
-                </Box>
-              )}
-            </Paper>
-
-            {formData.coAuthors.length > 0 && (
-              <Box>
-                <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 1.5 }}>
-                  Co-Authors ({formData.coAuthors.length})
-                </Typography>
-                {formData.coAuthors.map((coAuthor, index) => (
-                  <Paper
-                    key={coAuthor.id}
-                    elevation={0}
-                    variant="outlined"
-                    sx={{ p: 2, mb: 1.5, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <PersonIcon sx={{ fontSize: 20, color: 'text.disabled' }} />
-                      <Box>
-                        <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-                          {coAuthor.givenName} {coAuthor.familyName}
-                        </Typography>
-                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                          {coAuthor.email || 'No email'} {coAuthor.orcid && `• ORCID: ${coAuthor.orcid}`}
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <IconButton size="small" onClick={() => removeCoAuthor(coAuthor.id)} sx={{ color: 'error.main' }}>
-                      <DeleteIcon sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Paper>
-                ))}
-              </Box>
-            )}
+            <TeamInvitePanel
+              invitees={teamMembers}
+              onChange={setTeamMembers}
+              roles={MANUSCRIPT_TEAM_ROLES}
+              defaultRole="author"
+              accent={ACCENT}
+              listLabel="Authors List"
+              description="Add co-authors via ORCID or institution search. Email is required for notifications."
+              roleLabel="Default Role for New Authors"
+              formatRole={(r) => ({
+                author: 'Author',
+                corresponding_author: 'Corresponding Author',
+                contributor: 'Contributor',
+              }[r] || r.replace(/_/g, ' '))}
+            />
           </Box>
         );
 

@@ -16,6 +16,7 @@ import {
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { subtleScrollbarSx } from '../lib/scrollStyles';
 
 const NAV_SECTIONS = [
   {
@@ -73,6 +74,7 @@ export default function ResearcherSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const theme = useMuiTheme();
+  const dark = theme.palette.mode === 'dark';
   const accent = '#1ca7a1';
 
   const handleLogout = () => { logout(); router.push('/login'); };
@@ -160,24 +162,12 @@ export default function ResearcherSidebar() {
         </Box>
       </Box>
 
-      <Box sx={{ 
-        flex: 1, 
-        overflowY: 'auto', 
-        py: 0.5, 
+      <Box sx={{
+        flex: 1,
+        overflowY: 'auto',
+        py: 0.5,
         px: 0.75,
-        '&::-webkit-scrollbar': {
-          width: '6px',
-        },
-        '&::-webkit-scrollbar-track': {
-          bgcolor: 'transparent',
-        },
-        '&::-webkit-scrollbar-thumb': {
-          bgcolor: 'rgba(0,0,0,0.2)',
-          borderRadius: '3px',
-          '&:hover': {
-            bgcolor: 'rgba(0,0,0,0.3)',
-          },
-        },
+        ...subtleScrollbarSx(dark),
       }}>
         {NAV_SECTIONS.map(({ section, items, subsections }) => (
           <Box key={section}>

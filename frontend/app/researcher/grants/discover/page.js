@@ -23,27 +23,53 @@ export default function DiscoverOpportunitiesPage() {
   const [success, setSuccess] = useState('');
   const [sortBy, setSortBy] = useState('status');
   const [sortOrder, setSortOrder] = useState('asc');
+  const [myApplications, setMyApplications] = useState({});
 
   useEffect(() => { init(); }, []);
 
   const init = async () => {
     const u = await fetchUser();
     if (!u) { router.push('/login'); return; }
-    await loadOpportunities();
+    await loadOpportunities(u.id);
     setLoading(false);
   };
 
-  const loadOpportunities = async () => {
+  const loadOpportunities = async (userId) => {
     try {
-      // Load opportunities from database
-      const res = await api.get('/grants/opportunities');
-      const allOpps = res.data || [];
+      const [oppRes, propRes] = await Promise.all([
+        api.get('/grants/opportunities'),
+        api.get('/grants/proposals'),
+      ]);
+      const allOpps = oppRes.data || [];
       setOpportunities(allOpps);
-      console.log('Loaded opportunities from database:', allOpps.length, 'Total, Curated:', allOpps.filter(o => o.is_curated).length);
+
+      const appMap = {};
+      (propRes.data || []).forEach(p => {
+        if (p.lead_pi_id === userId && p.opportunity_id) {
+          const existing = appMap[p.opportunity_id];
+          if (!existing || new Date(p.created_at) > new Date(existing.created_at)) {
+            appMap[p.opportunity_id] = {
+              id: p.id,
+              status: (p.status || '').toLowerCase(),
+              title: p.title,
+            };
+          }
+        }
+      });
+      setMyApplications(appMap);
     } catch (e) {
       setError('Failed to load opportunities from database');
       console.error('Error loading opportunities:', e);
     }
+  };
+
+  const getApplicationDisplay = (oppId) => {
+    const app = myApplications[oppId];
+    if (!app) return null;
+    if (app.status === 'draft' || app.status === 'returned') {
+      return { label: app.status === 'returned' ? 'Returned — Complete Draft' : 'Draft — Complete Draft', color: '#f59e0b', proposalId: app.id, canApply: false, isDraft: true };
+    }
+    return { label: 'Applied', color: '#6366f1', proposalId: app.id, canApply: false, isDraft: false };
   };
 
   if (loading) return <Box sx={{ display:'flex', justifyContent:'center', alignItems:'center', minHeight:'100vh' }}><CircularProgress /></Box>;
@@ -159,6 +185,7 @@ export default function DiscoverOpportunitiesPage() {
                 </Box>
               </TableCell>
               <TableCell align="center">Published</TableCell>
+              <TableCell>Your Application</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -201,6 +228,19 @@ export default function DiscoverOpportunitiesPage() {
                     <Chip label="—" size="small" sx={{ fontSize: 10, bgcolor: 'rgba(100,116,139,0.1)', color: '#64748b', minWidth: 28 }} />
                   )}
                 </TableCell>
+                <TableCell>
+                  {(() => {
+                    const app = getApplicationDisplay(opp.id);
+                    if (!app) return <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>—</Typography>;
+                    return (
+                      <Chip
+                        label={app.label}
+                        size="small"
+                        sx={{ fontSize: 10, fontWeight: 600, bgcolor: `${app.color}22`, color: app.color, maxWidth: 180 }}
+                      />
+                    );
+                  })()}
+                </TableCell>
                 <TableCell align="right">
                   <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                     <Tooltip title={saved.includes(opp.id) ? 'Saved' : 'Save for later'}>
@@ -212,38 +252,69 @@ export default function DiscoverOpportunitiesPage() {
                         <SaveIcon sx={{ fontSize: 18 }} />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title={opp.status?.toLowerCase() !== 'open' ? `Applications only available for Open opportunities (Status: ${opp.status})` : 'Start your application'}>
-                      <span>
-                        <Button 
-                          size="small" 
-                          variant="contained" 
-                          endIcon={<ApplyIcon sx={{ fontSize: 14 }} />}
-                          onClick={() => {
-                            // Navigate with opportunity data
-                            const oppData = encodeURIComponent(JSON.stringify({
-                              id: opp.id,
-                              title: opp.title,
-                              sponsor: opp.sponsor,
-                              deadline: opp.deadline
-                            }));
-                            router.push(`/researcher/grants/proposals?new=true&opp=${oppData}`);
-                          }}
-                          disabled={opp.status?.toLowerCase() !== 'open'}
-                          sx={{ 
-                            textTransform: 'none', 
-                            fontSize: 11, 
-                            fontWeight: 600, 
-                            px: 1.5, 
-                            py: 0.5, 
-                            bgcolor: ACCENT, 
-                            '&:hover': { bgcolor: '#14958a' },
-                            '&.Mui-disabled': { bgcolor: 'rgba(100,116,139,0.12)', color: 'rgba(100,116,139,0.5)' }
-                          }}
-                        >
-                          Apply
-                        </Button>
-                      </span>
-                    </Tooltip>
+                    {(() => {
+                      const app = getApplicationDisplay(opp.id);
+                      if (app?.isDraft) {
+                        return (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            onClick={() => router.push(`/researcher/grants/proposals/${app.proposalId}`)}
+                            sx={{
+                              textTransform: 'none', fontSize: 11, fontWeight: 600, px: 1.5, py: 0.5,
+                              bgcolor: '#f59e0b', '&:hover': { bgcolor: '#d97706' },
+                            }}
+                          >
+                            Complete Draft
+                          </Button>
+                        );
+                      }
+                      if (app && !app.isDraft) {
+                        return (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            disabled
+                            sx={{ textTransform: 'none', fontSize: 11, fontWeight: 600, px: 1.5, py: 0.5 }}
+                          >
+                            Applied
+                          </Button>
+                        );
+                      }
+                      return (
+                        <Tooltip title={opp.status?.toLowerCase() !== 'open' ? `Applications only available for Open opportunities (Status: ${opp.status})` : 'Start your application'}>
+                          <span>
+                            <Button 
+                              size="small" 
+                              variant="contained" 
+                              endIcon={<ApplyIcon sx={{ fontSize: 14 }} />}
+                              onClick={() => {
+                                const oppData = encodeURIComponent(JSON.stringify({
+                                  id: opp.id,
+                                  title: opp.title,
+                                  sponsor: opp.sponsor,
+                                  deadline: opp.deadline
+                                }));
+                                router.push(`/researcher/grants/proposals?new=true&opp=${oppData}`);
+                              }}
+                              disabled={opp.status?.toLowerCase() !== 'open'}
+                              sx={{ 
+                                textTransform: 'none', 
+                                fontSize: 11, 
+                                fontWeight: 600, 
+                                px: 1.5, 
+                                py: 0.5, 
+                                bgcolor: ACCENT, 
+                                '&:hover': { bgcolor: '#14958a' },
+                                '&.Mui-disabled': { bgcolor: 'rgba(100,116,139,0.12)', color: 'rgba(100,116,139,0.5)' }
+                              }}
+                            >
+                              Apply
+                            </Button>
+                          </span>
+                        </Tooltip>
+                      );
+                    })()}
                   </Box>
                 </TableCell>
               </TableRow>

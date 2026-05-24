@@ -104,10 +104,18 @@ function buildTheme(mode) {
             WebkitFontSmoothing: 'antialiased',
             MozOsxFontSmoothing: 'grayscale',
           },
-          '::-webkit-scrollbar': { width: 6, height: 6 },
-          '::-webkit-scrollbar-track': { background: 'transparent' },
-          '::-webkit-scrollbar-thumb': { background: dark ? sl[700] : sl[300], borderRadius: 3 },
-          '::-webkit-scrollbar-thumb:hover': { background: dark ? sl[600] : sl[400] },
+          '::-webkit-scrollbar': { width: 8, height: 8 },
+          '::-webkit-scrollbar-track': { background: dark ? alpha(tl[900], 0.35) : tl[50], borderRadius: 4 },
+          '::-webkit-scrollbar-thumb': {
+            background: dark ? tl[500] : tl[500],
+            borderRadius: 4,
+            border: `2px solid ${dark ? sl[900] : tl[50]}`,
+          },
+          '::-webkit-scrollbar-thumb:hover': { background: dark ? tl[400] : tl[600] },
+          html: {
+            scrollbarWidth: 'thin',
+            scrollbarColor: `${tl[500]} ${dark ? sl[800] : tl[50]}`,
+          },
         },
       },
 

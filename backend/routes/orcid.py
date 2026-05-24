@@ -8,7 +8,7 @@ import os
 
 from database import get_db
 from models import User, AccountType, UserStatus
-from auth import create_access_token, create_refresh_token, ACCESS_TOKEN_EXPIRE_MINUTES
+from auth import create_access_token, create_refresh_token, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
 from services.orcid_sync import OrcidSyncService
 
 router = APIRouter(prefix="/api/auth/orcid", tags=["orcid"])
@@ -20,6 +20,41 @@ ORCID_SANDBOX_MODE = os.getenv("ORCID_SANDBOX_MODE", "false").lower() == "true"
 ORCID_AUTHORIZE_URL = "https://sandbox.orcid.org/oauth/authorize" if ORCID_SANDBOX_MODE else "https://orcid.org/oauth/authorize"
 ORCID_TOKEN_URL = "https://sandbox.orcid.org/oauth/token" if ORCID_SANDBOX_MODE else "https://orcid.org/oauth/token"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+
+def _normalize_orcid_id(orcid_id: str) -> str:
+    return (orcid_id or "").strip().replace("https://orcid.org/", "").replace("http://orcid.org/", "")
+
+
+async def _enrich_with_registered_users(db: AsyncSession, results: list) -> list:
+    """Attach registered DACORIS user details when an ORCID iD matches a User record."""
+    if not results:
+        return results
+
+    orcid_ids = [_normalize_orcid_id(r.get("orcid", "")) for r in results if r.get("orcid")]
+    orcid_ids = [o for o in orcid_ids if o]
+    if not orcid_ids:
+        return results
+
+    user_result = await db.execute(select(User).where(User.orcid_id.in_(orcid_ids)))
+    users_by_orcid = {u.orcid_id: u for u in user_result.scalars().all()}
+
+    enriched = []
+    for item in results:
+        row = dict(item)
+        user = users_by_orcid.get(_normalize_orcid_id(row.get("orcid", "")))
+        if user:
+            row["registered"] = True
+            row["user_id"] = user.id
+            row["email"] = user.email
+            if user.name:
+                row["name"] = user.name
+            if user.department:
+                row["affiliation"] = user.department
+        else:
+            row["registered"] = bool(row.get("registered"))
+        enriched.append(row)
+    return enriched
 
 @router.get("/login")
 async def orcid_login():
@@ -271,6 +306,36 @@ async def search_orcid(
             ]
     except Exception as e:
         print(f"Local ORCID search error: {e}")
+
+    # Also match registered users by name when they have an ORCID iD on file
+    try:
+        from sqlalchemy import and_, or_
+        name_conditions = []
+        if given_name and given_name.strip():
+            name_conditions.append(User.name.ilike(f"%{given_name.strip()}%"))
+        if family_name and family_name.strip():
+            name_conditions.append(User.name.ilike(f"%{family_name.strip()}%"))
+        if name_conditions:
+            user_result = await db.execute(
+                select(User).where(
+                    User.orcid_id.isnot(None),
+                    User.orcid_id != "",
+                    or_(*name_conditions),
+                ).limit(10)
+            )
+            for user in user_result.scalars().all():
+                if not any(_normalize_orcid_id(r.get("orcid", "")) == user.orcid_id for r in local_results):
+                    local_results.append({
+                        "orcid": user.orcid_id,
+                        "name": user.name,
+                        "email": user.email,
+                        "affiliation": user.department or "",
+                        "source": "dacoris",
+                        "registered": True,
+                        "user_id": user.id,
+                    })
+    except Exception as e:
+        print(f"Registered user ORCID search error: {e}")
     
     # Always search ORCID API (don't skip even if local results exist)
     try:
@@ -289,7 +354,7 @@ async def search_orcid(
             
             if search_response.status_code != 200:
                 print(f"ORCID search failed: {search_response.status_code}")
-                return local_results  # Return local results if ORCID fails
+                return await _enrich_with_registered_users(db, local_results)
             
             search_data = search_response.json()
             results = search_data.get("result", [])
@@ -352,8 +417,34 @@ async def search_orcid(
             
             # Combine local and ORCID results, prioritizing local
             all_results = local_results + orcid_results
-            return all_results[:10]  # Limit to 10 total results
+            return await _enrich_with_registered_users(db, all_results[:10])
             
     except Exception as e:
         print(f"ORCID API search error: {e}")
-        return local_results  # Return local results if ORCID API fails
+        return await _enrich_with_registered_users(db, local_results)
+
+
+@router.get("/lookup")
+async def lookup_orcid_user(
+    orcid_id: str = Query(..., description="ORCID iD"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Look up a registered DACORIS user by ORCID iD for invite auto-fill."""
+    normalized = _normalize_orcid_id(orcid_id)
+    if not normalized:
+        raise HTTPException(400, "ORCID iD is required")
+
+    result = await db.execute(select(User).where(User.orcid_id == normalized))
+    user = result.scalar_one_or_none()
+    if not user:
+        return {"registered": False, "orcid": normalized}
+
+    return {
+        "registered": True,
+        "orcid": user.orcid_id,
+        "user_id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "affiliation": user.department or "",
+    }
