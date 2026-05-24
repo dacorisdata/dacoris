@@ -242,9 +242,14 @@ class ProjectOut(BaseModel):
     title: str
     description: Optional[str]
     project_type: str
+    project_code: Optional[str] = None
     status: str
     involves_human_subjects: bool
     award_id: Optional[str]
+    award_number: Optional[str] = None
+    funder_name: Optional[str] = None
+    total_amount: Optional[int] = None
+    currency: Optional[str] = None
     pi_id: str
     pi_name: Optional[str] = None
     start_date: Optional[datetime]
@@ -254,6 +259,7 @@ class ProjectOut(BaseModel):
     milestone_count: int = 0
     done_milestone_count: int = 0
     ethics_status: Optional[str] = None
+    research_area: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -263,6 +269,7 @@ class ProjectOut(BaseModel):
 
 _PROJECT_OPTS = [
     selectinload(ResearchProject.pi),
+    selectinload(ResearchProject.award),
     selectinload(ResearchProject.members).selectinload(ProjectMember.user),
     selectinload(ResearchProject.milestones).selectinload(ProjectMilestone.tasks),
     selectinload(ResearchProject.milestones).selectinload(ProjectMilestone.assigned_to),
@@ -330,11 +337,26 @@ def _serialize_deliverable(d: ProjectDeliverable) -> dict:
     }
 
 
+async def _ensure_project_editable(project: ResearchProject) -> None:
+    status = project.status.value if hasattr(project.status, "value") else project.status
+    if status != ProjectStatus.DRAFT.value:
+        raise HTTPException(
+            status_code=403,
+            detail="This project has been submitted and can no longer be edited.",
+        )
+
+
 async def _ensure_project_owner(db: AsyncSession, project_id: str, user_id: str) -> ResearchProject:
     result = await db.execute(select(ResearchProject).where(ResearchProject.id == project_id))
     project = result.scalar_one_or_none()
     if not project or project.pi_id != user_id:
         raise HTTPException(404, "Project not found or access denied")
+    return project
+
+
+async def _ensure_project_owner_editable(db: AsyncSession, project_id: str, user_id: str) -> ResearchProject:
+    project = await _ensure_project_owner(db, project_id, user_id)
+    await _ensure_project_editable(project)
     return project
 
 
@@ -407,6 +429,7 @@ def _serialize_project(p: ResearchProject) -> dict:
         latest_ethics = sorted(p.ethics_applications, key=lambda e: e.created_at, reverse=True)[0]
     year = p.created_at.year if p.created_at else datetime.now().year
     project_code = p.project_code or f"PRJ-{year}-{p.id[:8].upper()}"
+    award = p.award
     return {
         "id": p.id,
         "title": p.title,
@@ -455,6 +478,10 @@ def _serialize_project(p: ResearchProject) -> dict:
         "is_clinical_trial": getattr(p, "is_clinical_trial", False),
         "uses_hazardous_materials": getattr(p, "uses_hazardous_materials", False),
         "award_id": p.award_id,
+        "award_number": award.award_number if award else None,
+        "funder_name": award.funder_name if award else None,
+        "total_amount": award.total_amount if award else None,
+        "currency": (award.currency if award else None) or getattr(p, "reporting_currency", None) or "KES",
         "pi_id": p.pi_id,
         "pi_name": p.pi.name if p.pi else None,
         "start_date": p.start_date,
@@ -646,7 +673,18 @@ async def update_project(
     project = result.scalar_one_or_none()
     if not project or project.pi_id != current_user.id:
         raise HTTPException(404, "Project not found or access denied")
-    for field, value in data.model_dump(exclude_unset=True).items():
+
+    update_data = data.model_dump(exclude_unset=True)
+    current_status = project.status.value if hasattr(project.status, "value") else project.status
+    new_status = update_data.get("status")
+
+    if current_status != ProjectStatus.DRAFT.value:
+        raise HTTPException(403, "This project has been submitted and can no longer be edited.")
+
+    if new_status and new_status not in (ProjectStatus.DRAFT.value, ProjectStatus.PROPOSED.value):
+        raise HTTPException(400, "Invalid project status transition")
+
+    for field, value in update_data.items():
         if field == "status" and value:
             setattr(project, field, ProjectStatus(value))
         elif field in ("research_keywords", "research_objectives"):
@@ -712,6 +750,7 @@ async def invite_member(
     project = result.scalar_one_or_none()
     if not project or project.pi_id != current_user.id:
         raise HTTPException(404, "Project not found or access denied")
+    await _ensure_project_editable(project)
 
     name = data.name
     if not name and (data.given_name or data.family_name):
@@ -806,6 +845,7 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     result = await db.execute(
         select(ProjectMember).where(
             ProjectMember.id == member_id,
@@ -863,7 +903,7 @@ async def create_milestone(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
 
     payload = data.model_dump()
     if not payload.get("status"):
@@ -883,7 +923,7 @@ async def update_milestone(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     result = await db.execute(
         select(ProjectMilestone).where(
             ProjectMilestone.id == milestone_id,
@@ -909,7 +949,7 @@ async def delete_milestone(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     result = await db.execute(
         select(ProjectMilestone).where(
             ProjectMilestone.id == milestone_id,
@@ -965,7 +1005,7 @@ async def create_team(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     if not data.name.strip():
         raise HTTPException(400, "Team name is required")
     if not data.members:
@@ -1006,7 +1046,7 @@ async def update_team(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     result = await db.execute(
         select(ProjectTeam)
         .where(ProjectTeam.id == team_id, ProjectTeam.project_id == project_id)
@@ -1047,7 +1087,7 @@ async def delete_team(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     result = await db.execute(
         select(ProjectTeam).where(ProjectTeam.id == team_id, ProjectTeam.project_id == project_id)
     )
@@ -1090,7 +1130,7 @@ async def create_deliverable(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     if not data.name.strip():
         raise HTTPException(400, "Deliverable name is required")
 
@@ -1135,7 +1175,7 @@ async def update_deliverable(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     result = await db.execute(
         select(ProjectDeliverable).where(
             ProjectDeliverable.id == deliverable_id,
@@ -1174,7 +1214,7 @@ async def delete_deliverable(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     result = await db.execute(
         select(ProjectDeliverable).where(
             ProjectDeliverable.id == deliverable_id,
@@ -1198,7 +1238,7 @@ async def create_budget_line(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     if not data.category.strip():
         raise HTTPException(400, "Category is required")
 
@@ -1233,7 +1273,7 @@ async def update_budget_line(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     result = await db.execute(
         select(ProjectBudgetLine).where(
             ProjectBudgetLine.id == line_id,
@@ -1260,7 +1300,7 @@ async def delete_budget_line(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner(db, project_id, current_user.id)
+    await _ensure_project_owner_editable(db, project_id, current_user.id)
     result = await db.execute(
         select(ProjectBudgetLine).where(
             ProjectBudgetLine.id == line_id,

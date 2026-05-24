@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Container,
@@ -30,6 +30,8 @@ import {
   Grid,
   Card,
   CardContent,
+  LinearProgress,
+  Alert,
 } from '@mui/material';
 import {
   Storage as StorageIcon,
@@ -43,7 +45,10 @@ import {
   TableChart as ExcelIcon,
   TrendingUp as TrendingIcon,
   CheckCircle as CheckIcon,
+  Refresh as RefreshIcon,
+  ContentCopy as CopyIcon,
 } from '@mui/icons-material';
+import { useAuth } from '@/contexts/AuthContext';
 
 const DATA_STAGES = {
   raw: { label: 'Raw', color: '#6b7280', icon: StorageIcon, description: 'Unprocessed data from sources' },
@@ -53,99 +58,105 @@ const DATA_STAGES = {
   published: { label: 'Published', color: '#10b981', icon: CheckIcon, description: 'Finalized and published data' },
 };
 
-const SOURCE_TYPES = {
-  'KoboCollect': { icon: KoboIcon, color: '#1ca7a1' },
-  'Google Sheets': { icon: GoogleIcon, color: '#34a853' },
-  'Excel': { icon: ExcelIcon, color: '#217346' },
+const SOURCE_TYPE_MAP = {
+  google_sheets: { label: 'Google Sheets', icon: GoogleIcon, color: '#34a853' },
+  kobo_collect: { label: 'KoboCollect', icon: KoboIcon, color: '#1ca7a1' },
+  excel: { label: 'Excel', icon: ExcelIcon, color: '#217346' },
+  file_upload: { label: 'File Upload', icon: StorageIcon, color: '#6b7280' },
+  url: { label: 'URL', icon: StorageIcon, color: '#6b7280' },
+  api_feed: { label: 'API Feed', icon: StorageIcon, color: '#6b7280' },
+};
+
+const formatFileSize = (bytes) => {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+};
+
+const mapImportToEntry = (imp, projects) => {
+  const project = projects.find(p => p.id === imp.project_id);
+  const tags = [imp.source_tag];
+  if (imp.file_format) tags.push(imp.file_format);
+  return {
+    id: imp.id,
+    name: imp.source_tag,
+    source: SOURCE_TYPE_MAP[imp.source_type]?.label || imp.source_type,
+    sourceType: imp.source_type,
+    project: project?.title || '—',
+    stage: 'raw',
+    records: imp.record_count ?? null,
+    size: formatFileSize(imp.file_size_bytes),
+    created: imp.created_at,
+    updated: imp.ingest_completed_at || imp.updated_at || imp.created_at,
+    version: 1,
+    tags,
+    bronzePath: imp.bronze_path,
+    bronzeBucket: imp.bronze_bucket,
+    fileName: imp.file_name,
+    description: imp.description,
+    ingestCompletedAt: imp.ingest_completed_at,
+  };
 };
 
 export default function DataLakesPage() {
+  const { token } = useAuth();
+
   const [currentTab, setCurrentTab] = useState('all');
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedDataset, setSelectedDataset] = useState(null);
   const [viewDialog, setViewDialog] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [rawImports, setRawImports] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
-  const [dataLakeEntries, setDataLakeEntries] = useState([
-    {
-      id: 1,
-      name: 'Field Survey - Nairobi Dataset',
-      source: 'KoboCollect',
-      project: 'Malaria Prevention Study',
-      stage: 'processed',
-      records: 1380,
-      size: '2.4 MB',
-      created: '2026-05-02T10:30:00',
-      updated: '2026-05-02T14:15:00',
-      version: 2,
-      tags: ['survey', 'nairobi', 'malaria'],
-    },
-    {
-      id: 2,
-      name: 'Lab Results - Q1 2026',
-      source: 'Google Sheets',
-      project: 'Maternal Health Survey',
-      stage: 'cleaned',
-      records: 856,
-      size: '1.2 MB',
-      created: '2026-04-15T08:00:00',
-      updated: '2026-04-20T16:45:00',
-      version: 3,
-      tags: ['lab', 'maternal', 'health'],
-    },
-    {
-      id: 3,
-      name: 'Baseline Survey Data',
-      source: 'KoboCollect',
-      project: 'Water Quality Assessment',
-      stage: 'raw',
-      records: 542,
-      size: '890 KB',
-      created: '2026-04-30T16:45:00',
-      updated: '2026-04-30T16:45:00',
-      version: 1,
-      tags: ['baseline', 'water', 'quality'],
-    },
-    {
-      id: 4,
-      name: 'Follow-up Survey - Mombasa',
-      source: 'KoboCollect',
-      project: 'Malaria Prevention Study',
-      stage: 'published',
-      records: 980,
-      size: '1.8 MB',
-      created: '2026-03-15T10:00:00',
-      updated: '2026-04-10T14:20:00',
-      version: 4,
-      tags: ['survey', 'mombasa', 'followup'],
-    },
-    {
-      id: 5,
-      name: 'Patient Demographics',
-      source: 'Google Sheets',
-      project: 'COVID-19 Vaccine Efficacy',
-      stage: 'analyzed',
-      records: 1120,
-      size: '1.5 MB',
-      created: '2026-05-01T09:20:00',
-      updated: '2026-05-02T11:30:00',
-      version: 2,
-      tags: ['patient', 'demographics', 'covid'],
-    },
-    {
-      id: 6,
-      name: 'Historical Patient Records',
-      source: 'Excel',
-      project: 'COVID-19 Vaccine Efficacy',
-      stage: 'cleaned',
-      records: 3420,
-      size: '5.2 MB',
-      created: '2026-04-25T14:00:00',
-      updated: '2026-04-28T10:15:00',
-      version: 1,
-      tags: ['patient', 'historical', 'archive'],
-    },
-  ]);
+  const dataLakeEntries = useMemo(
+    () => rawImports.map(imp => mapImportToEntry(imp, projects)),
+    [rawImports, projects],
+  );
+
+  const loadProjects = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/research/projects', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(Array.isArray(data) ? data : []);
+      }
+    } catch (_) {}
+  }, [token]);
+
+  const loadIngestedData = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setLoadError('');
+    try {
+      const res = await fetch(
+        '/api/research/lakehouse-imports?status_filter=ingested&page_size=100',
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) {
+        throw new Error('Failed to load ingested data');
+      }
+      const data = await res.json();
+      setRawImports(data.imports || []);
+    } catch (err) {
+      setLoadError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (token) {
+      loadProjects();
+      loadIngestedData();
+    }
+  }, [token, loadProjects, loadIngestedData]);
 
   const handleMenuOpen = (event, dataset) => {
     setAnchorEl(event.currentTarget);
@@ -161,11 +172,23 @@ export default function DataLakesPage() {
     handleMenuClose();
   };
 
-  const handleDelete = () => {
-    if (confirm(`Are you sure you want to delete "${selectedDataset?.name}"?`)) {
-      setDataLakeEntries(dataLakeEntries.filter(e => e.id !== selectedDataset.id));
+  const handleDelete = async () => {
+    if (!selectedDataset || !confirm(`Are you sure you want to delete "${selectedDataset?.name}"?`)) {
+      handleMenuClose();
+      return;
     }
+    try {
+      await fetch(`/api/research/lakehouse-imports/${selectedDataset.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setRawImports(entries => entries.filter(e => e.id !== selectedDataset.id));
+    } catch (_) {}
     handleMenuClose();
+  };
+
+  const handleCopy = (text) => {
+    navigator.clipboard.writeText(text).catch(() => {});
   };
 
   const getFilteredEntries = () => {
@@ -197,18 +220,29 @@ export default function DataLakesPage() {
   const stageStats = getStageStats();
   const filteredEntries = getFilteredEntries();
   const totalDatasets = dataLakeEntries.length;
-  const totalRecords = dataLakeEntries.reduce((sum, e) => sum + e.records, 0);
+  const totalRecords = dataLakeEntries.reduce((sum, e) => sum + (e.records || 0), 0);
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       {/* Header */}
       <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
-          Data Lakes
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          View and manage all your data across different processing stages
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+          <Box>
+            <Typography variant="h4" sx={{ fontWeight: 700, color: 'text.primary' }}>
+              Data Lakes
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Ingested datasets stored in MinIO Bronze — ready for processing
+            </Typography>
+          </Box>
+          <Button startIcon={<RefreshIcon />} onClick={loadIngestedData} size="small" disabled={loading}>
+            Refresh
+          </Button>
+        </Box>
+
+        {loadError && (
+          <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }}>{loadError}</Alert>
+        )}
 
         {/* Stats Cards */}
         <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
@@ -356,6 +390,9 @@ export default function DataLakesPage() {
       </Paper>
 
       {/* Data Lake Table */}
+      {loading ? (
+        <LinearProgress sx={{ borderRadius: 1, mb: 2 }} />
+      ) : null}
       <TableContainer component={Paper} sx={{ borderRadius: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
         <Table>
           <TableHead>
@@ -394,14 +431,18 @@ export default function DataLakesPage() {
               <TableRow>
                 <TableCell colSpan={9} align="center" sx={{ py: 8 }}>
                   <Typography color="text.secondary">
-                    {searchTerm ? 'No datasets found matching your search' : 'No datasets in this stage'}
+                    {searchTerm
+                      ? 'No datasets found matching your search'
+                      : currentTab === 'all'
+                        ? 'No ingested datasets yet. Completed imports will appear here after ingestion.'
+                        : 'No datasets in this stage'}
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
               filteredEntries.map((entry) => {
                 const stageInfo = DATA_STAGES[entry.stage];
-                const sourceInfo = SOURCE_TYPES[entry.source];
+                const sourceInfo = SOURCE_TYPE_MAP[entry.sourceType];
                 const SourceIcon = sourceInfo?.icon || StorageIcon;
                 
                 return (
@@ -472,7 +513,7 @@ export default function DataLakesPage() {
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {entry.records.toLocaleString()}
+                        {entry.records != null ? entry.records.toLocaleString() : '—'}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -599,9 +640,26 @@ export default function DataLakesPage() {
                     Records
                   </Typography>
                   <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                    {selectedDataset.records.toLocaleString()}
+                    {selectedDataset.records != null ? selectedDataset.records.toLocaleString() : '—'}
                   </Typography>
                 </Grid>
+                {selectedDataset.bronzePath && (
+                  <Grid item xs={12}>
+                    <Typography variant="caption" color="text.secondary">
+                      Bronze Path
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>
+                        {selectedDataset.bronzePath}
+                      </Typography>
+                      <Tooltip title="Copy path">
+                        <IconButton size="small" onClick={() => handleCopy(selectedDataset.bronzePath)}>
+                          <CopyIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  </Grid>
+                )}
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">
                     Size

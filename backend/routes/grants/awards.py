@@ -168,7 +168,7 @@ async def issue_award(
         title=proposal.title,
         description=f"Auto-created from award {award.award_number}",
         project_type="funded",
-        status=ProjectStatus.ACTIVE,
+        status=ProjectStatus.DRAFT,
         start_date=data.start_date,
         end_date=data.end_date,
     )

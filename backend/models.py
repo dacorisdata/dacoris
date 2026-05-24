@@ -185,6 +185,7 @@ class AwardStatus(str, enum.Enum):
     TERMINATED = "terminated"
 
 class ProjectStatus(str, enum.Enum):
+    DRAFT = "draft"
     PROPOSED = "proposed"
     ACTIVE = "active"
     SUSPENDED = "suspended"

@@ -20,8 +20,7 @@ function isAppRoute(pathname) {
 
 function isFullHeightWizard(pathname) {
   if (pathname === '/researcher/ethics/new') return true;
-  if (!/^\/researcher\/projects\/[^/]+$/.test(pathname)) return false;
-  return !['/researcher/projects/create', '/researcher/projects/new', '/researcher/projects/milestones'].includes(pathname);
+  return /\/researcher\/projects\/[^/]+\/setup$/.test(pathname);
 }
 
 export default function RootChrome({ children }) {
@@ -52,7 +51,10 @@ export default function RootChrome({ children }) {
         display: 'flex',
         flexDirection: 'column',
       }}>
-        {children}
+        <Navbar />
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {children}
+        </Box>
       </Box>
     );
   }

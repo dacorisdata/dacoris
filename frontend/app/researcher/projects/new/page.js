@@ -252,7 +252,7 @@ export default function NewProjectPage() {
         await axios.post(`${API}/research/projects/${id}/documents`, fd, { headers });
       }
 
-      router.push(`/researcher/projects/${id}`);
+      router.push(`/researcher/projects/${id}/setup`);
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to create project');
       setSaving(false);

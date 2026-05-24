@@ -16,9 +16,52 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from typing import Dict, Optional, BinaryIO
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def count_records(raw_data: bytes, file_format: Optional[str] = None, content_type: str = '') -> Optional[int]:
+    """Count data rows/records from raw file bytes."""
+    fmt = (file_format or '').lower()
+    ct = (content_type or '').lower()
+
+    try:
+        if fmt == 'json' or 'json' in ct:
+            parsed = json.loads(raw_data)
+            if isinstance(parsed, dict):
+                if isinstance(parsed.get('count'), int):
+                    return parsed['count']
+                if isinstance(parsed.get('results'), list):
+                    return len(parsed['results'])
+            if isinstance(parsed, list):
+                return len(parsed)
+
+        if fmt in ('csv', 'txt') or 'csv' in ct or 'text/plain' in ct:
+            text = raw_data.decode('utf-8-sig', errors='replace')
+            lines = [ln for ln in text.splitlines() if ln.strip()]
+            return max(0, len(lines) - 1) if lines else 0
+
+        if fmt in ('xlsx', 'xls') or 'spreadsheet' in ct or 'excel' in ct:
+            import pandas as pd
+            df = pd.read_excel(BytesIO(raw_data), sheet_name=0)
+            return len(df)
+    except Exception:
+        return None
+
+    return None
+
+
+def count_records_from_file(file_path: str, file_format: Optional[str] = None) -> Optional[int]:
+    """Count data rows/records from a local file path."""
+    ext = (file_format or os.path.splitext(file_path)[1].lstrip('.')).lower()
+    try:
+        with open(file_path, 'rb') as f:
+            raw_data = f.read()
+        return count_records(raw_data, file_format=ext)
+    except Exception:
+        return None
 
 
 class MinIOService:
@@ -82,7 +125,8 @@ class MinIOService:
         source_url: str,
         bronze_path: str,
         metadata: Dict[str, str],
-        timeout: int = 300
+        timeout: int = 300,
+        headers: Optional[Dict[str, str]] = None,
     ) -> Dict:
         """
         Fetch data from URL and upload to MinIO Bronze bucket
@@ -99,12 +143,14 @@ class MinIOService:
         try:
             # Fetch raw data from source URL
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.get(source_url)
+                response = await client.get(source_url, headers=headers or {})
                 response.raise_for_status()
                 raw_data = response.content
             
             content_type = response.headers.get('content-type', 'application/octet-stream')
-            
+            file_format = bronze_path.rsplit('.', 1)[-1] if '.' in bronze_path else None
+            record_count = count_records(raw_data, file_format=file_format, content_type=content_type)
+
             # Upload to MinIO Bronze
             result = self.upload_to_bronze(
                 file_data=BytesIO(raw_data),
@@ -112,10 +158,16 @@ class MinIOService:
                 metadata_tags=metadata,
                 content_type=content_type
             )
-            
+
             result['source_url'] = source_url
+            result['record_count'] = record_count
             return result
             
+        except httpx.HTTPStatusError as e:
+            body = e.response.text[:300] if e.response.text else e.response.reason_phrase
+            raise Exception(f"Source returned HTTP {e.response.status_code}: {body}")
+        except httpx.TimeoutException:
+            raise Exception(f"Request timed out after {timeout}s — the source may be slow or unreachable")
         except httpx.HTTPError as e:
             raise Exception(f"Failed to fetch data from URL: {str(e)}")
         except Exception as e:
@@ -204,13 +256,16 @@ class MinIOService:
                     '.txt': 'text/plain'
                 }
                 content_type = content_type_map.get(ext, 'application/octet-stream')
-                
-                return self.upload_to_bronze(
+                record_count = count_records_from_file(file_path, file_format=ext.lstrip('.'))
+
+                result = self.upload_to_bronze(
                     file_data=f,
                     bronze_path=bronze_path,
                     metadata_tags=metadata_tags,
                     content_type=content_type
                 )
+                result['record_count'] = record_count
+                return result
         except FileNotFoundError:
             raise Exception(f"File not found: {file_path}")
         except Exception as e:

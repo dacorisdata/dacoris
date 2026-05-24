@@ -30,6 +30,10 @@ import {
   CircularProgress,
   Slider,
   TablePagination,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
+  FormLabel,
 } from '@mui/material';
 import {
   Google as GoogleIcon,
@@ -121,6 +125,11 @@ export default function DataImportPage() {
   const [importDesc, setImportDesc] = useState('');
   const [selectedProject, setSelectedProject] = useState('');
   const [priority, setPriority] = useState(5);
+  const [analysisMode, setAnalysisMode] = useState('self');
+  const [expectedVisuals, setExpectedVisuals] = useState('');
+  const [labelManuallyEdited, setLabelManuallyEdited] = useState(false);
+  const [resolvingLabel, setResolvingLabel] = useState(false);
+  const [resolvedDisplayName, setResolvedDisplayName] = useState('');
 
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
@@ -131,6 +140,8 @@ export default function DataImportPage() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [histPage, setHistPage] = useState(0);
   const [histRowsPerPage, setHistRowsPerPage] = useState(10);
+  const [retryingId, setRetryingId] = useState(null);
+  const [retryError, setRetryError] = useState('');
 
   const currentTab = SOURCE_TABS.find(t => t.id === activeSource);
 
@@ -147,19 +158,20 @@ export default function DataImportPage() {
     } catch (_) {}
   }, [token]);
 
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(async (silent = false) => {
     if (!token) return;
-    setHistoryLoading(true);
+    if (!silent) setHistoryLoading(true);
     try {
-      const res = await fetch('/api/research/lakehouse-imports', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        '/api/research/lakehouse-imports?status_filter=pending,queued,ingesting,failed&page_size=100',
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
       if (res.ok) {
         const data = await res.json();
         setImportHistory(data.imports || []);
       }
     } catch (_) {} finally {
-      setHistoryLoading(false);
+      if (!silent) setHistoryLoading(false);
     }
   }, [token]);
 
@@ -168,7 +180,38 @@ export default function DataImportPage() {
       loadProjects();
       loadHistory();
     }
-  }, [token]);
+  }, [token, loadProjects, loadHistory]);
+
+  useEffect(() => {
+    const hasActive = importHistory.some(imp =>
+      ['pending', 'queued', 'ingesting'].includes(imp.ingest_status)
+    );
+    if (!hasActive || !token) return undefined;
+    const timer = setInterval(() => loadHistory(true), 8000);
+    return () => clearInterval(timer);
+  }, [importHistory, token, loadHistory]);
+
+  const getStatusDetail = (imp) => {
+    if (imp.ingest_status === 'failed') {
+      return imp.error_message || 'Ingestion failed — no error details recorded';
+    }
+    const start = imp.ingest_triggered_at || imp.created_at;
+    if (!start) return null;
+    const mins = Math.floor((Date.now() - new Date(start).getTime()) / 60000);
+    if (imp.ingest_status === 'ingesting') {
+      if (mins >= 5) {
+        return `Ingesting for ${mins}m — this is taking longer than usual. It will time out after 10 minutes if it cannot complete.`;
+      }
+      return mins > 0 ? `Ingesting (${mins}m)...` : 'Ingesting...';
+    }
+    if (['queued', 'pending'].includes(imp.ingest_status)) {
+      if (mins >= 10) {
+        return `Waiting ${mins}m — ingestion has not started yet. Use Retry if this persists.`;
+      }
+      return mins > 0 ? `Waiting to start (${mins}m)...` : 'Waiting to start...';
+    }
+    return null;
+  };
 
   const resetWizard = () => {
     setActiveStep(0);
@@ -177,8 +220,37 @@ export default function DataImportPage() {
     setKoboServer('https://kf.kobotoolbox.org'); setKoboToken(''); setKoboAssetUid('');
     setImportTag(''); setImportDesc('');
     setSelectedProject(''); setPriority(5);
+    setAnalysisMode('self'); setExpectedVisuals('');
+    setLabelManuallyEdited(false); setResolvedDisplayName('');
     setImportResult(null); setImportError('');
   };
+
+  const resolveLabelFromSource = useCallback(async (overrides = {}) => {
+    if (!token || labelManuallyEdited) return;
+    setResolvingLabel(true);
+    try {
+      const body = {
+        source_type: overrides.source_type || activeSource,
+        source_url: overrides.source_url ?? gsUrl,
+        asset_uid: overrides.asset_uid ?? koboAssetUid,
+        kobo_server: overrides.kobo_server ?? koboServer,
+        kobo_token: overrides.kobo_token ?? koboToken,
+        file_name: overrides.file_name ?? excelFile?.name,
+      };
+      const res = await fetch('/api/research/lakehouse-imports/resolve-label', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.suggested_label) setImportTag(data.suggested_label);
+        setResolvedDisplayName(data.display_name || '');
+      }
+    } catch (_) {} finally {
+      setResolvingLabel(false);
+    }
+  }, [token, labelManuallyEdited, activeSource, gsUrl, koboAssetUid, koboServer, koboToken, excelFile]);
 
   const handleSourceSwitch = (src) => {
     setActiveSource(src);
@@ -196,7 +268,7 @@ export default function DataImportPage() {
       setGsSheetId(id);
       if (id) {
         setGsGid(extractGid(val));
-        if (!importTag) setImportTag('sheet_import');
+        resolveLabelFromSource({ source_type: 'google_sheets', source_url: val });
       }
     }
   };
@@ -210,7 +282,7 @@ export default function DataImportPage() {
     }
     setExcelFile(file);
     setImportError('');
-    if (!importTag) setImportTag(sanitizeTag(file.name.replace(/\.[^.]+$/, '')));
+    resolveLabelFromSource({ source_type: 'excel', file_name: file.name });
   };
 
   const canProceed = () => {
@@ -219,14 +291,33 @@ export default function DataImportPage() {
       if (activeSource === 'excel') return !!excelFile;
       if (activeSource === 'kobo_collect') return koboToken.trim().length > 0 && koboAssetUid.trim().length > 0;
     }
-    if (activeStep === 1) return importTag.trim().length > 0;
+    if (activeStep === 1) {
+      if (!importTag.trim()) return false;
+      if (analysisMode === 'dacoris' && !expectedVisuals.trim()) return false;
+      return true;
+    }
     return true;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    if (activeStep === 0) {
+      if (activeSource === 'google_sheets' && gsSheetId) {
+        await resolveLabelFromSource({ source_type: 'google_sheets', source_url: gsUrl });
+      } else if (activeSource === 'kobo_collect' && koboToken && koboAssetUid) {
+        await resolveLabelFromSource();
+      }
+    }
     if (activeStep < 2) setActiveStep(s => s + 1);
     else handleImport();
   };
+
+  const buildKoboMetadata = () => JSON.stringify({
+    server: koboServer,
+    asset_uid: koboAssetUid,
+    api_token: koboToken,
+    analysis_mode: analysisMode,
+    ...(analysisMode === 'dacoris' && expectedVisuals ? { expected_visuals: expectedVisuals } : {}),
+  });
 
   const handleBack = () => setActiveStep(s => s - 1);
 
@@ -258,6 +349,8 @@ export default function DataImportPage() {
             file_format: 'csv',
             description: importDesc || null,
             priority,
+            analysis_mode: analysisMode,
+            expected_visuals: analysisMode === 'dacoris' ? expectedVisuals : null,
           }),
         });
         if (!res.ok) {
@@ -267,7 +360,6 @@ export default function DataImportPage() {
         result = await res.json();
       } else if (activeSource === 'kobo_collect') {
         const koboDataUrl = `${koboServer.replace(/\/$/, '')}/api/v2/assets/${koboAssetUid}/data/?format=json`;
-        const metaJson = JSON.stringify({ server: koboServer, asset_uid: koboAssetUid, api_token: koboToken });
         const res = await fetch('/api/research/lakehouse-imports/register', {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' },
@@ -282,7 +374,9 @@ export default function DataImportPage() {
             file_format: 'json',
             description: importDesc || null,
             priority,
-            metadata_json: metaJson,
+            metadata_json: buildKoboMetadata(),
+            analysis_mode: analysisMode,
+            expected_visuals: analysisMode === 'dacoris' ? expectedVisuals : null,
           }),
         });
         if (!res.ok) {
@@ -297,6 +391,8 @@ export default function DataImportPage() {
           priority,
           ...(selectedProject && { project_id: selectedProject }),
           ...(importDesc && { description: importDesc }),
+          analysis_mode: analysisMode,
+          ...(analysisMode === 'dacoris' && expectedVisuals && { expected_visuals: expectedVisuals }),
         });
         const fd = new FormData();
         fd.append('file', excelFile);
@@ -331,14 +427,29 @@ export default function DataImportPage() {
     } catch (_) {}
   };
 
+  const canRetryImport = (imp) => {
+    if (imp.ingest_status === 'failed') return (imp.retry_count ?? 0) < 3;
+    return ['queued', 'pending'].includes(imp.ingest_status);
+  };
+
   const handleRetry = async (id) => {
+    setRetryingId(id);
+    setRetryError('');
     try {
       const res = await fetch(`/api/research/lakehouse-imports/${id}/retry`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) loadHistory();
-    } catch (_) {}
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.detail || 'Retry failed');
+      }
+      await loadHistory(true);
+    } catch (err) {
+      setRetryError(err.message);
+    } finally {
+      setRetryingId(null);
+    }
   };
 
   const handleCopy = (text) => {
@@ -360,14 +471,34 @@ export default function DataImportPage() {
             value={gsUrl}
             onChange={(e) => handleGsUrlChange(e.target.value)}
             error={!!gsUrlError}
-            helperText={gsUrlError || (gsSheetId ? `Sheet ID: ${gsSheetId}` : 'Paste the full Google Sheets URL')}
+            helperText={
+              gsUrlError
+                ? gsUrlError
+                : resolvingLabel
+                  ? 'Detecting sheet title...'
+                  : resolvedDisplayName
+                    ? `Detected title: ${resolvedDisplayName}`
+                    : gsSheetId
+                      ? `Sheet ID: ${gsSheetId}`
+                      : 'Paste the full Google Sheets URL — the sheet title will be used as the import label'
+            }
             InputProps={{ startAdornment: <LinkIcon sx={{ mr: 1, color: 'text.disabled', fontSize: 18 }} /> }}
             sx={{ mb: 2 }}
           />
           {gsSheetId && (
             <Alert severity="success" icon={<SuccessIcon />} sx={{ borderRadius: 2, mb: 2 }}>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>Sheet connected</Typography>
-              <Typography variant="caption">Data will be exported as CSV. Make sure the sheet is publicly accessible.</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {resolvingLabel
+                  ? 'Sheet connected — reading title...'
+                  : resolvedDisplayName
+                    ? `Sheet connected: ${resolvedDisplayName}`
+                    : 'Sheet connected'}
+              </Typography>
+              <Typography variant="caption">
+                {resolvedDisplayName
+                  ? 'This title will be suggested as your import label on the next step.'
+                  : 'Data will be exported as CSV. Make sure the sheet is publicly accessible.'}
+              </Typography>
             </Alert>
           )}
           <Alert severity="info" sx={{ borderRadius: 2 }}>
@@ -399,7 +530,12 @@ export default function DataImportPage() {
             label="Asset UID (Form ID)"
             placeholder="aXXXXXXXXXXXXXXXXXXXX"
             value={koboAssetUid}
-            onChange={(e) => { setKoboAssetUid(e.target.value); if (!importTag) setImportTag('kobo_import'); }}
+            onChange={(e) => {
+              setKoboAssetUid(e.target.value);
+              if (koboToken && e.target.value.trim()) {
+                resolveLabelFromSource({ asset_uid: e.target.value.trim() });
+              }
+            }}
             helperText="Found in KoboToolbox → your form → Settings → or the URL path segment after /assets/"
             sx={{ mb: 2 }}
           />
@@ -408,7 +544,12 @@ export default function DataImportPage() {
             label="API Token"
             type={koboShowToken ? 'text' : 'password'}
             value={koboToken}
-            onChange={(e) => setKoboToken(e.target.value)}
+            onChange={(e) => {
+              setKoboToken(e.target.value);
+              if (koboAssetUid && e.target.value.trim()) {
+                resolveLabelFromSource({ kobo_token: e.target.value.trim() });
+              }
+            }}
             helperText="KoboToolbox → Account Settings → API token"
             InputProps={{
               endAdornment: (
@@ -487,14 +628,23 @@ export default function DataImportPage() {
     <Box sx={{ maxWidth: 560, mx: 'auto' }}>
       <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>Configure Import</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Set a label and optional metadata for this import
+        Set a label, analysis preference, and optional metadata for this import
       </Typography>
       <TextField
         fullWidth required
         label="Import Label"
         value={importTag}
-        onChange={(e) => setImportTag(e.target.value)}
-        helperText={`Stored as: ${sanitizeTag(importTag) || 'import'}`}
+        onChange={(e) => { setImportTag(e.target.value); setLabelManuallyEdited(true); }}
+        helperText={
+          resolvingLabel
+            ? 'Detecting name from source...'
+            : resolvedDisplayName
+              ? `Detected: ${resolvedDisplayName} · Stored as: ${sanitizeTag(importTag) || 'import'}`
+              : `Stored as: ${sanitizeTag(importTag) || 'import'}`
+        }
+        InputProps={{
+          endAdornment: resolvingLabel ? <CircularProgress size={18} sx={{ color: ACCENT }} /> : null,
+        }}
         sx={{ mb: 2.5 }}
       />
       <TextField
@@ -504,6 +654,40 @@ export default function DataImportPage() {
         onChange={(e) => setImportDesc(e.target.value)}
         sx={{ mb: 2.5 }}
       />
+      <FormControl component="fieldset" sx={{ mb: 2.5, width: '100%' }}>
+        <FormLabel component="legend" sx={{ fontWeight: 600, mb: 1, color: 'text.primary' }}>
+          Data Analysis
+        </FormLabel>
+        <RadioGroup
+          value={analysisMode}
+          onChange={(e) => {
+            setAnalysisMode(e.target.value);
+            if (e.target.value === 'self') setExpectedVisuals('');
+          }}
+        >
+          <FormControlLabel
+            value="self"
+            control={<Radio sx={{ color: ACCENT, '&.Mui-checked': { color: ACCENT } }} />}
+            label="I will analyse the data myself"
+          />
+          <FormControlLabel
+            value="dacoris"
+            control={<Radio sx={{ color: ACCENT, '&.Mui-checked': { color: ACCENT } }} />}
+            label="Procure the services of the Dacoris Data Team"
+          />
+        </RadioGroup>
+      </FormControl>
+      {analysisMode === 'dacoris' && (
+        <TextField
+          fullWidth required multiline rows={3}
+          label="Expected Visuals"
+          placeholder="Describe the charts, dashboards, or reports you need (e.g. bar charts by region, trend lines over time, demographic breakdowns...)"
+          value={expectedVisuals}
+          onChange={(e) => setExpectedVisuals(e.target.value)}
+          helperText="This will be submitted with your import metadata for the Dacoris Data Team"
+          sx={{ mb: 2.5 }}
+        />
+      )}
       <FormControl fullWidth sx={{ mb: 2.5 }}>
         <InputLabel>Link to Project (optional)</InputLabel>
         <Select
@@ -617,6 +801,18 @@ export default function DataImportPage() {
               <Typography variant="caption" color="text.secondary">Priority</Typography>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>{priority} / 10</Typography>
             </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Analysis</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {analysisMode === 'dacoris' ? 'Dacoris Data Team' : 'Self-analysis'}
+              </Typography>
+            </Box>
+            {analysisMode === 'dacoris' && expectedVisuals && (
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <Typography variant="caption" color="text.secondary">Expected Visuals</Typography>
+                <Typography variant="body2">{expectedVisuals}</Typography>
+              </Box>
+            )}
             {importDesc && (
               <Box sx={{ gridColumn: '1 / -1' }}>
                 <Typography variant="caption" color="text.secondary">Description</Typography>
@@ -718,17 +914,25 @@ export default function DataImportPage() {
       {/* Import History */}
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>Import History</Typography>
-          <Typography variant="caption" color="text.secondary">All imports registered in this session and previously</Typography>
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>Import Queue</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Pending, queued, and in-progress imports. Completed data appears in Data Lakes.
+          </Typography>
         </Box>
-        <Button startIcon={<RefreshIcon />} onClick={loadHistory} size="small">Refresh</Button>
+        <Button startIcon={<RefreshIcon />} onClick={() => loadHistory()} size="small">Refresh</Button>
       </Box>
+
+      {retryError && (
+        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setRetryError('')}>
+          {retryError}
+        </Alert>
+      )}
 
       {historyLoading ? (
         <LinearProgress sx={{ borderRadius: 1 }} />
       ) : importHistory.length === 0 ? (
         <Paper sx={{ p: 5, textAlign: 'center' }}>
-          <Typography color="text.secondary">No imports registered yet.</Typography>
+          <Typography color="text.secondary">No pending imports. Completed data appears in Data Lakes.</Typography>
         </Paper>
       ) : (
         <TableContainer component={Paper}>
@@ -739,6 +943,8 @@ export default function DataImportPage() {
                 <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Source / File</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Records</TableCell>
+                <TableCell sx={{ fontWeight: 600, minWidth: 220 }}>Error / Details</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Project</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Bronze Path</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Registered</TableCell>
@@ -748,10 +954,11 @@ export default function DataImportPage() {
             <TableBody>
               {importHistory.slice(histPage * histRowsPerPage, histPage * histRowsPerPage + histRowsPerPage).map((imp) => {
                 const sc = STATUS_CONFIG[imp.ingest_status] || STATUS_CONFIG.pending;
+                const statusDetail = getStatusDetail(imp);
                 const project = projects.find(p => p.id === imp.project_id);
                 const typeColor = imp.source_type === 'google_sheets' ? '#34a853' : imp.source_type === 'kobo_collect' ? '#1ca7a1' : '#217346';
                 return (
-                  <TableRow key={imp.id} hover>
+                  <TableRow key={imp.id} hover sx={imp.ingest_status === 'failed' ? { bgcolor: '#fef2f2' } : undefined}>
                     <TableCell sx={{ fontWeight: 500 }}>{imp.source_tag}</TableCell>
                     <TableCell>
                       <Chip
@@ -801,6 +1008,40 @@ export default function DataImportPage() {
                       />
                     </TableCell>
                     <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }}>
+                        {imp.record_count != null ? imp.record_count.toLocaleString() : '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ maxWidth: 280 }}>
+                      {statusDetail ? (
+                        <Box>
+                          <Tooltip title={statusDetail} placement="top-start">
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                color: imp.ingest_status === 'failed' ? 'error.main' : 'text.secondary',
+                                display: '-webkit-box',
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                lineHeight: 1.4,
+                                fontWeight: imp.ingest_status === 'failed' ? 500 : 400,
+                              }}
+                            >
+                              {statusDetail}
+                            </Typography>
+                          </Tooltip>
+                          {imp.ingest_status === 'failed' && (imp.retry_count ?? 0) >= 3 && (
+                            <Typography variant="caption" color="error.main" sx={{ display: 'block', mt: 0.5 }}>
+                              Max retries reached — delete and re-register this import.
+                            </Typography>
+                          )}
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" color="text.disabled">—</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <Typography variant="caption">{project?.title || '—'}</Typography>
                     </TableCell>
                     <TableCell sx={{ maxWidth: 220 }}>
@@ -831,13 +1072,31 @@ export default function DataImportPage() {
                       <Typography variant="caption">{new Date(imp.created_at).toLocaleString()}</Typography>
                     </TableCell>
                     <TableCell>
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        {imp.ingest_status === 'failed' && (
-                          <Tooltip title="Retry ingestion">
-                            <IconButton size="small" color="primary" onClick={() => handleRetry(imp.id)}>
-                              <RetryIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {canRetryImport(imp) && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={
+                              retryingId === imp.id
+                                ? <CircularProgress size={14} sx={{ color: ACCENT }} />
+                                : <RetryIcon sx={{ fontSize: 16 }} />
+                            }
+                            onClick={() => handleRetry(imp.id)}
+                            disabled={retryingId === imp.id}
+                            sx={{
+                              textTransform: 'none',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              minWidth: 72,
+                              borderColor: `${ACCENT}66`,
+                              color: ACCENT,
+                              py: 0.25,
+                              '&:hover': { borderColor: ACCENT, bgcolor: `${ACCENT}08` },
+                            }}
+                          >
+                            Retry
+                          </Button>
                         )}
                         <Tooltip title="Delete record">
                           <IconButton size="small" color="error" onClick={() => handleDelete(imp.id)}>

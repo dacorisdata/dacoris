@@ -38,6 +38,7 @@ class QueuedImportResponse(BaseModel):
     priority: int
     file_size_bytes: Optional[int]
     status: str = Field(validation_alias='ingest_status')
+    metadata_json: Optional[str] = None
     created_at: datetime
     retry_count: int
     
