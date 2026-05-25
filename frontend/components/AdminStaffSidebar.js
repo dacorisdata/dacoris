@@ -17,8 +17,7 @@ import {
   Star as StarIcon, Inbox as InboxIcon, CheckCircle as EligibilityIcon,
   Biotech as TechIcon, AttachMoney as BudgetStageIcon,
   Groups2 as PanelIcon, Verified as FinalIcon,
-  UploadFile as DataImportIcon, Grading as ProjectReviewIcon,
-  FolderSpecial as DmpReviewIcon,
+  UploadFile as DataImportIcon,   Grading as ProjectReviewIcon,
   Handshake as MouIcon, Groups as MouPartnersIcon,
   BarChart as MouAnalyticsIcon, NoteAdd as NewMouIcon,
   Gavel as LegalIcon, FormatListBulleted as MouListIcon,
@@ -81,7 +80,6 @@ const NAV_SECTIONS = [
       { icon: ProjectReviewIcon, label: 'Project Review',       path: '/admin-staff/research/projects/review', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
       { icon: ProjectIcon,       label: 'Projects Tracking',    path: '/admin-staff/research/projects',        roles: ['INSTITUTIONAL_LEADERSHIP','DATA_STEWARD','ETHICS_COMMITTEE_MEMBER','ADMIN_STAFF','GRANT_MANAGER'] },
       { icon: ReviewIcon,        label: 'Ethics Review',        path: '/admin-staff/ethics/reviews',           roles: ['ETHICS_COMMITTEE_MEMBER','ADMIN_STAFF','INSTITUTIONAL_LEADERSHIP'] },
-      { icon: DmpReviewIcon,     label: 'DMP Review',           path: '/admin-staff/dmp/reviews',              roles: ['DATA_STEWARD','INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
     ],
   },
   {

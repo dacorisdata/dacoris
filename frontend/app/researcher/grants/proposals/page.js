@@ -18,7 +18,103 @@ import {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#16a699';
 
-const statusColor = s => ({ DRAFT:'#f59e0b','UNDER_REVIEW':'#0ea5e9','SUBMITTED':ACCENT, AWARDED:'#10b981', REJECTED:'#ef4444', RETURNED:'#f97316' }[s] || '#64748b');
+const PROPOSAL_STATUS_META = {
+  draft:           { label: 'Draft',               color: '#f59e0b', priority: 1 },
+  returned:        { label: 'Revision Requested',  color: '#f97316', priority: 0 },
+  submitted:       { label: 'Submitted',           color: ACCENT,    priority: 2 },
+  internal_review: { label: 'In Review',           color: '#3b82f6', priority: 3 },
+  under_review:    { label: 'In Review',           color: '#0ea5e9', priority: 4 },
+  awarded:         { label: 'Awarded',             color: '#10b981', priority: 5 },
+  declined:        { label: 'Not Awarded',         color: '#ef4444', priority: 6 },
+};
+
+const STATUS_GROUPS = [
+  {
+    key: 'action',
+    label: 'Needs Your Attention',
+    hint: 'Revision requested — edit and resubmit',
+    color: '#f97316',
+    match: (status) => normalizeStatusKey(status) === 'returned',
+  },
+  {
+    key: 'draft',
+    label: 'Drafts',
+    hint: 'Still in progress',
+    color: '#f59e0b',
+    match: (status) => normalizeStatusKey(status) === 'draft',
+  },
+  {
+    key: 'pipeline',
+    label: 'Submitted & Under Review',
+    hint: 'Waiting on review',
+    color: '#0ea5e9',
+    match: (status) => ['submitted', 'internal_review', 'under_review'].includes(normalizeStatusKey(status)),
+  },
+  {
+    key: 'awarded',
+    label: 'Awarded',
+    hint: 'Successful applications',
+    color: '#10b981',
+    match: (status) => normalizeStatusKey(status) === 'awarded',
+  },
+];
+
+function normalizeStatusKey(status) {
+  return (status || '').toLowerCase();
+}
+
+function getStatusMeta(status) {
+  return PROPOSAL_STATUS_META[normalizeStatusKey(status)] || {
+    label: status || 'Unknown',
+    color: '#64748b',
+    priority: 99,
+  };
+}
+
+const statusColor = (status) => getStatusMeta(status).color;
+const getStatusLabel = (status) => getStatusMeta(status).label;
+
+const getStatusGroupKey = (status) => {
+  const group = STATUS_GROUPS.find((g) => g.match(status));
+  return group?.key || 'pipeline';
+};
+
+const proposalSortDate = (proposal) => {
+  const key = normalizeStatusKey(proposal.status);
+  const date = key === 'draft'
+    ? proposal.created_at
+    : (proposal.submitted_at || proposal.created_at);
+  return new Date(date || 0).getTime();
+};
+
+const sortProposalsForResearcher = (items) =>
+  [...items].sort((a, b) => {
+    const priorityDiff = getStatusMeta(a.status).priority - getStatusMeta(b.status).priority;
+    if (priorityDiff !== 0) return priorityDiff;
+    return proposalSortDate(b) - proposalSortDate(a);
+  });
+
+const proposalRowBg = (status, dark) => {
+  const key = normalizeStatusKey(status);
+  if (key === 'draft') return dark ? 'rgba(245, 158, 11, 0.09)' : 'rgba(245, 158, 11, 0.08)';
+  if (key === 'awarded') return dark ? 'rgba(16, 185, 129, 0.10)' : 'rgba(16, 185, 129, 0.08)';
+  if (key === 'returned') return dark ? 'rgba(249, 115, 22, 0.10)' : 'rgba(249, 115, 22, 0.08)';
+  if (['submitted', 'internal_review', 'under_review'].includes(key)) {
+    return dark ? 'rgba(14, 165, 233, 0.08)' : 'rgba(14, 165, 233, 0.06)';
+  }
+  return 'transparent';
+};
+
+const proposalRowHoverBg = (status, dark) => {
+  const key = normalizeStatusKey(status);
+  if (key === 'draft') return dark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.12)';
+  if (key === 'awarded') return dark ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)';
+  if (key === 'returned') return dark ? 'rgba(249, 115, 22, 0.16)' : 'rgba(249, 115, 22, 0.12)';
+  if (['submitted', 'internal_review', 'under_review'].includes(key)) {
+    return dark ? 'rgba(14, 165, 233, 0.14)' : 'rgba(14, 165, 233, 0.10)';
+  }
+  return dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)';
+};
 
 function MyProposalsContent() {
   const router = useRouter();
@@ -171,6 +267,13 @@ function MyProposalsContent() {
   const handleNext = () => setActiveStep((prev) => prev + 1);
   const handleBack = () => setActiveStep((prev) => prev - 1);
 
+  const sortedProposals = sortProposalsForResearcher(proposals);
+  const pageStart = page * rowsPerPage;
+  const paginatedProposals = sortedProposals.slice(pageStart, pageStart + rowsPerPage);
+  const previousPageLastGroup = pageStart > 0
+    ? getStatusGroupKey(sortedProposals[pageStart - 1].status)
+    : null;
+
   if (loading) return <Box sx={{ display:'flex', justifyContent:'center', alignItems:'center', minHeight:'100vh' }}><CircularProgress /></Box>;
 
   return (
@@ -199,6 +302,37 @@ function MyProposalsContent() {
           </Button>
         </Box>
       ) : (
+        <>
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
+            {STATUS_GROUPS.map((group) => {
+              const count = proposals.filter((p) => group.match(p.status)).length;
+              if (count === 0) return null;
+              return (
+                <Box
+                  key={group.key}
+                  sx={{
+                    px: 1.75,
+                    py: 1.25,
+                    borderRadius: 2,
+                    bgcolor: dark ? `${group.color}14` : `${group.color}10`,
+                    border: `1px solid ${group.color}33`,
+                    minWidth: 150,
+                  }}
+                >
+                  <Typography sx={{ fontSize: 18, fontWeight: 800, color: group.color, lineHeight: 1 }}>
+                    {count}
+                  </Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.primary', mt: 0.5 }}>
+                    {group.label}
+                  </Typography>
+                  <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.25 }}>
+                    {group.hint}
+                  </Typography>
+                </Box>
+              );
+            })}
+          </Box>
+
         <Paper sx={{ width: '100%', overflow: 'hidden', borderRadius: 2 }}>
           <TableContainer>
             <Table>
@@ -215,16 +349,45 @@ function MyProposalsContent() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {proposals
-                  .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                  .map((p) => (
+                {(() => {
+                  const rows = [];
+                  let lastGroup = previousPageLastGroup;
+
+                  paginatedProposals.forEach((p) => {
+                    const groupKey = getStatusGroupKey(p.status);
+                    if (groupKey !== lastGroup) {
+                      const group = STATUS_GROUPS.find((g) => g.key === groupKey);
+                      rows.push(
+                        <TableRow key={`group-${groupKey}-${p.id}`}>
+                          <TableCell
+                            colSpan={8}
+                            sx={{
+                              py: 1.25,
+                              bgcolor: dark ? `${group?.color || ACCENT}12` : `${group?.color || ACCENT}08`,
+                              borderBottom: `1px solid ${group?.color || ACCENT}33`,
+                            }}
+                          >
+                            <Typography sx={{ fontSize: 12, fontWeight: 800, color: group?.color || ACCENT, letterSpacing: 0.4 }}>
+                              {group?.label?.toUpperCase()}
+                            </Typography>
+                            <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.25 }}>
+                              {group?.hint}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                      lastGroup = groupKey;
+                    }
+
+                    rows.push(
                     <TableRow 
                       key={p.id}
                       hover
                       sx={{ 
+                        bgcolor: proposalRowBg(p.status, dark),
                         '&:last-child td, &:last-child th': { border: 0 },
                         cursor: 'pointer',
-                        '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }
+                        '&:hover': { bgcolor: proposalRowHoverBg(p.status, dark) },
                       }}
                     >
                       <TableCell>
@@ -379,7 +542,7 @@ function MyProposalsContent() {
                       
                       <TableCell>
                         <Chip 
-                          label={p.status} 
+                          label={getStatusLabel(p.status)} 
                           size="small" 
                           sx={{ 
                             fontSize: 11, 
@@ -472,14 +635,18 @@ function MyProposalsContent() {
                         })()}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  });
+
+                  return rows;
+                })()}
               </TableBody>
             </Table>
           </TableContainer>
           <TablePagination
             rowsPerPageOptions={[5, 10, 25, 50]}
             component="div"
-            count={proposals.length}
+            count={sortedProposals.length}
             rowsPerPage={rowsPerPage}
             page={page}
             onPageChange={(e, newPage) => setPage(newPage)}
@@ -489,6 +656,7 @@ function MyProposalsContent() {
             }}
           />
         </Paper>
+        </>
       )}
 
       {/* Enhanced Create Proposal Dialog */}

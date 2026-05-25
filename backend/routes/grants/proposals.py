@@ -207,6 +207,10 @@ class SectionUpdate(BaseModel):
     word_count: Optional[int] = 0
 
 
+class SectionReorder(BaseModel):
+    section_ids: List[str]
+
+
 @router.post("", response_model=ProposalOut, status_code=201)
 async def create_proposal(
     data: ProposalCreate,
@@ -428,6 +432,37 @@ async def get_proposal(
         proposal.document_requirements.sort(key=lambda r: (r.item_order, r.id))
 
     return proposal
+
+
+@router.put("/{proposal_id}/sections/reorder")
+async def reorder_sections(
+    proposal_id: str,
+    data: SectionReorder,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
+):
+    result = await db.execute(select(Proposal).where(
+        Proposal.id == proposal_id,
+        Proposal.institution_id == current_user.primary_institution_id
+    ))
+    proposal = result.scalar_one_or_none()
+    if not proposal:
+        raise HTTPException(404, "Proposal not found")
+
+    if proposal.status != ProposalStatus.DRAFT:
+        raise HTTPException(400, "Cannot reorder sections in non-draft proposals")
+
+    for index, section_id in enumerate(data.section_ids):
+        result = await db.execute(select(ProposalSection).where(
+            ProposalSection.id == section_id,
+            ProposalSection.proposal_id == proposal_id
+        ))
+        section = result.scalar_one_or_none()
+        if section:
+            section.section_order = index
+
+    await db.commit()
+    return {"message": "Sections reordered"}
 
 
 @router.put("/{proposal_id}/sections/{section_id}")
@@ -699,43 +734,6 @@ async def delete_section(
     return {"message": "Section deleted"}
 
 
-class SectionReorder(BaseModel):
-    section_ids: List[str]
-
-
-@router.put("/{proposal_id}/sections/reorder")
-async def reorder_sections(
-    proposal_id: str,
-    data: SectionReorder,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
-):
-    # Verify proposal exists and user has access
-    result = await db.execute(select(Proposal).where(
-        Proposal.id == proposal_id,
-        Proposal.institution_id == current_user.primary_institution_id
-    ))
-    proposal = result.scalar_one_or_none()
-    if not proposal:
-        raise HTTPException(404, "Proposal not found")
-    
-    if proposal.status != ProposalStatus.DRAFT:
-        raise HTTPException(400, "Cannot reorder sections in non-draft proposals")
-    
-    # Update section_order for each section
-    for index, section_id in enumerate(data.section_ids):
-        result = await db.execute(select(ProposalSection).where(
-            ProposalSection.id == section_id,
-            ProposalSection.proposal_id == proposal_id
-        ))
-        section = result.scalar_one_or_none()
-        if section:
-            section.section_order = index
-    
-    await db.commit()
-    return {"message": "Sections reordered"}
-
-
 @router.post("/{proposal_id}/documents", status_code=201)
 async def upload_document(
     proposal_id: str,
@@ -765,8 +763,13 @@ async def upload_document(
         requirement = req_result.scalar_one_or_none()
         if not requirement:
             raise HTTPException(404, "Document requirement not found")
-        if requirement.document:
-            await db.delete(requirement.document)
+
+        existing_doc_result = await db.execute(
+            select(ProposalDocument).where(ProposalDocument.requirement_id == requirement_id)
+        )
+        existing_doc = existing_doc_result.scalar_one_or_none()
+        if existing_doc:
+            await db.delete(existing_doc)
             await db.flush()
 
     file_info = await save_upload(file, subfolder="documents")

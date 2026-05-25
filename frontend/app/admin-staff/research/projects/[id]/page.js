@@ -22,37 +22,75 @@ const STATUS_META = {
   rejected:       { label: 'Rejected',       color: '#ef4444', bg: 'rgba(239,68,68,0.1)'  },
 };
 
-const MOCK = {
-  id: 1,
-  title: 'Genomic Analysis of Antibiotic Resistance in Kenyan Hospitals',
-  pi_name: 'Dr. Amina Odhiambo',
-  pi_orcid: '0000-0002-1234-5678',
-  institution: 'University of Nairobi',
-  department: 'Microbiology',
-  award_ref: 'AWD-2026-001',
-  funder: 'Wellcome Trust',
-  total_amount: 7500000,
-  currency: 'KES',
-  submitted_at: '2026-04-15',
-  status: 'under_review',
-  team_size: 4,
-  milestones: 6,
-  priority: 'high',
-  abstract: 'This study investigates the genetic mechanisms underlying antibiotic resistance in clinical isolates from major Kenyan hospitals, aiming to inform treatment protocols and antibiotic stewardship programmes.',
-  objectives: [
-    'Isolate and characterize antibiotic-resistant bacteria from 5 major hospitals',
-    'Perform whole-genome sequencing to identify resistance genes',
-    'Analyze transmission patterns using phylogenetic methods',
-    'Develop evidence-based treatment guidelines for clinicians',
-  ],
-  milestones_list: [
-    { name: 'Sample Collection', progress: 100, status: 'completed' },
-    { name: 'DNA Extraction & QC', progress: 85, status: 'in_progress' },
-    { name: 'Genome Sequencing', progress: 40, status: 'in_progress' },
-    { name: 'Bioinformatics Analysis', progress: 0, status: 'pending' },
-    { name: 'Clinical Guidelines Draft', progress: 0, status: 'pending' },
-    { name: 'Final Report & Publication', progress: 0, status: 'pending' },
-  ],
+const PROJECT_STATUS_MAP = {
+  proposed: 'pending_review',
+  draft: 'revision',
+  active: 'approved',
+  suspended: 'rejected',
+  completed: 'approved',
+};
+
+const stripHtml = (value) => (value || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+
+const normalizeObjective = (obj = {}) => {
+  if (typeof obj === 'string') {
+    const text = obj.trim();
+    return text ? { title: text, description: '', outcome: '' } : null;
+  }
+  if (!obj || typeof obj !== 'object') return null;
+  return {
+    title: obj.title ?? obj.objective ?? '',
+    description: obj.description ?? '',
+    outcome: obj.outcome ?? '',
+  };
+};
+
+const parseObjectives = (value) => {
+  const raw = (() => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        return value.split('\n').map(s => s.trim()).filter(Boolean);
+      }
+    }
+    return [];
+  })();
+
+  return raw
+    .map(normalizeObjective)
+    .filter(obj => obj && (obj.title?.trim() || stripHtml(obj.description) || stripHtml(obj.outcome)));
+};
+
+const normalizeProject = (data) => {
+  if (!data) return null;
+  const milestones_list = (data.milestones || []).map(m => {
+    const total = m.task_count || 0;
+    const done = m.done_count || 0;
+    const progress = total > 0
+      ? Math.round((done / total) * 100)
+      : (m.status === 'completed' ? 100 : 0);
+    return { name: m.title, progress, status: m.status };
+  });
+
+  return {
+    ...data,
+    pi_name: data.pi_name || data.pi_full_name,
+    pi_orcid: data.pi_orcid,
+    institution: data.lead_institution,
+    department: data.department,
+    award_ref: data.award_number || data.project_code,
+    funder: data.funder_name,
+    abstract: data.project_abstract || data.description,
+    objectives: parseObjectives(data.research_objectives),
+    milestones_list,
+    team_size: data.member_count ?? data.members?.length ?? 0,
+    submitted_at: data.created_at,
+    status: PROJECT_STATUS_MAP[data.status] || data.status,
+    priority: data.involves_human_subjects ? 'high' : 'medium',
+  };
 };
 
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
@@ -66,6 +104,7 @@ export default function AdminProjectDetailPage() {
   const dark = theme.palette.mode === 'dark';
   const [loading, setLoading] = useState(true);
   const [project, setProject] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => { init(); }, []);
 
@@ -74,11 +113,21 @@ export default function AdminProjectDetailPage() {
     if (!u) { router.push('/login'); return; }
     if (u.is_global_admin) { router.push('/global-admin/dashboard'); return; }
     if (u.is_institution_admin) { router.push('/institution-admin/dashboard'); return; }
+    await loadProject();
+  };
+
+  const loadProject = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.get(`/research/projects/${params.id}`).catch(() => null);
-      setProject(res?.data || MOCK);
-    } catch { setProject(MOCK); }
-    setLoading(false);
+      const res = await api.get(`/research/projects/${params.id}`);
+      setProject(normalizeProject(res.data));
+    } catch (e) {
+      setProject(null);
+      setError(e.response?.data?.detail || 'Failed to load project.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading) return (
@@ -89,6 +138,7 @@ export default function AdminProjectDetailPage() {
 
   if (!project) return (
     <Box sx={{ p: 4, textAlign: 'center' }}>
+      {error && <Typography sx={{ color: 'error.main', mb: 1 }}>{error}</Typography>}
       <Typography>Project not found</Typography>
     </Box>
   );
@@ -123,21 +173,52 @@ export default function AdminProjectDetailPage() {
           {/* Overview */}
           <Paper elevation={0} variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
             <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Project Overview</Typography>
-            <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.7, mb: 3 }}>{project.abstract}</Typography>
+            <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.7, mb: 3 }}>
+              {project.abstract || 'No project abstract provided.'}
+            </Typography>
 
-            <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.7, mb: 1.5 }}>Objectives</Typography>
-            <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-              {project.objectives?.map((obj, i) => (
-                <Typography component="li" key={i} sx={{ fontSize: 13, color: 'text.secondary', mb: 0.8 }}>{obj}</Typography>
-              ))}
-            </Box>
+            {project.objectives?.length > 0 && (
+              <>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.7, mb: 1.5 }}>Objectives</Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {project.objectives.map((obj, i) => (
+                    <Box
+                      key={i}
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        border: `1px solid ${theme.palette.divider}`,
+                        bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
+                        {obj.title || `Objective ${i + 1}`}
+                      </Typography>
+                      {stripHtml(obj.description) && (
+                        <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 0.5, lineHeight: 1.6 }}>
+                          {stripHtml(obj.description)}
+                        </Typography>
+                      )}
+                      {stripHtml(obj.outcome) && (
+                        <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+                          Expected outcome: {stripHtml(obj.outcome)}
+                        </Typography>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+              </>
+            )}
           </Paper>
 
           {/* Milestones */}
           <Paper elevation={0} variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
             <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Project Milestones</Typography>
+            {!project.milestones_list?.length ? (
+              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No milestones defined yet.</Typography>
+            ) : (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {project.milestones_list?.map((m, i) => (
+              {project.milestones_list.map((m, i) => (
                 <Box key={i}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
                     <Typography sx={{ fontSize: 12.5, fontWeight: 600 }}>{m.name}</Typography>
@@ -148,6 +229,7 @@ export default function AdminProjectDetailPage() {
                 </Box>
               ))}
             </Box>
+            )}
           </Paper>
         </Box>
 
@@ -170,7 +252,7 @@ export default function AdminProjectDetailPage() {
                   <Typography sx={{ fontSize: 10, color: 'text.disabled', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.3 }}>{label}</Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     {icon && <Box sx={{ color: 'text.disabled' }}>{icon}</Box>}
-                    <Typography sx={{ fontSize: 12.5, fontWeight: 600 }}>{value}</Typography>
+                    <Typography sx={{ fontSize: 12.5, fontWeight: 600 }}>{value || '—'}</Typography>
                   </Box>
                 </Box>
               ))}

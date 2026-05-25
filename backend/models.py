@@ -383,7 +383,13 @@ class ProposalSection(Base):
 
     proposal = relationship("Proposal", back_populates="sections")
     last_edited_by = relationship("User", foreign_keys=[last_edited_by_id])
-    versions = relationship("ProposalSectionVersion", back_populates="section", order_by="ProposalSectionVersion.version_number.desc()")
+    versions = relationship(
+        "ProposalSectionVersion",
+        back_populates="section",
+        order_by="ProposalSectionVersion.version_number.desc()",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class ProposalSectionVersion(Base):
@@ -612,6 +618,7 @@ class ResearchProject(Base):
     dmp_retention_period = Column(String(100), nullable=True)
     dmp_sharing_plan = Column(Text, nullable=True)
     dmp_repository = Column(String(300), nullable=True)
+    dmp_plan_title = Column(String(500), nullable=True)
     dmp_linked_document_id = Column(String, ForeignKey("project_documents.id"), nullable=True)
     financial_overhead_rate = Column(String(100), nullable=True)
     financial_notes = Column(Text, nullable=True)

@@ -1,47 +1,177 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Box,
   Typography,
-  Button,
   CircularProgress,
   Alert,
   Chip,
-  LinearProgress,
   useTheme,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Button,
+  Link,
 } from '@mui/material';
 import {
-  Person as PersonIcon,
   Science as ScienceIcon,
   Assignment as AssignmentIcon,
-  LibraryBooks as LibraryIcon,
-  Groups as GroupsIcon,
-  CheckCircle as CheckCircleIcon,
+  Gavel as EthicsIcon,
+  AccountBalance as AwardIcon,
+  OpenInNew as OpenIcon,
+  Refresh as RefreshIcon,
   ArrowForward as ArrowForwardIcon,
-  School as SchoolIcon,
-  Badge as BadgeIcon,
-  Email as EmailIcon,
-  Business as BusinessIcon,
 } from '@mui/icons-material';
+import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
+
+const API = process.env.NEXT_PUBLIC_API_URL || '/api';
+const ACCENT = '#1ca7a1';
+
+const PROJECT_STATUS_META = {
+  draft:     { label: 'Draft',     color: '#64748b' },
+  proposed:  { label: 'Proposed',  color: '#f59e0b' },
+  active:    { label: 'Active',    color: '#10b981' },
+  suspended: { label: 'Suspended', color: '#ef4444' },
+  completed: { label: 'Completed', color: '#0ea5e9' },
+};
+
+const PROPOSAL_STATUS_META = {
+  draft:           { label: 'Draft',              color: '#f59e0b' },
+  returned:        { label: 'Revision Requested', color: '#f97316' },
+  submitted:       { label: 'Submitted',          color: ACCENT },
+  internal_review: { label: 'In Review',          color: '#3b82f6' },
+  under_review:    { label: 'In Review',          color: '#0ea5e9' },
+  awarded:         { label: 'Awarded',            color: '#10b981' },
+  declined:        { label: 'Not Awarded',        color: '#ef4444' },
+};
+
+const ETHICS_STATUS_META = {
+  draft:          { label: 'Draft',         color: '#64748b' },
+  submitted:      { label: 'Submitted',     color: '#f59e0b' },
+  assigned:       { label: 'Assigned',      color: '#0ea5e9' },
+  screened:       { label: 'Screened',      color: '#f59e0b' },
+  under_review:   { label: 'Under Review',  color: '#0ea5e9' },
+  decision:       { label: 'Decision',      color: '#f97316' },
+  approved:       { label: 'Approved',      color: '#10b981' },
+  final_approval: { label: 'Approved',      color: '#10b981' },
+  rejected:       { label: 'Rejected',      color: '#ef4444' },
+};
+
+const TERMINAL_PROPOSAL = new Set(['awarded', 'declined']);
+const TERMINAL_ETHICS = new Set(['approved', 'final_approval', 'rejected']);
+
+const fmtDate = d => d
+  ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  : '—';
+
+const fmtMoney = (amt, cur = 'KES') => {
+  if (amt == null || amt === '') return '—';
+  return `${cur} ${Number(amt).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+};
+
+const normalize = s => (s || '').toLowerCase();
+
+function countBy(items, keyFn) {
+  const map = {};
+  items.forEach(item => {
+    const key = keyFn(item);
+    if (!key) return;
+    map[key] = (map[key] || 0) + 1;
+  });
+  return Object.entries(map)
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function StatusChip({ label, color }) {
+  return (
+    <Chip
+      label={label}
+      size="small"
+      sx={{
+        fontSize: 11,
+        fontWeight: 700,
+        height: 24,
+        bgcolor: `${color}18`,
+        color,
+        border: `1px solid ${color}33`,
+      }}
+    />
+  );
+}
+
+function BarChart({ data, colorMap, labelMap, dark }) {
+  if (!data.length) {
+    return (
+      <Typography sx={{ color: 'text.disabled', fontSize: 13, textAlign: 'center', py: 4 }}>
+        No data yet
+      </Typography>
+    );
+  }
+  const maxCount = Math.max(...data.map(d => d.count), 1);
+  return (
+    <Box>
+      {data.map(item => {
+        const color = colorMap[item.key] || '#64748b';
+        const label = labelMap?.[item.key] || item.key.replace(/_/g, ' ');
+        const pct = (item.count / maxCount) * 100;
+        return (
+          <Box key={item.key} sx={{ mb: 1.5 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+              <Typography sx={{ fontSize: 12, color: 'text.primary', fontWeight: 500 }}>{label}</Typography>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color }}>{item.count}</Typography>
+            </Box>
+            <Box sx={{
+              height: 8,
+              bgcolor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+              borderRadius: 2,
+              overflow: 'hidden',
+            }}>
+              <Box sx={{
+                height: '100%',
+                width: `${pct}%`,
+                bgcolor: color,
+                borderRadius: 2,
+                transition: 'width 0.4s',
+              }} />
+            </Box>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
 
 export default function ResearcherOverview() {
   const router = useRouter();
-  const { fetchUser, user: cachedUser } = useAuth();
+  const { fetchUser } = useAuth();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
 
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [projects, setProjects] = useState([]);
+  const [proposals, setProposals] = useState([]);
+  const [ethicsApps, setEthicsApps] = useState([]);
+  const [awards, setAwards] = useState([]);
 
   useEffect(() => {
-    checkAuth();
+    init();
   }, []);
 
-  const checkAuth = async () => {
+  const authHeaders = () => ({
+    Authorization: `Bearer ${localStorage.getItem('token')}`,
+  });
+
+  const init = async () => {
     const userData = await fetchUser();
     if (!userData) {
       router.push('/login');
@@ -56,7 +186,122 @@ export default function ResearcherOverview() {
       return;
     }
     setUser(userData);
-    setLoading(false);
+    await loadDashboard();
+  };
+
+  const loadDashboard = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const headers = authHeaders();
+      const [projectsRes, proposalsRes, ethicsRes, awardsRes] = await Promise.all([
+        axios.get(`${API}/research/projects`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/grants/proposals`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/research/ethics/my`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/grants/awards`, { headers }).catch(() => ({ data: [] })),
+      ]);
+      setProjects(projectsRes.data || []);
+      setProposals(proposalsRes.data || []);
+      setEthicsApps(ethicsRes.data || []);
+      setAwards(awardsRes.data || []);
+    } catch {
+      setError('Failed to load dashboard data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const activeProjects = useMemo(
+    () => projects.filter(p => normalize(p.status) === 'active'),
+    [projects],
+  );
+
+  const submissions = useMemo(() => {
+    const items = [];
+
+    proposals
+      .filter(p => !TERMINAL_PROPOSAL.has(normalize(p.status)))
+      .forEach(p => {
+        const status = normalize(p.status);
+        const meta = PROPOSAL_STATUS_META[status] || { label: p.status || 'Unknown', color: '#64748b' };
+        items.push({
+          id: p.id,
+          kind: 'grant',
+          kindLabel: 'Grant Proposal',
+          title: p.title,
+          ref: p.opportunity?.title || 'Proposal',
+          status,
+          statusLabel: meta.label,
+          statusColor: meta.color,
+          date: p.submitted_at || p.created_at,
+          path: `/researcher/grants/proposals/${p.id}`,
+        });
+      });
+
+    ethicsApps
+      .filter(a => !TERMINAL_ETHICS.has(normalize(a.status)))
+      .forEach(a => {
+        const status = normalize(a.status);
+        const meta = ETHICS_STATUS_META[status] || { label: a.status || 'Unknown', color: '#64748b' };
+        items.push({
+          id: a.id,
+          kind: 'ethics',
+          kindLabel: 'Ethics Application',
+          title: a.title || a.project_title || 'Ethics application',
+          ref: a.ref,
+          status,
+          statusLabel: meta.label,
+          statusColor: meta.color,
+          date: a.submitted_at || a.created_at,
+          path: `/researcher/ethics/${a.id}`,
+        });
+      });
+
+    return items.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  }, [proposals, ethicsApps]);
+
+  const projectChartData = useMemo(
+    () => countBy(projects, p => normalize(p.status)),
+    [projects],
+  );
+
+  const submissionChartData = useMemo(() => {
+    const grantDraft = proposals.filter(p => normalize(p.status) === 'draft').length;
+    const grantReview = proposals.filter(p => ['returned', 'submitted', 'internal_review', 'under_review'].includes(normalize(p.status))).length;
+    const ethicsDraft = ethicsApps.filter(a => normalize(a.status) === 'draft').length;
+    const ethicsReview = ethicsApps.filter(a => ['submitted', 'assigned', 'screened', 'under_review', 'decision'].includes(normalize(a.status))).length;
+    return [
+      { key: 'grant_draft', count: grantDraft },
+      { key: 'grant_review', count: grantReview },
+      { key: 'ethics_draft', count: ethicsDraft },
+      { key: 'ethics_review', count: ethicsReview },
+    ].filter(d => d.count > 0);
+  }, [proposals, ethicsApps]);
+
+  const stats = useMemo(() => ({
+    activeProjects: activeProjects.length,
+    activeAwards: awards.filter(a => normalize(a.status) === 'active').length,
+    openSubmissions: submissions.length,
+    ethicsApproved: ethicsApps.filter(a => TERMINAL_ETHICS.has(normalize(a.status)) && normalize(a.status) !== 'rejected').length,
+  }), [activeProjects, awards, submissions, ethicsApps]);
+
+  const projectColorMap = Object.fromEntries(
+    Object.entries(PROJECT_STATUS_META).map(([k, v]) => [k, v.color]),
+  );
+  const projectLabelMap = Object.fromEntries(
+    Object.entries(PROJECT_STATUS_META).map(([k, v]) => [k, v.label]),
+  );
+  const submissionColorMap = {
+    grant_draft: '#f59e0b',
+    grant_review: ACCENT,
+    ethics_draft: '#64748b',
+    ethics_review: '#0ea5e9',
+  };
+  const submissionLabelMap = {
+    grant_draft: 'Grant — Draft',
+    grant_review: 'Grant — In Review',
+    ethics_draft: 'Ethics — Draft',
+    ethics_review: 'Ethics — In Review',
   };
 
   const Card = ({ children, sx = {} }) => (
@@ -73,43 +318,48 @@ export default function ResearcherOverview() {
   );
 
   const StatCard = ({ icon: Icon, iconColor, iconBg, label, value, sub, onClick }) => (
-    <Card sx={{ flex: '1 1 200px', cursor: onClick ? 'pointer' : 'default', '&:hover': onClick ? { borderColor: iconColor } : {} }}
-      onClick={onClick}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
-        <Box sx={{ width: 46, height: 46, borderRadius: 2, bgcolor: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <Card
+      sx={{
+        flex: '1 1 180px',
+        cursor: onClick ? 'pointer' : 'default',
+        '&:hover': onClick ? { borderColor: iconColor } : {},
+      }}
+      onClick={onClick}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{
+          width: 44,
+          height: 44,
+          borderRadius: 2,
+          bgcolor: iconBg,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}>
           <Icon sx={{ color: iconColor, fontSize: 22 }} />
         </Box>
         <Box>
-          <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</Typography>
-          <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, lineHeight: 1.2 }}>{value}</Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            {label}
+          </Typography>
+          <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, lineHeight: 1.2 }}>
+            {value}
+          </Typography>
+          {sub && (
+            <Typography sx={{ color: 'text.disabled', fontSize: 12, mt: 0.25 }}>{sub}</Typography>
+          )}
         </Box>
       </Box>
-      {sub && <Typography sx={{ color: 'text.disabled', fontSize: 12 }}>{sub}</Typography>}
     </Card>
   );
 
-  const profileFields = [
-    { label: 'Department', value: user?.department, icon: BusinessIcon },
-    { label: 'Job Title', value: user?.job_title, icon: BadgeIcon },
-    { label: 'Email', value: user?.email, icon: EmailIcon },
-    { label: 'ORCID iD', value: user?.orcid_id, icon: SchoolIcon },
-  ];
-
-  const filledFields = profileFields.filter(f => f.value).length;
-  const profileCompletion = Math.round((filledFields / profileFields.length) * 100);
-
-  const quickActions = [
-    { label: 'Complete My Profile', icon: PersonIcon, path: '/researcher/profile', color: '#1ca7a1', desc: 'Update your research profile' },
-    { label: 'Browse Grants', icon: AssignmentIcon, path: '/researcher/grants', color: '#8b5cf6', desc: 'Explore funding opportunities' },
-    { label: 'My Projects', icon: ScienceIcon, path: '/researcher/projects', color: '#f59e0b', desc: 'Manage active research projects' },
-    { label: 'Publications', icon: LibraryIcon, path: '/researcher/publications', color: '#10b981', desc: 'Track your research output' },
-    { label: 'Collaborations', icon: GroupsIcon, path: '/researcher/collaborations', color: '#ef4444', desc: 'Connect with other researchers' },
-  ];
+  const headCell = { fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'text.secondary', whiteSpace: 'nowrap' };
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-        <CircularProgress />
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <CircularProgress sx={{ color: ACCENT }} />
       </Box>
     );
   }
@@ -120,222 +370,301 @@ export default function ResearcherOverview() {
 
   return (
     <Box sx={{ p: { xs: 2, md: 4 } }}>
+      {error && (
+        <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
 
-      {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
-
-      {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-          <Box>
-            <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, mb: 0.5 }}>
-              {greeting}, {firstName} 👋
-            </Typography>
-            <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>
-              Welcome to your research dashboard. Here's an overview of your activity.
-            </Typography>
-          </Box>
-          <Button
-            variant="contained"
-            startIcon={<PersonIcon />}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3.5, gap: 2, flexWrap: 'wrap' }}>
+        <Box>
+          <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, mb: 0.5 }}>
+            {greeting}, {firstName}
+          </Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>
+            Live snapshot of your projects, submissions, and funding activity.
+          </Typography>
+          <Link
+            component="button"
+            underline="hover"
             onClick={() => router.push('/researcher/profile')}
             sx={{
-              bgcolor: '#1ca7a1',
-              textTransform: 'none',
-              borderRadius: 2,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.5,
+              mt: 1,
+              fontSize: 13,
               fontWeight: 600,
-              '&:hover': { bgcolor: '#0e7490' },
+              color: ACCENT,
+              cursor: 'pointer',
             }}
           >
-            Edit Profile
-          </Button>
+            View profile
+            <ArrowForwardIcon sx={{ fontSize: 14 }} />
+          </Link>
         </Box>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
+          onClick={loadDashboard}
+          sx={{ textTransform: 'none', borderRadius: 2 }}
+        >
+          Refresh
+        </Button>
       </Box>
 
-      {/* Stat Cards */}
-      <Box sx={{ display: 'flex', gap: 2.5, mb: 3.5, flexWrap: 'wrap' }}>
-        <StatCard
-          icon={AssignmentIcon}
-          iconColor="#8b5cf6"
-          iconBg="rgba(139,92,246,0.1)"
-          label="Active Grants"
-          value="0"
-          sub="No active grants yet"
-          onClick={() => router.push('/researcher/grants')}
-        />
+      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <StatCard
           icon={ScienceIcon}
-          iconColor="#f59e0b"
-          iconBg="rgba(245,158,11,0.1)"
-          label="Projects"
-          value="0"
-          sub="No projects yet"
+          iconColor="#10b981"
+          iconBg="rgba(16,185,129,0.1)"
+          label="Active Projects"
+          value={stats.activeProjects}
+          sub={stats.activeProjects === 1 ? '1 running project' : `${stats.activeProjects} running projects`}
           onClick={() => router.push('/researcher/projects')}
         />
         <StatCard
-          icon={LibraryIcon}
-          iconColor="#10b981"
-          iconBg="rgba(16,185,129,0.1)"
-          label="Publications"
-          value="0"
-          sub="No publications yet"
-          onClick={() => router.push('/researcher/publications')}
+          icon={AwardIcon}
+          iconColor="#8b5cf6"
+          iconBg="rgba(139,92,246,0.1)"
+          label="Active Awards"
+          value={stats.activeAwards}
+          sub="Funded grants in progress"
+          onClick={() => router.push('/researcher/grants/awards')}
         />
         <StatCard
-          icon={GroupsIcon}
-          iconColor="#ef4444"
-          iconBg="rgba(239,68,68,0.1)"
-          label="Collaborators"
-          value="0"
-          sub="No collaborations yet"
-          onClick={() => router.push('/researcher/collaborations')}
+          icon={AssignmentIcon}
+          iconColor={ACCENT}
+          iconBg="rgba(28,167,161,0.1)"
+          label="Open Submissions"
+          value={stats.openSubmissions}
+          sub="Proposals & ethics pending"
+        />
+        <StatCard
+          icon={EthicsIcon}
+          iconColor="#0ea5e9"
+          iconBg="rgba(14,165,233,0.1)"
+          label="Ethics Cleared"
+          value={stats.ethicsApproved}
+          sub="Approved applications"
+          onClick={() => router.push('/researcher/ethics')}
         />
       </Box>
 
-      {/* Two-column layout */}
-      <Box sx={{ display: 'flex', gap: 2.5, flexWrap: 'wrap' }}>
-
-        {/* Profile Completion */}
-        <Card sx={{ flex: '1 1 340px' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Box>
-              <Typography sx={{ color: '#1ca7a1', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
-                Profile
-              </Typography>
-              <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600 }}>
-                Profile Completion
-              </Typography>
-            </Box>
-            <Typography sx={{ color: 'text.primary', fontSize: 22, fontWeight: 700 }}>{profileCompletion}%</Typography>
-          </Box>
-          <LinearProgress
-            variant="determinate"
-            value={profileCompletion}
-            sx={{
-              mb: 2.5,
-              height: 8,
-              borderRadius: 4,
-              bgcolor: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-              '& .MuiLinearProgress-bar': { bgcolor: '#1ca7a1', borderRadius: 4 },
-            }}
-          />
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            {profileFields.map(({ label, value, icon: Icon }) => (
-              <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Box sx={{
-                  width: 32, height: 32, borderRadius: 1.5,
-                  bgcolor: value ? 'rgba(28,167,161,0.1)' : (dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {value
-                    ? <CheckCircleIcon sx={{ fontSize: 16, color: '#1ca7a1' }} />
-                    : <Icon sx={{ fontSize: 16, color: 'text.disabled' }} />
-                  }
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 600 }}>{label}</Typography>
-                  <Typography sx={{ color: value ? 'text.primary' : 'text.disabled', fontSize: 13, fontWeight: value ? 500 : 400 }}>
-                    {value || 'Not set'}
-                  </Typography>
-                </Box>
-                {!value && (
-                  <Chip label="Add" size="small" onClick={() => router.push('/researcher/profile')}
-                    sx={{ fontSize: 11, height: 22, bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1', cursor: 'pointer', border: 'none' }} />
-                )}
-              </Box>
-            ))}
-          </Box>
-          {profileCompletion < 100 && (
-            <Button
-              fullWidth
-              variant="outlined"
-              endIcon={<ArrowForwardIcon />}
-              onClick={() => router.push('/researcher/profile')}
-              sx={{
-                mt: 2.5,
-                borderColor: '#1ca7a1',
-                color: '#1ca7a1',
-                textTransform: 'none',
-                borderRadius: 2,
-                fontWeight: 600,
-                '&:hover': { bgcolor: 'rgba(28,167,161,0.05)', borderColor: '#0e7490' },
-              }}
-            >
-              Complete Profile
-            </Button>
-          )}
-        </Card>
-
-        {/* Quick Actions */}
-        <Card sx={{ flex: '1 1 300px' }}>
-          <Typography sx={{ color: '#f97316', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
-            Quick
-          </Typography>
-          <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600, mb: 2.5 }}>
-            Actions
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            {quickActions.map(({ label, icon: Icon, path, color, desc }) => (
-              <Box
-                key={label}
-                onClick={() => router.push(path)}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1.5,
-                  p: 1.5,
-                  borderRadius: 2,
-                  cursor: 'pointer',
-                  border: `1px solid ${theme.palette.divider}`,
-                  transition: 'all 0.2s',
-                  '&:hover': { borderColor: color, bgcolor: `${color}08` },
-                }}
-              >
-                <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon sx={{ color, fontSize: 18 }} />
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ color: 'text.primary', fontSize: 13, fontWeight: 600 }}>{label}</Typography>
-                  <Typography sx={{ color: 'text.secondary', fontSize: 11 }}>{desc}</Typography>
-                </Box>
-                <ArrowForwardIcon sx={{ color: 'text.disabled', fontSize: 16 }} />
-              </Box>
-            ))}
-          </Box>
-        </Card>
-
-      </Box>
-
-      {/* Institution Info */}
-      {user?.primary_institution_id && (
-        <Card sx={{ mt: 2.5 }}>
-          <Typography sx={{ color: '#0ea5e9', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
-            Institution
+      <Box sx={{ display: 'flex', gap: 2.5, mb: 3, flexWrap: 'wrap' }}>
+        <Card sx={{ flex: '1 1 280px' }}>
+          <Typography sx={{ color: ACCENT, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
+            Portfolio
           </Typography>
           <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600, mb: 2 }}>
-            Your Affiliation
+            Projects by Status
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <BusinessIcon sx={{ color: '#0ea5e9', fontSize: 20 }} />
-              <Typography sx={{ color: 'text.primary', fontSize: 14, fontWeight: 600 }}>
-                {user.institution_name || `Institution ID: ${user.primary_institution_id}`}
-              </Typography>
-            </Box>
-            {user.department && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <ScienceIcon sx={{ color: 'text.secondary', fontSize: 18 }} />
-                <Typography sx={{ color: 'text.secondary', fontSize: 13 }}>{user.department}</Typography>
-              </Box>
-            )}
-            <Chip
-              label="Account Active"
-              size="small"
-              icon={<CheckCircleIcon />}
-              sx={{ bgcolor: 'rgba(16,185,129,0.1)', color: '#10b981', '& .MuiChip-icon': { color: '#10b981' } }}
-            />
-          </Box>
+          <BarChart
+            data={projectChartData}
+            colorMap={projectColorMap}
+            labelMap={projectLabelMap}
+            dark={dark}
+          />
         </Card>
-      )}
+        <Card sx={{ flex: '1 1 280px' }}>
+          <Typography sx={{ color: '#f97316', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
+            Pipeline
+          </Typography>
+          <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600, mb: 2 }}>
+            Submissions Overview
+          </Typography>
+          <BarChart
+            data={submissionChartData}
+            colorMap={submissionColorMap}
+            labelMap={submissionLabelMap}
+            dark={dark}
+          />
+        </Card>
+      </Box>
+
+      <Card sx={{ mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
+          <Box>
+            <Typography sx={{ color: '#10b981', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
+              Running
+            </Typography>
+            <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600 }}>
+              Active Projects
+            </Typography>
+          </Box>
+          <Button
+            size="small"
+            endIcon={<OpenIcon sx={{ fontSize: 14 }} />}
+            onClick={() => router.push('/researcher/projects')}
+            sx={{ textTransform: 'none', color: ACCENT }}
+          >
+            All projects
+          </Button>
+        </Box>
+
+        {activeProjects.length === 0 ? (
+          <Typography sx={{ color: 'text.secondary', fontSize: 13, py: 3, textAlign: 'center' }}>
+            No active projects yet. Convert an award or complete project setup to get started.
+          </Typography>
+        ) : (
+          <Paper elevation={0} variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
+                    <TableCell sx={headCell}>Project</TableCell>
+                    <TableCell sx={headCell}>Funder</TableCell>
+                    <TableCell sx={headCell} align="right">Award</TableCell>
+                    <TableCell sx={headCell}>Period</TableCell>
+                    <TableCell sx={headCell}>Ethics</TableCell>
+                    <TableCell sx={headCell}>Progress</TableCell>
+                    <TableCell sx={headCell} align="right">Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {activeProjects.slice(0, 8).map(p => {
+                    const total = p.milestone_count || 0;
+                    const done = p.done_milestone_count || 0;
+                    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                    const ethicsColor = ETHICS_STATUS_META[normalize(p.ethics_status)]?.color || '#64748b';
+                    return (
+                      <TableRow
+                        key={p.id}
+                        hover
+                        sx={{ cursor: 'pointer' }}
+                        onClick={() => router.push(`/researcher/projects/${p.id}`)}
+                      >
+                        <TableCell>
+                          <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{p.title}</Typography>
+                          <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{p.project_code}</Typography>
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 13 }}>{p.funder_name || '—'}</TableCell>
+                        <TableCell align="right" sx={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                          {fmtMoney(p.total_amount, p.currency)}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                          {fmtDate(p.start_date)} – {fmtDate(p.end_date)}
+                        </TableCell>
+                        <TableCell>
+                          {p.ethics_status
+                            ? <StatusChip label={ETHICS_STATUS_META[normalize(p.ethics_status)]?.label || p.ethics_status} color={ethicsColor} />
+                            : <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>—</Typography>}
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 120 }}>
+                          <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>
+                            {done}/{total} milestones · {pct}%
+                          </Typography>
+                          <Box sx={{
+                            height: 6,
+                            bgcolor: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                            borderRadius: 3,
+                            overflow: 'hidden',
+                          }}>
+                            <Box sx={{ height: '100%', width: `${pct}%`, bgcolor: ACCENT, borderRadius: 3 }} />
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right">
+                          <OpenIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        )}
+      </Card>
+
+      <Card>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
+          <Box>
+            <Typography sx={{ color: '#f59e0b', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
+              In Progress
+            </Typography>
+            <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600 }}>
+              Submissions
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              size="small"
+              onClick={() => router.push('/researcher/grants/proposals')}
+              sx={{ textTransform: 'none', color: ACCENT }}
+            >
+              Proposals
+            </Button>
+            <Button
+              size="small"
+              onClick={() => router.push('/researcher/ethics')}
+              sx={{ textTransform: 'none', color: ACCENT }}
+            >
+              Ethics
+            </Button>
+          </Box>
+        </Box>
+
+        {submissions.length === 0 ? (
+          <Typography sx={{ color: 'text.secondary', fontSize: 13, py: 3, textAlign: 'center' }}>
+            No open submissions. Draft a grant proposal or submit an ethics application to see it here.
+          </Typography>
+        ) : (
+          <Paper elevation={0} variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
+                    <TableCell sx={headCell}>Type</TableCell>
+                    <TableCell sx={headCell}>Title</TableCell>
+                    <TableCell sx={headCell}>Reference</TableCell>
+                    <TableCell sx={headCell}>Status</TableCell>
+                    <TableCell sx={headCell}>Updated</TableCell>
+                    <TableCell sx={headCell} align="right">Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {submissions.slice(0, 10).map(item => (
+                    <TableRow
+                      key={`${item.kind}-${item.id}`}
+                      hover
+                      sx={{ cursor: 'pointer' }}
+                      onClick={() => router.push(item.path)}
+                    >
+                      <TableCell>
+                        <Chip
+                          label={item.kindLabel}
+                          size="small"
+                          sx={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            height: 22,
+                            bgcolor: item.kind === 'grant' ? 'rgba(139,92,246,0.1)' : 'rgba(14,165,233,0.1)',
+                            color: item.kind === 'grant' ? '#8b5cf6' : '#0ea5e9',
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600 }} noWrap>{item.title}</Typography>
+                      </TableCell>
+                      <TableCell sx={{ fontSize: 12, color: 'text.secondary', maxWidth: 180 }} noWrap>
+                        {item.ref || '—'}
+                      </TableCell>
+                      <TableCell>
+                        <StatusChip label={item.statusLabel} color={item.statusColor} />
+                      </TableCell>
+                      <TableCell sx={{ fontSize: 13, whiteSpace: 'nowrap' }}>{fmtDate(item.date)}</TableCell>
+                      <TableCell align="right">
+                        <OpenIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        )}
+      </Card>
     </Box>
   );
 }

@@ -106,6 +106,131 @@ def _serialize_ethics(app: EthicsApplication) -> dict:
     }
 
 
+REVIEW_QUEUE_STATUSES = (
+    EthicsStatus.SUBMITTED,
+    EthicsStatus.UNDER_REVIEW,
+    EthicsStatus.DEFERRED,
+)
+
+STAGE_LABELS = {
+    "submitted": "Initial Submission",
+    "screened": "Administrative Screening",
+    "assigned": "Reviewer Assignment",
+    "under_review": "Committee Review",
+    "decision": "Decision Pending",
+    "final_approval": "Final Approval",
+    "deferred": "Deferred — Awaiting Resubmission",
+    "approved": "Approved",
+    "approved_with_modifications": "Approved with Modifications",
+    "rejected": "Rejected",
+    "draft": "Draft",
+}
+
+
+def _infer_risk_level(app: EthicsApplication, project: Optional[ResearchProject]) -> str:
+    if project:
+        if getattr(project, "is_clinical_trial", False):
+            return "High"
+        if getattr(project, "involves_human_subjects", False):
+            return "High"
+        if getattr(project, "involves_sensitive_data", False) or getattr(project, "involves_animal_subjects", False):
+            return "Medium"
+    risk = (app.risk_assessment or "").lower()
+    if any(word in risk for word in ("high", "serious", "significant", "major")):
+        return "High"
+    if any(word in risk for word in ("medium", "moderate")):
+        return "Medium"
+    return "Low"
+
+
+def _serialize_review(app: EthicsApplication) -> dict:
+    data = _serialize_ethics(app)
+    project = app.project
+    status_val = data["status"]
+    data.update({
+        "application_title": app.title,
+        "pi_name": data.get("submitted_by_name") or data.get("pi"),
+        "institution": (
+            (project.lead_institution if project else None)
+            or (app.submitted_by.department if app.submitted_by else None)
+        ),
+        "risk_level": _infer_risk_level(app, project),
+        "assigned_at": app.submitted_at or app.created_at,
+        "stage_name": STAGE_LABELS.get(status_val, status_val.replace("_", " ").title()),
+        "study_type": getattr(project, "research_design", None) if project else None,
+        "participant_details": getattr(project, "target_population", None) if project else None,
+        "consent_process": app.data_handling,
+        "risks": app.risk_assessment,
+        "benefits": app.lay_summary,
+        "methodology_summary": app.methodology,
+        "participants": getattr(project, "target_population", None) if project else None,
+    })
+    return data
+
+
+async def _get_institution_ethics_app(
+    db: AsyncSession,
+    app_id: str,
+    institution_id: str,
+) -> EthicsApplication:
+    result = await db.execute(
+        select(EthicsApplication)
+        .where(
+            EthicsApplication.id == app_id,
+            EthicsApplication.institution_id == institution_id,
+        )
+        .options(*_ETHICS_LOAD)
+    )
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(404, "Ethics application not found")
+    return app
+
+
+@router.get("/reviews/my")
+async def list_my_ethics_reviews(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.ETHICS_REVIEWER,
+        ResearchRole.ETHICS_CHAIR,
+        ResearchRole.INSTITUTIONAL_LEAD,
+        ResearchRole.GRANT_OFFICER,
+    ]))
+):
+    """Ethics applications awaiting committee review at the user's institution."""
+    if not current_user.primary_institution_id:
+        raise HTTPException(400, "User must be associated with an institution")
+
+    result = await db.execute(
+        select(EthicsApplication)
+        .where(
+            EthicsApplication.institution_id == current_user.primary_institution_id,
+            EthicsApplication.status.in_(REVIEW_QUEUE_STATUSES),
+            EthicsApplication.application_type != "existing_clearance",
+        )
+        .options(*_ETHICS_LOAD)
+        .order_by(EthicsApplication.submitted_at.desc().nullslast(), EthicsApplication.created_at.desc())
+    )
+    return [_serialize_review(a) for a in result.scalars().all()]
+
+
+@router.get("/reviews/{app_id}")
+async def get_ethics_review(
+    app_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.ETHICS_REVIEWER,
+        ResearchRole.ETHICS_CHAIR,
+        ResearchRole.INSTITUTIONAL_LEAD,
+        ResearchRole.GRANT_OFFICER,
+    ]))
+):
+    if not current_user.primary_institution_id:
+        raise HTTPException(400, "User must be associated with an institution")
+    app = await _get_institution_ethics_app(db, app_id, current_user.primary_institution_id)
+    return _serialize_review(app)
+
+
 @router.get("/my")
 async def list_my_applications(
     db: AsyncSession = Depends(get_db),

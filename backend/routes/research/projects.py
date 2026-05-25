@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional, List, Any
 from datetime import datetime, timezone
-import os, uuid, shutil, json
+import os, uuid, shutil, json, tempfile
 
 from database import get_db
 from models import (ResearchProject, ProjectStatus, ProjectMember,
@@ -15,6 +15,8 @@ from models import (ResearchProject, ProjectStatus, ProjectMember,
                     User, EthicsApplication, PrimaryAccountType)
 from auth import require_roles, ResearchRole
 from services.notifications import create_notification
+from services.file_upload import save_upload
+from services.dmp_document_parser import parse_dmp_fields
 
 router = APIRouter(prefix="/api/research/projects", tags=["research-projects"])
 
@@ -80,6 +82,7 @@ class ProjectUpdate(BaseModel):
     dmp_retention_period: Optional[str] = None
     dmp_sharing_plan: Optional[str] = None
     dmp_repository: Optional[str] = None
+    dmp_plan_title: Optional[str] = None
     dmp_linked_document_id: Optional[str] = None
     financial_overhead_rate: Optional[str] = None
     financial_notes: Optional[str] = None
@@ -464,6 +467,7 @@ def _serialize_project(p: ResearchProject) -> dict:
         "dmp_retention_period": getattr(p, "dmp_retention_period", None),
         "dmp_sharing_plan": getattr(p, "dmp_sharing_plan", None),
         "dmp_repository": getattr(p, "dmp_repository", None),
+        "dmp_plan_title": getattr(p, "dmp_plan_title", None),
         "dmp_linked_document_id": getattr(p, "dmp_linked_document_id", None),
         "financial_overhead_rate": getattr(p, "financial_overhead_rate", None),
         "financial_notes": getattr(p, "financial_notes", None),
@@ -539,21 +543,177 @@ async def list_my_dmp_documents(
     result = await db.execute(
         select(ResearchProject)
         .where(ResearchProject.pi_id == current_user.id)
-        .options(selectinload(ResearchProject.project_documents))
+        .options(
+            selectinload(ResearchProject.project_documents),
+            selectinload(ResearchProject.pi),
+            selectinload(ResearchProject.award),
+        )
         .order_by(ResearchProject.created_at.desc())
     )
+
+    def dmp_status(project: ResearchProject) -> str:
+        status = project.status.value if hasattr(project.status, "value") else project.status
+        if status == ProjectStatus.DRAFT.value:
+            return "draft"
+        if status == ProjectStatus.PROPOSED.value:
+            return "submitted"
+        if status in (ProjectStatus.ACTIVE.value, ProjectStatus.COMPLETED.value):
+            return "approved"
+        return "draft"
+
     documents = []
     for project in result.scalars().all():
         for doc in (project.project_documents or []):
-            if doc.document_type == "data_management_plan":
-                documents.append({
-                    "id": doc.id,
-                    "original_filename": doc.original_filename,
-                    "uploaded_at": doc.uploaded_at,
-                    "project_id": project.id,
-                    "project_title": project.title,
-                })
+            if doc.document_type != "data_management_plan":
+                continue
+            uploaded_at = doc.uploaded_at
+            ref_suffix = uploaded_at.strftime("%Y") if uploaded_at else "0000"
+            documents.append({
+                "id": doc.id,
+                "ref": f"DMP-{ref_suffix}-{doc.id[:6].upper()}",
+                "title": project.dmp_plan_title or f"Data Management Plan — {project.title}",
+                "original_filename": doc.original_filename,
+                "uploaded_at": uploaded_at,
+                "project_id": project.id,
+                "project_title": project.title,
+                "pi": project.pi.name if project.pi else (project.pi_full_name or current_user.name),
+                "data_steward": project.pi_full_name or (project.pi.name if project.pi else current_user.name),
+                "funder": project.award.funder_name if project.award else None,
+                "repository": project.dmp_repository,
+                "data_volume": project.dmp_estimated_volume,
+                "status": dmp_status(project),
+                "file_size_bytes": doc.file_size_bytes,
+            })
+
+    documents.sort(
+        key=lambda item: item["uploaded_at"] or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
     return documents
+
+
+def _apply_parsed_dmp_fields(project: ResearchProject, parsed: dict, overrides: dict) -> None:
+    project.dmp_entry_mode = "upload"
+    project.dmp_plan_title = overrides.get("plan_title") or parsed.get("plan_title")
+    for field, attr in (
+        ("types_of_data", "dmp_types_of_data"),
+        ("estimated_volume", "dmp_estimated_volume"),
+        ("data_formats", "dmp_data_formats"),
+        ("repository", "dmp_repository"),
+        ("retention_period", "dmp_retention_period"),
+        ("primary_storage", "dmp_primary_storage"),
+    ):
+        value = overrides.get(field) or parsed.get(field)
+        if value:
+            setattr(project, attr, value)
+
+
+async def _parse_uploaded_dmp_file(file: UploadFile, project_title: Optional[str] = None) -> tuple[dict, str]:
+    suffix = os.path.splitext(file.filename or "")[1] or ".bin"
+    content = await file.read()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+    parsed = parse_dmp_fields(tmp_path, file.content_type, file.filename, project_title)
+    return parsed, tmp_path
+
+
+@router.post("/dmp/parse-preview")
+async def parse_dmp_preview(
+    file: UploadFile = File(...),
+    project_id: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR])),
+):
+    project_title = None
+    if project_id:
+        result = await db.execute(select(ResearchProject).where(
+            ResearchProject.id == project_id,
+            ResearchProject.pi_id == current_user.id,
+        ))
+        project = result.scalar_one_or_none()
+        if project:
+            project_title = project.title
+
+    parsed, tmp_path = await _parse_uploaded_dmp_file(file, project_title)
+    os.unlink(tmp_path)
+    return parsed
+
+
+@router.post("/{project_id}/dmp-upload", status_code=201)
+async def upload_dmp_document(
+    project_id: str,
+    file: UploadFile = File(...),
+    plan_title: Optional[str] = Form(None),
+    types_of_data: Optional[str] = Form(None),
+    estimated_volume: Optional[str] = Form(None),
+    data_formats: Optional[str] = Form(None),
+    repository: Optional[str] = Form(None),
+    retention_period: Optional[str] = Form(None),
+    primary_storage: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR])),
+):
+    result = await db.execute(select(ResearchProject).where(ResearchProject.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project or project.pi_id != current_user.id:
+        raise HTTPException(404, "Project not found")
+    if project.institution_id != current_user.primary_institution_id:
+        raise HTTPException(404, "Project not found")
+
+    parsed, tmp_path = await _parse_uploaded_dmp_file(file, project.title)
+    try:
+        overrides = {
+            "plan_title": plan_title,
+            "types_of_data": types_of_data,
+            "estimated_volume": estimated_volume,
+            "data_formats": data_formats,
+            "repository": repository,
+            "retention_period": retention_period,
+            "primary_storage": primary_storage,
+        }
+        _apply_parsed_dmp_fields(project, parsed, overrides)
+
+        existing_docs = await db.execute(select(ProjectDocument).where(
+            ProjectDocument.project_id == project_id,
+            ProjectDocument.document_type == "data_management_plan",
+        ))
+        for old_doc in existing_docs.scalars().all():
+            await db.delete(old_doc)
+        await db.flush()
+
+        await file.seek(0)
+        file_info = await save_upload(file, subfolder="projects")
+        doc = ProjectDocument(
+            project_id=project_id,
+            document_type="data_management_plan",
+            uploaded_by_id=current_user.id,
+            **file_info,
+        )
+        db.add(doc)
+        await db.flush()
+        project.dmp_linked_document_id = doc.id
+        await db.commit()
+        await db.refresh(doc)
+
+        return {
+            "id": doc.id,
+            "original_filename": doc.original_filename,
+            "project_id": project_id,
+            "metadata": {
+                "plan_title": project.dmp_plan_title,
+                "types_of_data": project.dmp_types_of_data,
+                "estimated_volume": project.dmp_estimated_volume,
+                "data_formats": project.dmp_data_formats,
+                "repository": project.dmp_repository,
+                "retention_period": project.dmp_retention_period,
+                "primary_storage": project.dmp_primary_storage,
+                "text_extracted": parsed.get("text_extracted", False),
+            },
+        }
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 # ─── CREATE ───────────────────────────────────────────────────────────────────
@@ -1355,24 +1515,17 @@ async def upload_document(
 ):
     result = await db.execute(select(ResearchProject).where(ResearchProject.id == project_id))
     project = result.scalar_one_or_none()
-    if not project or project.institution_id != current_user.primary_institution_id:
+    if not project or project.pi_id != current_user.id:
+        raise HTTPException(404, "Project not found")
+    if project.institution_id != current_user.primary_institution_id:
         raise HTTPException(404, "Project not found")
 
-    ext = os.path.splitext(file.filename or "")[1]
-    stored = f"{uuid.uuid4().hex}{ext}"
-    dest = os.path.join(UPLOAD_DIR, stored)
-    with open(dest, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    size = os.path.getsize(dest)
-
+    file_info = await save_upload(file, subfolder="projects")
     doc = ProjectDocument(
         project_id=project_id,
         document_type=document_type,
-        original_filename=file.filename,
-        stored_filename=stored,
-        file_size_bytes=size,
-        mime_type=file.content_type,
         uploaded_by_id=current_user.id,
+        **file_info,
     )
     db.add(doc)
     await db.commit()

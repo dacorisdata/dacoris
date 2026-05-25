@@ -3,22 +3,6 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import {
   Box, Typography, Button, CircularProgress, Alert, Chip, Paper, LinearProgress,
   IconButton, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem,
   ListItemText, Divider, useTheme, Badge, Collapse, TextField, Avatar, AvatarGroup,
@@ -30,8 +14,9 @@ import {
   People as PeopleIcon, CheckCircle as CheckIcon, RadioButtonUnchecked as UncheckedIcon,
   Description as DocIcon, ExpandMore as ExpandIcon, ExpandLess as CollapseIcon,
   CloudUpload as CloudUploadIcon, Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon,
-  History as HistoryIcon, DragIndicator as DragIcon, Lock as LockIcon, Restore as RestoreIcon,
-  CommentBank as CommentIcon, Close as CloseIcon
+  History as HistoryIcon, Lock as LockIcon, Restore as RestoreIcon,
+  CommentBank as CommentIcon, Close as CloseIcon,
+  KeyboardArrowUp as MoveUpIcon, KeyboardArrowDown as MoveDownIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -40,29 +25,27 @@ const TiptapEditor = dynamic(() => import('../../../../../components/TiptapEdito
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#16a699';
 
-// Sortable Section Item Component
-function SortableSection({ section, sectionData, isActive, isDraft, dark, onSwitch, onEdit, onDelete }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: section.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
+// Section list item with up/down reorder controls
+function SectionListItem({
+  section,
+  sectionData,
+  isActive,
+  isDraft,
+  dark,
+  index,
+  totalCount,
+  onSwitch,
+  onEdit,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+}) {
   const isComplete = (sectionData.wordCount || 0) > 50;
+  const canMoveUp = isDraft && index > 0;
+  const canMoveDown = isDraft && index < totalCount - 1;
 
   return (
     <ListItem
-      ref={setNodeRef}
-      style={style}
       button
       selected={isActive}
       onClick={() => onSwitch(section.id)}
@@ -71,17 +54,42 @@ function SortableSection({ section, sectionData, isActive, isDraft, dark, onSwit
         mb: 0.5,
         px: 1.5,
         py: 1,
-        '&.Mui-selected': { 
-          bgcolor: ACCENT + '15', 
-          '&:hover': { bgcolor: ACCENT + '20' }
+        '&.Mui-selected': {
+          bgcolor: ACCENT + '15',
+          '&:hover': { bgcolor: ACCENT + '20' },
         },
         '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' },
-        cursor: isDragging ? 'grabbing' : 'pointer'
       }}
       secondaryAction={
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <IconButton 
-            size="small" 
+        <Box sx={{ display: 'flex', gap: 0.25, alignItems: 'center' }}>
+          {isDraft && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', mr: 0.25 }}>
+              <IconButton
+                size="small"
+                disabled={!canMoveUp}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMoveUp(section.id);
+                }}
+                sx={{ p: 0.25 }}
+              >
+                <MoveUpIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+              <IconButton
+                size="small"
+                disabled={!canMoveDown}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMoveDown(section.id);
+                }}
+                sx={{ p: 0.25 }}
+              >
+                <MoveDownIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Box>
+          )}
+          <IconButton
+            size="small"
             onClick={(e) => {
               e.stopPropagation();
               onEdit(section);
@@ -91,8 +99,8 @@ function SortableSection({ section, sectionData, isActive, isDraft, dark, onSwit
           >
             <EditIcon sx={{ fontSize: 14 }} />
           </IconButton>
-          <IconButton 
-            size="small" 
+          <IconButton
+            size="small"
             onClick={(e) => {
               e.stopPropagation();
               onDelete(section.id);
@@ -105,18 +113,7 @@ function SortableSection({ section, sectionData, isActive, isDraft, dark, onSwit
         </Box>
       }
     >
-      <Box 
-        {...attributes} 
-        {...listeners} 
-        sx={{ 
-          mr: 1, 
-          cursor: isDraft ? 'grab' : 'default',
-          display: 'flex',
-          alignItems: 'center',
-          '&:active': { cursor: isDraft ? 'grabbing' : 'default' }
-        }}
-      >
-        {isDraft && <DragIcon sx={{ fontSize: 16, color: 'text.disabled', mr: 0.5 }} />}
+      <Box sx={{ mr: 1, display: 'flex', alignItems: 'center' }}>
         {isComplete ? (
           <CheckIcon sx={{ fontSize: 16, color: '#10b981' }} />
         ) : (
@@ -126,8 +123,9 @@ function SortableSection({ section, sectionData, isActive, isDraft, dark, onSwit
       <ListItemText
         primary={section.title}
         secondary={`${sectionData.wordCount || 0} words`}
-        primaryTypographyProps={{ fontSize: 13, fontWeight: isActive ? 600 : 400 }}
+        primaryTypographyProps={{ fontSize: 13, fontWeight: isActive ? 600 : 400, noWrap: true }}
         secondaryTypographyProps={{ fontSize: 11 }}
+        sx={{ pr: isDraft ? 11 : 6 }}
       />
     </ListItem>
   );
@@ -183,14 +181,7 @@ export default function ProposalWorkspacePage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [editTitleDialog, setEditTitleDialog] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
-
-  // Drag and drop sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  const [reorderingSection, setReorderingSection] = useState(false);
 
   useEffect(() => {
     loadProposal({ initialLoad: true });
@@ -245,7 +236,7 @@ export default function ProposalWorkspacePage() {
 
   // Auto-save every 30 seconds when the active section has unsaved changes
   useEffect(() => {
-    if (!proposal || proposal.status?.toUpperCase() !== 'DRAFT' || !currentSection) return;
+    if (!proposal || proposal.status?.toUpperCase() !== 'DRAFT' || !currentSection || reorderingSection) return;
 
     const interval = setInterval(() => {
       if (isSectionDirty(currentSection, sectionContent, wordCount)) {
@@ -254,7 +245,7 @@ export default function ProposalWorkspacePage() {
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [sectionContent, wordCount, proposal, currentSection, sections]);
+  }, [sectionContent, wordCount, proposal, currentSection, sections, reorderingSection]);
 
   // Auto-save when leaving the page
   useEffect(() => {
@@ -555,29 +546,39 @@ export default function ProposalWorkspacePage() {
     setEditSectionDialog(true);
   };
 
-  const handleDragEnd = async (event) => {
-    const { active, over } = event;
-
-    if (!over || active.id === over.id) return;
-
-    const oldIndex = proposalSections.findIndex((s) => s.id === active.id);
-    const newIndex = proposalSections.findIndex((s) => s.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-
-    const newOrder = arrayMove(proposalSections, oldIndex, newIndex);
+  const persistSectionOrder = async (newOrder) => {
+    const previousOrder = proposalSections;
     setProposalSections(newOrder);
+    setReorderingSection(true);
 
     try {
       const token = localStorage.getItem('token');
       await axios.put(
         `${API_URL}/grants/proposals/${params.id}/sections/reorder`,
-        { section_ids: newOrder.map(s => s.id) },
+        { section_ids: newOrder.map((s) => s.id) },
         { headers: { Authorization: `Bearer ${token}` } }
       );
     } catch (e) {
       console.error('Failed to save section order:', e);
-      await loadProposal({ preserveSectionId: currentSection });
+      setProposalSections(previousOrder);
+      setError(e.response?.data?.detail || 'Failed to save section order');
+    } finally {
+      setReorderingSection(false);
     }
+  };
+
+  const moveSection = (sectionId, direction) => {
+    if (proposal?.status?.toUpperCase() !== 'DRAFT' || reorderingSection) return;
+
+    const index = proposalSections.findIndex((s) => s.id === sectionId);
+    if (index < 0) return;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= proposalSections.length) return;
+
+    const newOrder = [...proposalSections];
+    [newOrder[index], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[index]];
+    persistSectionOrder(newOrder);
   };
 
   const openVersionHistory = async (sectionId) => {
@@ -939,7 +940,7 @@ export default function ProposalWorkspacePage() {
       <Box sx={{ display: 'flex', height: 'calc(100vh - 280px)' }}>
         {/* Sidebar */}
         <Box sx={{ 
-          width: 280, 
+          width: 300, 
           borderRight: `1px solid ${theme.palette.divider}`,
           overflowY: 'auto',
           bgcolor: dark ? 'rgba(255,255,255,0.01)' : 'rgba(0,0,0,0.01)'
@@ -966,32 +967,25 @@ export default function ProposalWorkspacePage() {
             </Box>
             
             <Collapse in={sectionsExpanded}>
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext
-                  items={proposalSections.map(s => s.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <List dense sx={{ py: 0 }}>
-                    {proposalSections.map((section) => (
-                      <SortableSection
-                        key={section.id}
-                        section={section}
-                        sectionData={sections[section.id] || {}}
-                        isActive={currentSection === section.id}
-                        isDraft={isDraft}
-                        dark={dark}
-                        onSwitch={switchSection}
-                        onEdit={openEditSection}
-                        onDelete={deleteSection}
-                      />
-                    ))}
-                  </List>
-                </SortableContext>
-              </DndContext>
+              <List dense sx={{ py: 0 }}>
+                {proposalSections.map((section, index) => (
+                  <SectionListItem
+                    key={section.id}
+                    section={section}
+                    sectionData={sections[section.id] || {}}
+                    isActive={currentSection === section.id}
+                    isDraft={isDraft}
+                    dark={dark}
+                    index={index}
+                    totalCount={proposalSections.length}
+                    onSwitch={switchSection}
+                    onEdit={openEditSection}
+                    onDelete={deleteSection}
+                    onMoveUp={(sectionId) => moveSection(sectionId, 'up')}
+                    onMoveDown={(sectionId) => moveSection(sectionId, 'down')}
+                  />
+                ))}
+              </List>
             </Collapse>
           </Box>
 

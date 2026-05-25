@@ -12,11 +12,155 @@ from datetime import datetime, timedelta
 from database import get_db
 from models import (
     User, Proposal, ProposalStatus, ResearchProject, ProjectStatus,
-    EthicsApplication, EthicsStatus, EthicsDocument, Award, AwardStatus
+    EthicsApplication, EthicsStatus, EthicsDocument, Award, AwardStatus,
+    ProjectMilestone,
 )
 from routes.auth import get_current_user
 
 router = APIRouter(prefix="/api/admin-staff", tags=["admin-staff"])
+
+PROPOSAL_STATUS_COLORS = {
+    "draft": "#64748b",
+    "internal_review": "#f59e0b",
+    "returned": "#f97316",
+    "submitted": "#3b82f6",
+    "under_review": "#0ea5e9",
+    "awarded": "#10b981",
+    "declined": "#ef4444",
+}
+
+PROJECT_STATUS_COLORS = {
+    "draft": "#64748b",
+    "proposed": "#f59e0b",
+    "active": "#10b981",
+    "suspended": "#ef4444",
+    "completed": "#0ea5e9",
+}
+
+REVIEW_PROPOSAL_STATUSES = (
+    ProposalStatus.SUBMITTED,
+    ProposalStatus.INTERNAL_REVIEW,
+    ProposalStatus.UNDER_REVIEW,
+    ProposalStatus.RETURNED,
+)
+
+REVIEW_ETHICS_STATUSES = (
+    EthicsStatus.SUBMITTED,
+    EthicsStatus.UNDER_REVIEW,
+    EthicsStatus.DEFERRED,
+)
+
+
+def _chart_rows(counts: dict, color_map: dict) -> list:
+    return [
+        {"key": k, "label": k.replace("_", " ").title(), "count": v, "color": color_map.get(k, "#64748b")}
+        for k, v in sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        if v > 0
+    ]
+
+
+async def _load_pending_submissions(db: AsyncSession, institution_id: str) -> list:
+    items = []
+
+    proposals_result = await db.execute(
+        select(Proposal)
+        .where(
+            Proposal.institution_id == institution_id,
+            Proposal.status.in_(REVIEW_PROPOSAL_STATUSES),
+        )
+        .order_by(Proposal.submitted_at.desc().nullslast(), Proposal.created_at.desc())
+        .limit(10)
+    )
+    for proposal in proposals_result.scalars().all():
+        status = proposal.status.value if hasattr(proposal.status, "value") else proposal.status
+        items.append({
+            "id": proposal.id,
+            "type": "proposal",
+            "type_label": "Grant Proposal",
+            "title": proposal.title,
+            "status": status,
+            "submitted_at": proposal.submitted_at or proposal.created_at,
+        })
+
+    projects_result = await db.execute(
+        select(ResearchProject)
+        .where(
+            ResearchProject.institution_id == institution_id,
+            ResearchProject.status == ProjectStatus.PROPOSED,
+        )
+        .order_by(ResearchProject.created_at.desc())
+        .limit(10)
+    )
+    for project in projects_result.scalars().all():
+        status = project.status.value if hasattr(project.status, "value") else project.status
+        items.append({
+            "id": project.id,
+            "type": "project",
+            "type_label": "Project Setup",
+            "title": project.title,
+            "status": status,
+            "submitted_at": project.created_at,
+        })
+
+    ethics_result = await db.execute(
+        select(EthicsApplication)
+        .where(
+            EthicsApplication.institution_id == institution_id,
+            EthicsApplication.status.in_(REVIEW_ETHICS_STATUSES),
+            EthicsApplication.application_type != "existing_clearance",
+        )
+        .order_by(EthicsApplication.submitted_at.desc().nullslast(), EthicsApplication.created_at.desc())
+        .limit(10)
+    )
+    for app in ethics_result.scalars().all():
+        status = app.status.value if hasattr(app.status, "value") else app.status
+        items.append({
+            "id": app.id,
+            "type": "ethics",
+            "type_label": "Ethics Application",
+            "title": app.title,
+            "status": status,
+            "submitted_at": app.submitted_at or app.created_at,
+        })
+
+    items.sort(
+        key=lambda item: item["submitted_at"] or datetime.min,
+        reverse=True,
+    )
+    return items[:20]
+
+
+async def _load_due_tasks(db: AsyncSession, institution_id: str) -> list:
+    now = datetime.now()
+    horizon = now + timedelta(days=30)
+    result = await db.execute(
+        select(ProjectMilestone, ResearchProject)
+        .join(ResearchProject, ProjectMilestone.project_id == ResearchProject.id)
+        .where(
+            ResearchProject.institution_id == institution_id,
+            ProjectMilestone.status != "completed",
+            ProjectMilestone.due_date.isnot(None),
+            ProjectMilestone.due_date <= horizon,
+        )
+        .order_by(ProjectMilestone.due_date.asc())
+        .limit(20)
+    )
+    tasks = []
+    for milestone, project in result.all():
+        due = milestone.due_date
+        due_naive = due.replace(tzinfo=None) if due and due.tzinfo else due
+        now_naive = now.replace(tzinfo=None) if now.tzinfo else now
+        tasks.append({
+            "id": milestone.id,
+            "project_id": project.id,
+            "project_title": project.title,
+            "title": milestone.title,
+            "due_date": due,
+            "status": milestone.status,
+            "priority": milestone.priority,
+            "is_overdue": bool(due_naive and due_naive < now_naive),
+        })
+    return tasks
 
 
 @router.get("/analytics/overview")
@@ -274,8 +418,22 @@ async def get_institutional_overview(
         )
     )
     recent_ethics = recent_ethics_result.scalar() or 0
-    
+
+    pending_submissions = await _load_pending_submissions(db, institution_id)
+    due_tasks = await _load_due_tasks(db, institution_id)
+
+    projects_by_status_result = await db.execute(
+        select(ResearchProject.status, func.count(ResearchProject.id))
+        .where(ResearchProject.institution_id == institution_id)
+        .group_by(ResearchProject.status)
+    )
+    projects_by_status = {
+        (row[0].value if hasattr(row[0], "value") else row[0]): row[1]
+        for row in projects_by_status_result
+    }
+
     return {
+        "institution_name": current_user.institution.name if current_user.institution else None,
         "proposals": {
             "total": total_proposals,
             "draft": draft_proposals,
@@ -316,7 +474,19 @@ async def get_institutional_overview(
             "proposals": recent_proposals,
             "projects": recent_projects,
             "ethics": recent_ethics
-        }
+        },
+        "charts": {
+            "proposals_by_status": _chart_rows(proposals_by_status, PROPOSAL_STATUS_COLORS),
+            "projects_by_status": _chart_rows(projects_by_status, PROJECT_STATUS_COLORS),
+            "submissions_by_type": [
+                {"key": "proposals", "label": "Grant Proposals", "count": proposals_in_review, "color": "#16a699"},
+                {"key": "projects", "label": "Project Setups", "count": proposed_projects, "color": "#3b82f6"},
+                {"key": "ethics", "label": "Ethics Applications", "count": ethics_pending, "color": "#10b981"},
+                {"key": "dmps", "label": "Data Management Plans", "count": dmps_pending, "color": "#0ea5e9"},
+            ],
+        },
+        "pending_submissions": pending_submissions,
+        "due_tasks": due_tasks,
     }
 
 

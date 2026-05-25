@@ -37,6 +37,14 @@ const fmtMoney = (amt, cur) => {
   return `${cur || 'KES'} ${Number(amt).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 };
 
+const sortAwardsForResearcher = (items) =>
+  [...items].sort((a, b) => {
+    const aHasProject = Boolean(a.project_id);
+    const bHasProject = Boolean(b.project_id);
+    if (aHasProject !== bHasProject) return aHasProject ? 1 : -1;
+    return new Date(b.issued_at || 0) - new Date(a.issued_at || 0);
+  });
+
 function BudgetBar({ lines = [] }) {
   const total  = lines.reduce((s, l) => s + (l.amount || 0), 0);
   const spent  = lines.reduce((s, l) => s + (l.spent_to_date || 0), 0);
@@ -238,15 +246,27 @@ function AwardCertificate({ award, onOpenProject }) {
               sx={{ textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5 }}>
               View Proposal
             </Button>
-            <Button size="small" variant="contained"
-              startIcon={<ProjectIcon sx={{ fontSize: 13 }} />}
-              onClick={() => onOpenProject('convert', award)}
-              sx={{
-                textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5,
-                bgcolor: GOLD, '&:hover': { bgcolor: '#d97706' },
-              }}>
-              Convert to Project
-            </Button>
+            {award.project_id ? (
+              <Button size="small" variant="contained"
+                startIcon={<ProjectIcon sx={{ fontSize: 13 }} />}
+                onClick={() => onOpenProject('project', award.project_id)}
+                sx={{
+                  textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5,
+                  bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' },
+                }}>
+                Open Project
+              </Button>
+            ) : (
+              <Button size="small" variant="contained"
+                startIcon={<ProjectIcon sx={{ fontSize: 13 }} />}
+                onClick={() => onOpenProject('convert', award)}
+                sx={{
+                  textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5,
+                  bgcolor: GOLD, '&:hover': { bgcolor: '#d97706' },
+                }}>
+                Convert to Project
+              </Button>
+            )}
           </Box>
         </Box>
       </Box>
@@ -279,7 +299,7 @@ export default function ResearcherAwardsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      const awardsData = res.data || [];
+      const awardsData = sortAwardsForResearcher(res.data || []);
       setAwards(awardsData);
     } catch (e) {
       if (e.response?.status === 401) {
