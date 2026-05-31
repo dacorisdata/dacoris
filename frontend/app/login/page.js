@@ -4,16 +4,19 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Box, Typography, TextField, Button, Link as MuiLink,
-  Divider, Alert, CircularProgress, Chip,
+  Alert, CircularProgress, InputAdornment, IconButton,
 } from '@mui/material';
-import { ArrowForward, Science, BarChart, Link as LinkIcon } from '@mui/icons-material';
+import {
+  ArrowForward, Science, BarChart, Link as LinkIcon,
+  Visibility, VisibilityOff, Lock, Email, CheckCircle,
+} from '@mui/icons-material';
 import Link from 'next/link';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { orcidAPI } from '../../lib/api';
 import { COLORS } from '../../contexts/ThemeContext';
 
-// ── Animated network canvas (same as register) ──────────────────────────────
+// ── Animated network canvas ──────────────────────────────────────────────────
 function NetworkCanvas() {
   const canvasRef = useRef(null);
   useEffect(() => {
@@ -42,16 +45,16 @@ function NetworkCanvas() {
           const m = nodes[j];
           const dx = m.x - n.x, dy = m.y - n.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 110) {
+          if (dist < 120) {
             ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(m.x, m.y);
-            ctx.strokeStyle = `rgba(28,167,161,${(1 - dist / 110) * 0.14})`;
-            ctx.lineWidth = 0.5; ctx.stroke();
+            ctx.strokeStyle = `rgba(255,255,255,${(1 - dist / 120) * 0.12})`;
+            ctx.lineWidth = 0.6; ctx.stroke();
           }
         }
         const glow = 0.5 + 0.5 * Math.sin(t * 1.5 + n.pulse);
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.r + glow * 0.8, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(28,167,161,${0.3 + glow * 0.4})`;
+        ctx.fillStyle = `rgba(255,255,255,${0.2 + glow * 0.3})`;
         ctx.fill();
       }
       raf = requestAnimationFrame(draw);
@@ -61,6 +64,16 @@ function NetworkCanvas() {
     return () => { cancelAnimationFrame(raf); obs.disconnect(); };
   }, []);
   return <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />;
+}
+
+// ── ORCID Icon SVG ────────────────────────────────────────────────────────────
+function OrcidIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="128" cy="128" r="128" fill="#A6CE39" />
+      <path d="M86.3 186.2H70.9V79.1h15.4v107.1zM108.9 79.1h41.6c39.6 0 57 28.3 57 53.6 0 27.5-21.5 53.6-56.8 53.6h-41.8V79.1zm15.4 93.3h24.5c34.9 0 42.9-26.5 42.9-39.7C191.7 111.2 178 93 148 93h-23.7v79.4zM88.7 56.8c0 5.5-4.5 9.9-10 9.9s-10-4.4-10-9.9c0-5.5 4.5-9.9 10-9.9s10 4.4 10 9.9z" fill="#fff" />
+    </svg>
+  );
 }
 
 // ── Token Handler Component ──────────────────────────────────────────────────
@@ -90,10 +103,12 @@ function LoginPageContent() {
   const router = useRouter();
   const { login, setToken, fetchUser } = useAuth();
   const muiTheme = useMuiTheme();
+  const isDark = muiTheme.palette.mode === 'dark';
 
-  const [form, setForm]         = useState({ email: '', password: '' });
-  const [error, setError]       = useState('');
-  const [isLoading, setLoading] = useState(false);
+  const [form, setForm]             = useState({ email: '', password: '' });
+  const [error, setError]           = useState('');
+  const [isLoading, setLoading]     = useState(false);
+  const [showPassword, setShowPwd]  = useState(false);
 
   const handleChange = (field) => (e) => {
     setForm(f => ({ ...f, [field]: e.target.value }));
@@ -106,228 +121,394 @@ function LoginPageContent() {
     setLoading(true);
     try {
       const u = await login(form.email, form.password);
-      if (!u) { 
-        setError('Login succeeded but no user data received'); 
+      if (!u) {
+        setError('Login succeeded but no user data received');
         setLoading(false);
-        return; 
+        return;
       }
-      console.log('Login successful, redirecting...', u);
-      // Use setTimeout to ensure all state updates complete before redirect
       setTimeout(() => {
         if (u.is_global_admin) {
-          console.log('Redirecting to global admin dashboard');
           window.location.href = '/global-admin/dashboard';
         } else if (u.is_institution_admin) {
-          console.log('Redirecting to institution admin dashboard');
           window.location.href = '/institution-admin/dashboard';
         } else if (u.primary_account_type === 'RESEARCHER') {
-          console.log('Redirecting to researcher dashboard');
           window.location.href = '/researcher/dashboard';
         } else if (['ADMIN_STAFF','GRANT_MANAGER','FINANCE_OFFICER','ETHICS_COMMITTEE_MEMBER','DATA_STEWARD','DATA_ENGINEER','INSTITUTIONAL_LEADERSHIP','EXTERNAL_REVIEWER','GUEST_COLLABORATOR','EXTERNAL_FUNDER'].includes(u.primary_account_type)) {
-          console.log('Redirecting to admin staff dashboard');
           window.location.href = '/admin-staff/dashboard';
         } else {
-          console.log('Redirecting to onboarding');
           window.location.href = '/onboarding';
         }
       }, 100);
     } catch (err) {
       console.error('Login error:', err);
-      setError(err.response?.data?.detail || 'Invalid email or password');
+      setError(err.response?.data?.detail || 'Invalid email or password. Please try again.');
       setLoading(false);
     }
   };
+
+  const features = [
+    {
+      icon: <Science sx={{ fontSize: 20 }} />,
+      title: 'End-to-End Research Lifecycle',
+      desc: 'Grants, projects, ethics workflows & researcher profiles in one platform',
+    },
+    {
+      icon: <BarChart sx={{ fontSize: 20 }} />,
+      title: 'Real-Time Intelligence',
+      desc: 'Live dashboards, financial tracking, compliance monitoring & audit trails',
+    },
+    {
+      icon: <LinkIcon sx={{ fontSize: 20 }} />,
+      title: 'Seamless Integrations',
+      desc: 'Connected with ORCID, HR systems, finance platforms & external data sources',
+    },
+  ];
 
   return (
     <>
       <Suspense fallback={null}>
         <TokenHandler setToken={setToken} fetchUser={fetchUser} router={router} />
       </Suspense>
+
       <Box sx={{ display: 'flex', height: '100vh', bgcolor: 'background.default', overflow: 'hidden' }}>
 
-        {/* ── Left Panel ── */}
+        {/* ── Left Panel ─────────────────────────────────────────────────────── */}
         <Box
-        sx={{
-          display: { xs: 'none', lg: 'flex' },
-          width: '48%',
-          flexShrink: 0,
-          position: 'relative',
-          bgcolor: 'background.paper',
-          borderRight: 1,
-          borderColor: 'divider',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          px: 6,
-          py: 4,
-          overflow: 'hidden',
-        }}
-      >
-        <NetworkCanvas />
+          sx={{
+            display: { xs: 'none', lg: 'flex' },
+            width: '46%',
+            flexShrink: 0,
+            position: 'relative',
+            background: isDark
+              ? 'linear-gradient(145deg, #0f2027 0%, #134e4a 50%, #0d9488 100%)'
+              : 'linear-gradient(145deg, #0f766e 0%, #0d9488 45%, #14b8a6 100%)',
+            flexDirection: 'column',
+            justifyContent: 'flex-start',
+            px: 6,
+            py: 3,
+            overflow: 'hidden',
+          }}
+        >
+          <NetworkCanvas />
 
-        {/* Main Content */}
-        <Box sx={{ position: 'relative', zIndex: 10, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <Typography variant="h2" sx={{ fontWeight: 700, mb: 2, lineHeight: 1.2, fontSize: { xs: '2rem', lg: '2.5rem' } }}>
-            Welcome Back to DACORIS
-          </Typography>
-          <Typography variant="h5" sx={{ color: 'primary.main', fontWeight: 600, mb: 4, fontSize: { xs: '1.25rem', lg: '1.5rem' } }}>
-            Your Institution's Research Intelligence Hub
-          </Typography>
-
-          {/* Feature Highlights */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-              <Science sx={{ fontSize: 28, color: 'primary.main', mt: 0.5 }} />
-              <Typography sx={{ fontSize: '1rem', color: 'text.secondary', lineHeight: 1.7 }}>
-                Manage grants, projects, ethics workflows & researcher profiles
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-              <BarChart sx={{ fontSize: 28, color: 'primary.main', mt: 0.5 }} />
-              <Typography sx={{ fontSize: '1rem', color: 'text.secondary', lineHeight: 1.7 }}>
-                Access real-time dashboards, financial tracking & compliance tools
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-              <LinkIcon sx={{ fontSize: 28, color: 'primary.main', mt: 0.5 }} />
-              <Typography sx={{ fontSize: '1rem', color: 'text.secondary', lineHeight: 1.7 }}>
-                Integrated with ORCID, HR & Finance systems
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
-      </Box>
-
-      {/* ── Right Panel — Form ── */}
-      <Box
-        sx={{
-          flex: 1,
-          overflowY: 'auto',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          py: 4,
-          px: 3,
-        }}
-      >
-        <Box sx={{ width: '100%', maxWidth: 400 }}>
-
-          {/* Mobile logo */}
-          <Box sx={{ display: { xs: 'flex', lg: 'none' }, alignItems: 'center', gap: 1.5, mb: 4 }}>
-            <Box sx={{ width: 32, height: 32, borderRadius: 1, bgcolor: 'primary.main', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, color: '#fff' }}>
-              DC
-            </Box>
-            <Typography sx={{ fontWeight: 700, fontSize: 14, letterSpacing: 2, color: 'text.primary' }}>DACORIS</Typography>
-          </Box>
-
-          <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
-            Sign In to Your Workspace
-          </Typography>
-          <Typography sx={{ fontSize: '0.875rem', color: 'text.secondary', mb: 4 }}>
-            Access your research management dashboard
-          </Typography>
-
-          {error && (
-            <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
-              {error}
-            </Alert>
-          )}
-
-          <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-            {/* Email */}
-            <Box>
-              <Typography variant="overline" sx={{ mb: 1, display: 'block', color: 'text.secondary' }}>
-                Email address
-              </Typography>
-              <TextField
-                fullWidth
-                type="email"
-                placeholder="you@institution.ac.ke"
-                required
-                autoComplete="email"
-                value={form.email}
-                onChange={handleChange('email')}
-              />
-            </Box>
-
-            {/* Password */}
-            <Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                <Typography variant="overline" sx={{ color: 'text.secondary' }}>
-                  Password
-                </Typography>
-                <MuiLink href="#" sx={{ fontSize: '0.75rem', color: 'primary.main', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
-                  Forgot password?
-                </MuiLink>
+          {/* Top branding */}
+          <Box sx={{ position: 'relative', zIndex: 10 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box
+                sx={{
+                  width: 36, height: 36, borderRadius: '10px',
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 800, fontSize: 13, color: '#fff', letterSpacing: 0.5,
+                }}
+              >
+                DC
               </Box>
-              <TextField
-                fullWidth
-                type="password"
-                placeholder="Your password"
-                required
-                autoComplete="current-password"
-                value={form.password}
-                onChange={handleChange('password')}
-              />
+              <Typography sx={{ fontWeight: 700, fontSize: 15, letterSpacing: 3, color: 'rgba(255,255,255,0.95)', textTransform: 'uppercase' }}>
+                DACORIS
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Main content */}
+          <Box sx={{ position: 'relative', zIndex: 10, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', py: 2 }}>
+            <Box
+              sx={{
+                display: 'inline-flex', alignItems: 'center', gap: 1,
+                bgcolor: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255,255,255,0.25)',
+                borderRadius: 99, px: 2, py: 0.5, mb: 1.5, width: 'fit-content',
+              }}
+            >
+              <CheckCircle sx={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }} />
+              <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600, color: 'rgba(255,255,255,0.9)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                Research Management Platform
+              </Typography>
             </Box>
 
-            {/* Submit */}
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              color="primary"
-              disabled={isLoading}
-              sx={{ mt: 0.5, py: 1.5 }}
+            <Typography
+              sx={{
+                fontWeight: 800, mb: 1.25, lineHeight: 1.15, color: '#fff',
+                fontSize: { lg: '1.75rem', xl: '2rem' },
+                letterSpacing: '-0.03em',
+              }}
             >
-              {isLoading
-                ? <CircularProgress size={18} sx={{ color: 'inherit' }} />
-                : <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-                    Sign In <ArrowForward sx={{ fontSize: 16 }} />
-                  </Box>
-              }
-            </Button>
-
-            {/* Divider */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Box sx={{ flex: 1, height: 1, bgcolor: 'divider' }} />
-              <Typography sx={{ fontSize: '0.6875rem', color: 'text.secondary' }}>or</Typography>
-              <Box sx={{ flex: 1, height: 1, bgcolor: 'divider' }} />
-            </Box>
-
-            {/* ORCID */}
-            <Button
-              type="button"
-              fullWidth
-              variant="outlined"
-              onClick={() => orcidAPI.initiateLogin()}
-              sx={{ py: 1.5 }}
-            >
-              <Chip
-                label="iD"
-                size="small"
-                sx={{ fontFamily: 'monospace', fontSize: '0.625rem', mr: 1, height: 20, letterSpacing: 1 }}
-              />
-              Continue with ORCID
-            </Button>
-
-            {/* SSO Note */}
-            <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', textAlign: 'center', lineHeight: 1.6, fontStyle: 'italic' }}>
-              Using institutional credentials? Sign in with your organization's SSO
+              Welcome Back to Your Research Hub
             </Typography>
 
-            {/* Bottom CTA */}
-            <Box sx={{ textAlign: 'center', mt: 3, pt: 3, borderTop: 1, borderColor: 'divider' }}>
-              <Typography sx={{ fontSize: '0.875rem', color: 'text.secondary' }}>
-                Don't have an account?{' '}
-                <MuiLink component={Link} href="/register" sx={{ color: 'primary.main', fontWeight: 600, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
-                  Register here→
-                </MuiLink>
+            <Typography sx={{ fontSize: '0.9375rem', color: 'rgba(255,255,255,0.75)', lineHeight: 1.6, mb: 2.5, maxWidth: 380 }}>
+              Manage your institution's research operations with confidence — from grant applications to final reporting.
+            </Typography>
+
+            {/* Feature cards */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+              {features.map((f, i) => (
+                <Box
+                  key={i}
+                  sx={{
+                    display: 'flex', gap: 1.5, alignItems: 'center',
+                    bgcolor: 'rgba(255,255,255,0.08)', backdropFilter: 'blur(8px)',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '10px', p: 1.5,
+                    transition: 'background 0.2s',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 32, height: 32, borderRadius: '8px',
+                      bgcolor: 'rgba(255,255,255,0.18)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#fff', flexShrink: 0,
+                    }}
+                  >
+                    {f.icon}
+                  </Box>
+                  <Box>
+                    <Typography sx={{ fontSize: '0.875rem', fontWeight: 700, color: '#fff', mb: 0.25, lineHeight: 1.4 }}>
+                      {f.title}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.5 }}>
+                      {f.desc}
+                    </Typography>
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+
+        </Box>
+
+        {/* ── Right Panel — Form ──────────────────────────────────────────────── */}
+        <Box
+          sx={{
+            flex: 1,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            py: 6,
+            px: 3,
+            bgcolor: 'background.default',
+          }}
+        >
+          <Box sx={{ width: '100%', maxWidth: 420 }}>
+
+            {/* Desktop logo (right panel) */}
+            <Box sx={{ display: { xs: 'none', lg: 'flex' }, alignItems: 'center', gap: 1.5, mb: 6 }}>
+              <Box
+                sx={{
+                  width: 34, height: 34, borderRadius: '9px', bgcolor: 'primary.main',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 800, fontSize: 12, color: '#fff', letterSpacing: 0.5,
+                }}
+              >
+                DC
+              </Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 14, letterSpacing: 2.5, color: 'text.primary', textTransform: 'uppercase' }}>
+                DACORIS
               </Typography>
+            </Box>
+
+            {/* Mobile logo */}
+            <Box sx={{ display: { xs: 'flex', lg: 'none' }, alignItems: 'center', gap: 1.5, mb: 5 }}>
+              <Box sx={{ width: 32, height: 32, borderRadius: '8px', bgcolor: 'primary.main', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, color: '#fff' }}>
+                DC
+              </Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 14, letterSpacing: 2, color: 'text.primary', textTransform: 'uppercase' }}>DACORIS</Typography>
+            </Box>
+
+            {/* Heading */}
+            <Typography variant="h3" sx={{ fontWeight: 800, mb: 1, letterSpacing: '-0.03em', fontSize: { xs: '1.75rem', sm: '2rem' } }}>
+              Sign in
+            </Typography>
+            <Typography sx={{ fontSize: '0.9375rem', color: 'text.secondary', mb: 4, lineHeight: 1.6 }}>
+              Access your research management workspace
+            </Typography>
+
+            {error && (
+              <Alert
+                severity="error"
+                sx={{ mb: 3, borderRadius: '10px' }}
+                onClose={() => setError('')}
+              >
+                {error}
+              </Alert>
+            )}
+
+            <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+              {/* Email */}
+              <Box>
+                <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600, color: 'text.primary', mb: 0.75 }}>
+                  Email address
+                </Typography>
+                <TextField
+                  fullWidth
+                  type="email"
+                  placeholder="you@institution.ac.ke"
+                  required
+                  autoComplete="email"
+                  value={form.email}
+                  onChange={handleChange('email')}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Email sx={{ fontSize: 18, color: 'text.disabled' }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px' } }}
+                />
+              </Box>
+
+              {/* Password */}
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
+                  <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600, color: 'text.primary' }}>
+                    Password
+                  </Typography>
+                  <MuiLink
+                    href="#"
+                    sx={{
+                      fontSize: '0.8125rem', fontWeight: 500, color: 'primary.main',
+                      textDecoration: 'none',
+                      '&:hover': { textDecoration: 'underline' },
+                    }}
+                  >
+                    Forgot password?
+                  </MuiLink>
+                </Box>
+                <TextField
+                  fullWidth
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  required
+                  autoComplete="current-password"
+                  value={form.password}
+                  onChange={handleChange('password')}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Lock sx={{ fontSize: 18, color: 'text.disabled' }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowPwd(v => !v)}
+                          edge="end"
+                          size="small"
+                          sx={{ color: 'text.disabled', '&:hover': { color: 'text.secondary' } }}
+                        >
+                          {showPassword ? <VisibilityOff sx={{ fontSize: 18 }} /> : <Visibility sx={{ fontSize: 18 }} />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px' } }}
+                />
+              </Box>
+
+              {/* Sign in button */}
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                color="primary"
+                disabled={isLoading}
+                sx={{
+                  mt: 1, py: 1.5, borderRadius: '10px',
+                  fontSize: '0.9375rem', fontWeight: 700,
+                  letterSpacing: '0.01em',
+                  boxShadow: '0 4px 14px rgba(13,148,136,0.35)',
+                  '&:hover': { boxShadow: '0 6px 20px rgba(13,148,136,0.45)' },
+                }}
+              >
+                {isLoading ? (
+                  <CircularProgress size={20} sx={{ color: 'inherit' }} />
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    Sign In <ArrowForward sx={{ fontSize: 17 }} />
+                  </Box>
+                )}
+              </Button>
+
+              {/* Divider */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 0.5 }}>
+                <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
+                <Typography sx={{ fontSize: '0.75rem', color: 'text.disabled', fontWeight: 500 }}>or continue with</Typography>
+                <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
+              </Box>
+
+              {/* ORCID button */}
+              <Button
+                type="button"
+                fullWidth
+                variant="outlined"
+                onClick={() => orcidAPI.initiateLogin()}
+                sx={{
+                  py: 1.375, borderRadius: '10px',
+                  borderColor: 'divider', fontWeight: 600,
+                  fontSize: '0.875rem',
+                  gap: 1.25,
+                  '&:hover': {
+                    borderColor: '#A6CE39',
+                    bgcolor: 'rgba(166,206,57,0.06)',
+                  },
+                }}
+              >
+                <OrcidIcon size={22} />
+                Continue with ORCID
+              </Button>
+
+              {/* SSO callout */}
+              <Box
+                sx={{
+                  display: 'flex', alignItems: 'center', gap: 1.5,
+                  p: 1.75, borderRadius: '10px',
+                  bgcolor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(13,148,136,0.05)',
+                  border: '1px solid',
+                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(13,148,136,0.15)',
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 28, height: 28, borderRadius: '7px', flexShrink: 0,
+                    bgcolor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(13,148,136,0.1)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <LinkIcon sx={{ fontSize: 15, color: 'primary.main' }} />
+                </Box>
+                <Typography sx={{ fontSize: '0.8125rem', color: 'text.secondary', lineHeight: 1.5 }}>
+                  Using institutional credentials?{' '}
+                  <MuiLink href="#" sx={{ color: 'primary.main', fontWeight: 600, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                    Sign in with SSO
+                  </MuiLink>
+                </Typography>
+              </Box>
+
+              {/* Bottom CTA */}
+              <Box sx={{ textAlign: 'center', pt: 2.5, mt: 0.5, borderTop: '1px solid', borderColor: 'divider' }}>
+                <Typography sx={{ fontSize: '0.875rem', color: 'text.secondary' }}>
+                  Don't have an account?{' '}
+                  <MuiLink
+                    component={Link}
+                    href="/register"
+                    sx={{ color: 'primary.main', fontWeight: 700, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                  >
+                    Create account →
+                  </MuiLink>
+                </Typography>
+              </Box>
             </Box>
           </Box>
         </Box>
       </Box>
-    </Box>
     </>
   );
 }

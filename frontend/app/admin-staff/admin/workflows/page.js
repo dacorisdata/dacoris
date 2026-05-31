@@ -5,67 +5,35 @@ import {
   Box, Typography, Button, CircularProgress, Card, CardContent,
   Chip, useTheme, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, FormControl, InputLabel, IconButton,
-  Stepper, Step, StepLabel, Alert,
+  Stepper, Step, StepLabel, Alert, Table, TableBody, TableCell, TableHead, TableRow,
+  Checkbox, ListItemText, OutlinedInput,
 } from '@mui/material';
 import {
   AccountTree as WorkflowIcon, Add as AddIcon, Edit as EditIcon,
   Delete as DeleteIcon, PlayArrow as ActiveIcon, Pause as InactiveIcon,
-  DragIndicator as DragIcon,
+  DragIndicator as DragIcon, Close as CloseIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
+import api from '../../../../lib/api';
 
 const WORKFLOW_TYPES = [
-  { id: 'proposal_review', label: 'Proposal Review', color: '#8b5cf6', icon: '📝' },
-  { id: 'project_review', label: 'Project Review', color: '#0ea5e9', icon: '🔬' },
-  { id: 'ethics_review', label: 'Ethics Review', color: '#10b981', icon: '⚖️' },
-  { id: 'dmp_review', label: 'DMP Review', color: '#f59e0b', icon: '📊' },
+  { id: 'proposal_review', label: 'Proposal Review', color: '#8b5cf6' },
+  { id: 'project_review', label: 'Project Review', color: '#0ea5e9' },
+  { id: 'ethics_review', label: 'Ethics Review', color: '#10b981' },
+  { id: 'dmp_review', label: 'DMP Review', color: '#f59e0b' },
 ];
 
-const MOCK_WORKFLOWS = [
-  {
-    id: 1,
-    name: 'Standard Proposal Review',
-    type: 'proposal_review',
-    status: 'active',
-    stages: [
-      { id: 1, name: 'Initial Screening', role: 'GRANT_MANAGER', approvalRequired: 1 },
-      { id: 2, name: 'Technical Review', role: 'EXTERNAL_REVIEWER', approvalRequired: 2 },
-      { id: 3, name: 'Budget Review', role: 'FINANCE_OFFICER', approvalRequired: 1 },
-      { id: 4, name: 'Final Approval', role: 'INSTITUTIONAL_LEADERSHIP', approvalRequired: 1 },
-    ],
-  },
-  {
-    id: 2,
-    name: 'Expedited Ethics Review',
-    type: 'ethics_review',
-    status: 'active',
-    stages: [
-      { id: 1, name: 'Administrative Check', role: 'ADMIN_STAFF', approvalRequired: 1 },
-      { id: 2, name: 'Ethics Committee Review', role: 'ETHICS_COMMITTEE_MEMBER', approvalRequired: 1 },
-    ],
-  },
-  {
-    id: 3,
-    name: 'Full Ethics Board Review',
-    type: 'ethics_review',
-    status: 'inactive',
-    stages: [
-      { id: 1, name: 'Administrative Check', role: 'ADMIN_STAFF', approvalRequired: 1 },
-      { id: 2, name: 'Primary Review', role: 'ETHICS_COMMITTEE_MEMBER', approvalRequired: 2 },
-      { id: 3, name: 'Board Discussion', role: 'ETHICS_COMMITTEE_MEMBER', approvalRequired: 3 },
-      { id: 4, name: 'Chair Approval', role: 'INSTITUTIONAL_LEADERSHIP', approvalRequired: 1 },
-    ],
-  },
-  {
-    id: 4,
-    name: 'DMP Standard Review',
-    type: 'dmp_review',
-    status: 'active',
-    stages: [
-      { id: 1, name: 'Data Steward Review', role: 'DATA_STEWARD', approvalRequired: 1 },
-      { id: 2, name: 'Technical Validation', role: 'DATA_ENGINEER', approvalRequired: 1 },
-    ],
-  },
+const AVAILABLE_ROLES = [
+  { value: 'GRANT_MANAGER', label: 'Grant Manager' },
+  { value: 'EXTERNAL_REVIEWER', label: 'External Reviewer' },
+  { value: 'FINANCE_OFFICER', label: 'Finance Officer' },
+  { value: 'INSTITUTIONAL_LEADERSHIP', label: 'Institutional Leadership' },
+  { value: 'ADMIN_STAFF', label: 'Admin Staff' },
+  { value: 'ETHICS_COMMITTEE_MEMBER', label: 'Ethics Committee Member' },
+  { value: 'DATA_STEWARD', label: 'Data Steward' },
+  { value: 'DATA_ENGINEER', label: 'Data Engineer' },
+  { value: 'LEGAL_OFFICER', label: 'Legal Officer' },
+  { value: 'PARTNERSHIP_COORDINATOR', label: 'Partnership Coordinator' },
 ];
 
 const ROLE_LABELS = {
@@ -84,17 +52,37 @@ export default function WorkflowsPage() {
   const { fetchUser } = useAuth();
   const theme = useTheme();
   const [loading, setLoading] = useState(true);
-  const [workflows, setWorkflows] = useState(MOCK_WORKFLOWS);
+  const [workflows, setWorkflows] = useState([]);
   const [selectedType, setSelectedType] = useState('all');
   const [openDialog, setOpenDialog] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    workflow_type: 'proposal_review',
+    description: '',
+    status: 'active',
+    stages: [{ stage_order: 1, stage_name: '', assigned_role: ['GRANT_MANAGER'], approvals_required: 1, duration_days: 7 }],
+  });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchUser().then(u => {
       if (!u) router.push('/login');
-      else setLoading(false);
+      else loadWorkflows();
     });
   }, []);
+
+  const loadWorkflows = async () => {
+    try {
+      const data = await api.get('/workflows');
+      setWorkflows(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Failed to load workflows:', error);
+      setWorkflows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -110,20 +98,94 @@ export default function WorkflowsPage() {
 
   const handleCreateWorkflow = () => {
     setEditingWorkflow(null);
+    setFormData({
+      name: '',
+      workflow_type: 'proposal_review',
+      description: '',
+      status: 'active',
+      stages: [{ stage_order: 1, stage_name: '', assigned_role: ['GRANT_MANAGER'], approvals_required: 1, duration_days: 7 }],
+    });
     setOpenDialog(true);
   };
 
   const handleEditWorkflow = (workflow) => {
     setEditingWorkflow(workflow);
+    setFormData({
+      name: workflow.name,
+      workflow_type: workflow.type,
+      description: workflow.description || '',
+      status: workflow.status,
+      stages: workflow.stages.map(s => ({
+        stage_order: s.order,
+        stage_name: s.name,
+        assigned_role: Array.isArray(s.role) ? s.role : [s.role],
+        approvals_required: s.approvalRequired,
+        duration_days: s.durationDays || 7,
+      })),
+    });
     setOpenDialog(true);
   };
 
-  const handleToggleStatus = (workflowId) => {
-    setWorkflows(workflows.map(w =>
-      w.id === workflowId
-        ? { ...w, status: w.status === 'active' ? 'inactive' : 'active' }
-        : w
-    ));
+  const handleToggleStatus = async (workflowId) => {
+    try {
+      await api.post(`/workflows/${workflowId}/toggle-status`);
+      await loadWorkflows();
+    } catch (error) {
+      console.error('Failed to toggle status:', error);
+    }
+  };
+
+  const handleDeleteWorkflow = async (workflowId) => {
+    if (!confirm('Are you sure you want to delete this workflow?')) return;
+    try {
+      await api.delete(`/workflows/${workflowId}`);
+      await loadWorkflows();
+    } catch (error) {
+      console.error('Failed to delete workflow:', error);
+    }
+  };
+
+  const handleSaveWorkflow = async () => {
+    setSaving(true);
+    try {
+      if (editingWorkflow) {
+        await api.put(`/workflows/${editingWorkflow.id}`, formData);
+      } else {
+        await api.post('/workflows', formData);
+      }
+      await loadWorkflows();
+      setOpenDialog(false);
+    } catch (error) {
+      console.error('Failed to save workflow:', error);
+      alert('Failed to save workflow');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addStage = () => {
+    setFormData({
+      ...formData,
+      stages: [...formData.stages, {
+        stage_order: formData.stages.length + 1,
+        stage_name: '',
+        assigned_role: ['GRANT_MANAGER'],
+        approvals_required: 1,
+        duration_days: 7,
+      }],
+    });
+  };
+
+  const removeStage = (index) => {
+    const newStages = formData.stages.filter((_, i) => i !== index);
+    newStages.forEach((s, i) => s.stage_order = i + 1);
+    setFormData({ ...formData, stages: newStages });
+  };
+
+  const updateStage = (index, field, value) => {
+    const newStages = [...formData.stages];
+    newStages[index][field] = value;
+    setFormData({ ...formData, stages: newStages });
   };
 
   const workflowTypeInfo = (typeId) => WORKFLOW_TYPES.find(t => t.id === typeId);
@@ -192,8 +254,7 @@ export default function WorkflowsPage() {
                 '&:hover': { borderColor: type.color },
               }}
             >
-              <Box sx={{ fontSize: 20, mb: 0.5 }}>{type.icon}</Box>
-              <Typography sx={{ fontSize: 18, fontWeight: 700, color: type.color }}>
+              <Typography sx={{ fontSize: 18, fontWeight: 700, color: type.color, mt: 1 }}>
                 {count}
               </Typography>
               <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 600 }}>
@@ -230,20 +291,6 @@ export default function WorkflowsPage() {
               <CardContent sx={{ p: 3 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Box
-                      sx={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 2,
-                        bgcolor: `${typeInfo.color}18`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 22,
-                      }}
-                    >
-                      {typeInfo.icon}
-                    </Box>
                     <Box>
                       <Typography sx={{ fontSize: 16, fontWeight: 700, color: 'text.primary' }}>
                         {workflow.name}
@@ -293,6 +340,7 @@ export default function WorkflowsPage() {
                     </IconButton>
                     <IconButton
                       size="small"
+                      onClick={() => handleDeleteWorkflow(workflow.id)}
                       sx={{ color: 'text.secondary' }}
                     >
                       <DeleteIcon />
@@ -347,25 +395,153 @@ export default function WorkflowsPage() {
       <Dialog
         open={openDialog}
         onClose={() => setOpenDialog(false)}
-        maxWidth="md"
+        maxWidth="lg"
         fullWidth
       >
-        <DialogTitle>
-          {editingWorkflow ? 'Edit Workflow' : 'Create New Workflow'}
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography sx={{ fontSize: 18, fontWeight: 700 }}>
+            {editingWorkflow ? 'Edit Workflow' : 'Create New Workflow'}
+          </Typography>
+          <IconButton onClick={() => setOpenDialog(false)} size="small">
+            <CloseIcon />
+          </IconButton>
         </DialogTitle>
         <DialogContent>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            This feature will allow you to configure multi-stage approval workflows with role-based reviewers.
-            Implementation is in progress.
-          </Alert>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-            Workflow configuration UI coming soon...
-          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, mt: 1 }}>
+            <TextField
+              label="Workflow Name"
+              fullWidth
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            />
+            
+            <FormControl fullWidth>
+              <InputLabel>Workflow Type</InputLabel>
+              <Select
+                value={formData.workflow_type}
+                label="Workflow Type"
+                onChange={(e) => setFormData({ ...formData, workflow_type: e.target.value })}
+                disabled={!!editingWorkflow}
+              >
+                {WORKFLOW_TYPES.map(type => (
+                  <MenuItem key={type.id} value={type.id}>
+                    {type.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <TextField
+              label="Description"
+              fullWidth
+              multiline
+              rows={2}
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            />
+
+            <Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                <Typography sx={{ fontSize: 15, fontWeight: 700 }}>Workflow Stages</Typography>
+                <Button
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={addStage}
+                  sx={{ fontSize: 12 }}
+                >
+                  Add Stage
+                </Button>
+              </Box>
+
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Order</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Stage Name</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Assigned Role</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Approvals</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Days</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: 11 }}></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {formData.stages.map((stage, index) => (
+                    <TableRow key={index}>
+                      <TableCell>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{stage.stage_order}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          value={stage.stage_name}
+                          onChange={(e) => updateStage(index, 'stage_name', e.target.value)}
+                          placeholder="e.g., Initial Screening"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          size="small"
+                          fullWidth
+                          multiple
+                          value={stage.assigned_role}
+                          onChange={(e) => updateStage(index, 'assigned_role', e.target.value)}
+                          input={<OutlinedInput />}
+                          renderValue={(selected) => selected.map(val => 
+                            AVAILABLE_ROLES.find(r => r.value === val)?.label || val
+                          ).join(', ')}
+                        >
+                          {AVAILABLE_ROLES.map(role => (
+                            <MenuItem key={role.value} value={role.value}>
+                              <Checkbox checked={stage.assigned_role.indexOf(role.value) > -1} />
+                              <ListItemText primary={role.label} />
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={stage.approvals_required}
+                          onChange={(e) => updateStage(index, 'approvals_required', parseInt(e.target.value) || 1)}
+                          sx={{ width: 70 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={stage.duration_days}
+                          onChange={(e) => updateStage(index, 'duration_days', parseInt(e.target.value) || 7)}
+                          sx={{ width: 70 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <IconButton
+                          size="small"
+                          onClick={() => removeStage(index)}
+                          disabled={formData.stages.length === 1}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-          <Button variant="contained" sx={{ bgcolor: '#16a699' }}>
-            {editingWorkflow ? 'Save Changes' : 'Create Workflow'}
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setOpenDialog(false)} disabled={saving}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveWorkflow}
+            disabled={saving || !formData.name || formData.stages.some(s => !s.stage_name)}
+            sx={{ bgcolor: '#16a699', '&:hover': { bgcolor: '#138f82' } }}
+          >
+            {saving ? 'Saving...' : (editingWorkflow ? 'Save Changes' : 'Create Workflow')}
           </Button>
         </DialogActions>
       </Dialog>

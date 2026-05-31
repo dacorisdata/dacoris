@@ -1942,3 +1942,108 @@ class MouComplianceItem(Base):
 
     mou = relationship("Mou", back_populates="compliance_items")
     verified_by = relationship("User", foreign_keys=[verified_by_id])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MODULE 8 – INSTITUTIONAL WORKFLOWS
+# ═══════════════════════════════════════════════════════════════════════════
+
+class WorkflowType(str, enum.Enum):
+    PROPOSAL_REVIEW = "proposal_review"
+    PROJECT_REVIEW = "project_review"
+    ETHICS_REVIEW = "ethics_review"
+    DMP_REVIEW = "dmp_review"
+
+
+class WorkflowStatus(str, enum.Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    ARCHIVED = "archived"
+
+
+class Workflow(Base):
+    __tablename__ = "workflows"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    name = Column(String(200), nullable=False)
+    workflow_type = Column(Enum(WorkflowType), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    status = Column(Enum(WorkflowStatus), default=WorkflowStatus.ACTIVE)
+    is_default = Column(Boolean, default=False)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    stages = relationship("WorkflowStage", back_populates="workflow", cascade="all, delete-orphan", order_by="WorkflowStage.stage_order")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class WorkflowStage(Base):
+    __tablename__ = "workflow_stages"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False, index=True)
+    stage_order = Column(Integer, nullable=False)
+    stage_name = Column(String(200), nullable=False)
+    assigned_role = Column(String(100), nullable=False)
+    approvals_required = Column(Integer, default=1)
+    auto_advance = Column(Boolean, default=False)
+    duration_days = Column(Integer, nullable=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    workflow = relationship("Workflow", back_populates="stages")
+
+
+class WorkflowInstanceStatus(str, enum.Enum):
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    REJECTED = "rejected"
+
+
+class WorkflowInstance(Base):
+    __tablename__ = "workflow_instances"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False, index=True)
+    entity_type = Column(String(50), nullable=False)
+    entity_id = Column(String, nullable=False, index=True)
+    current_stage_id = Column(String, ForeignKey("workflow_stages.id"), nullable=True)
+    status = Column(Enum(WorkflowInstanceStatus), default=WorkflowInstanceStatus.IN_PROGRESS)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    workflow = relationship("Workflow")
+    current_stage = relationship("WorkflowStage", foreign_keys=[current_stage_id])
+    stage_history = relationship("WorkflowStageHistory", back_populates="instance", cascade="all, delete-orphan")
+
+
+class StageHistoryStatus(str, enum.Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RETURNED = "returned"
+
+
+class WorkflowStageHistory(Base):
+    __tablename__ = "workflow_stage_history"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    instance_id = Column(String, ForeignKey("workflow_instances.id"), nullable=False, index=True)
+    stage_id = Column(String, ForeignKey("workflow_stages.id"), nullable=False)
+    status = Column(Enum(StageHistoryStatus), default=StageHistoryStatus.PENDING)
+    assigned_to_id = Column(String, ForeignKey("users.id"), nullable=True)
+    reviewed_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    notes = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    instance = relationship("WorkflowInstance", back_populates="stage_history")
+    stage = relationship("WorkflowStage")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])

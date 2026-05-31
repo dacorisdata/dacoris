@@ -36,7 +36,7 @@ export default function Footer() {
   };
 
   return (
-    <Box component="footer" sx={{ bgcolor: C[800], color: '#f1f5f9', py: 6, mt: 8 }}>
+    <Box component="footer" sx={{ bgcolor: C[800], color: '#f1f5f9', py: 6 }}>
       <Container maxWidth="lg">
         <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {/* Logo and Description */}
