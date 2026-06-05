@@ -16,6 +16,11 @@ async def get_db():
 
 async def init_db():
     from models import Base
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("""
+            ALTER TABLE training_programs
+            ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN NOT NULL DEFAULT FALSE
+        """))
     print("Database tables created successfully")

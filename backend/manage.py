@@ -133,7 +133,10 @@ def create_institution(name, domain):
             session.add(institution)
             await session.commit()
             await session.refresh(institution)
-            
+
+            from services.training_defaults import ensure_default_programs
+            await ensure_default_programs(session, institution.id)
+
             click.echo(f"[OK] Institution created successfully!")
             click.echo(f"  ID: {institution.id}")
             click.echo(f"  Name: {institution.name}")

@@ -12,6 +12,9 @@ import {
   ExitToApp as LogoutIcon,
   EmojiEvents as AwardIcon, FolderSpecial as DmpIcon,
   Create as ManuscriptIcon, Storage,
+  School as TrainingIcon, MenuBook as CatalogIcon,
+  PlayLesson as CoursesIcon, WorkspacePremium as CertIcon,
+  Psychology as SkillsIcon, Assignment as NeedsIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
@@ -65,6 +68,17 @@ const NAV_SECTIONS = [
     items: [
       { icon: FormsIcon,    label: 'Data Import',   path: '/researcher/data/import' },
       { icon: Storage,      label: 'Data Lakes',    path: '/researcher/data/lakes' },
+    ],
+  },
+  {
+    section: 'Capacity Building',
+    items: [
+      { icon: TrainingIcon, label: 'Overview',           path: '/researcher/training' },
+      { icon: CatalogIcon,  label: 'Training Catalog',   path: '/researcher/training/catalog' },
+      { icon: CoursesIcon,  label: 'My Courses',         path: '/researcher/training/my-courses' },
+      { icon: CertIcon,     label: 'Certificates & CPD', path: '/researcher/training/certificates' },
+      { icon: SkillsIcon,   label: 'Skills Inventory',   path: '/researcher/training/skills' },
+      { icon: NeedsIcon,    label: 'Training Needs',     path: '/researcher/training/needs-assessment' },
     ],
   },
 ];

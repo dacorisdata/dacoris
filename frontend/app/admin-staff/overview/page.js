@@ -4,21 +4,21 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Box, Typography, Button, CircularProgress, Alert, Chip, Divider, useTheme,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   LinearProgress,
 } from '@mui/material';
 import {
   Assignment as AssignmentIcon, AccountBalance as FinanceIcon, Science as EthicsIcon,
   Folder as ProjectsIcon, Storage as DataIcon, BarChart as AnalyticsIcon,
   RateReview as ReviewIcon, Person as PersonIcon, ArrowForward as ArrowIcon,
-  CheckCircle as CheckIcon, Schedule as PendingIcon, EmojiEvents as AwardsIcon,
+  Schedule as PendingIcon, EmojiEvents as AwardsIcon,
   Gavel as ComplianceIcon, Groups as TeamsIcon, Refresh as RefreshIcon,
   Warning as WarningIcon, Business as InstitutionIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import api from '../../../lib/api';
 
-const ACCENT = '#16a699';
+const ACCENT = '#0d9488';
 
 const ROLE_CONFIG = {
   GRANT_MANAGER: {
@@ -192,34 +192,32 @@ function BarChart({ data, dark }) {
   );
 }
 
-function KpiCard({ label, value, sub, color, icon: Icon, onClick, dark, theme }) {
+function KpiCard({ label, value, sub, color, icon: Icon, onClick }) {
   return (
-    <Paper
-      elevation={0}
-      variant="outlined"
+    <Box
       onClick={onClick}
       sx={{
-        p: 2.5,
-        borderRadius: 2.5,
+        bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider',
+        borderLeft: `4px solid ${color}`, borderRadius: '10px',
+        px: 2, py: 1.75, height: '100%',
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'all 0.2s',
-        height: '100%',
-        '&:hover': onClick ? { borderColor: color, transform: 'translateY(-2px)' } : {},
+        transition: 'all 0.18s',
+        '&:hover': onClick ? { borderColor: color, bgcolor: `${color}06` } : {},
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-        <Box sx={{ width: 48, height: 48, borderRadius: 2, bgcolor: `${color}14`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Icon sx={{ color, fontSize: 24 }} />
-        </Box>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
         <Box>
-          <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>
+          <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.4, mb: 0.6 }}>
             {label}
           </Typography>
-          <Typography sx={{ fontSize: 28, fontWeight: 800, color: 'text.primary', lineHeight: 1 }}>{value}</Typography>
+          <Typography sx={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1 }}>{value}</Typography>
           {sub && <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>{sub}</Typography>}
         </Box>
+        <Box sx={{ width: 36, height: 36, borderRadius: '9px', bgcolor: `${color}14`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.25 }}>
+          <Icon sx={{ color, fontSize: 19 }} />
+        </Box>
       </Box>
-    </Paper>
+    </Box>
   );
 }
 
@@ -314,32 +312,58 @@ export default function AdminStaffOverview() {
     );
   }
 
-  return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
-      {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError('')}>{error}</Alert>}
+  const submissionTypeColor = (type) => {
+    if (type === 'proposal') return '#3b82f6';
+    if (type === 'project')  return ACCENT;
+    if (type === 'ethics')   return '#10b981';
+    return '#8b5cf6';
+  };
 
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, gap: 2, flexWrap: 'wrap' }}>
+  const priorityColor = (p) => {
+    if (p === 'high')   return '#ef4444';
+    if (p === 'medium') return '#f59e0b';
+    return '#94a3b8';
+  };
+
+  return (
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
+      {error && <Alert severity="error" sx={{ mb: 3, borderRadius: '10px' }} onClose={() => setError('')}>{error}</Alert>}
+
+      {/* ── Greeting banner ─────────────────────────────────────── */}
+      <Box sx={{
+        mb: 3, p: { xs: 2.5, md: 3 }, borderRadius: '14px',
+        background: `linear-gradient(135deg, ${config.color}14 0%, ${config.color}05 100%)`,
+        border: `1px solid ${config.color}28`,
+        borderLeft: `5px solid ${config.color}`,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap',
+      }}>
         <Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.75, flexWrap: 'wrap' }}>
-            <Typography sx={{ fontSize: 26, fontWeight: 800 }}>{greeting}, {firstName}</Typography>
-            <Chip label={config.label} size="small" sx={{ bgcolor: `${config.color}18`, color: config.color, fontWeight: 700, fontSize: 11 }} />
+            <Typography sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+              {greeting}, {firstName}
+            </Typography>
+            <Box sx={{ px: 1.25, py: 0.4, borderRadius: '7px', bgcolor: `${config.color}20`, color: config.color, fontSize: 11.5, fontWeight: 700 }}>
+              {config.label}
+            </Box>
           </Box>
-          <Typography sx={{ fontSize: 14, color: 'text.secondary', mb: 1 }}>{config.description}</Typography>
+          <Typography sx={{ fontSize: 13.5, color: 'text.secondary', mb: institutionName ? 1.25 : 0 }}>
+            {config.description}
+          </Typography>
           {institutionName && (
-            <Chip
-              icon={<InstitutionIcon sx={{ fontSize: '16px !important' }} />}
-              label={institutionName}
-              size="small"
-              sx={{ bgcolor: `${ACCENT}12`, color: ACCENT, fontWeight: 600 }}
-            />
+            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.25, py: 0.4, borderRadius: '7px', bgcolor: `${ACCENT}12`, color: ACCENT, fontSize: 12, fontWeight: 600 }}>
+              <InstitutionIcon sx={{ fontSize: 14 }} />{institutionName}
+            </Box>
           )}
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadAll(user)} disabled={refreshing} sx={{ textTransform: 'none', borderRadius: 2 }}>
-            Refresh
+        <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+          <Button size="small" variant="outlined" startIcon={<RefreshIcon sx={{ fontSize: 15 }} />}
+            onClick={() => loadAll(user)} disabled={refreshing}
+            sx={{ textTransform: 'none', borderRadius: '9px', fontWeight: 600, fontSize: 13 }}>
+            {refreshing ? 'Loading…' : 'Refresh'}
           </Button>
-          <Button size="small" variant="outlined" startIcon={<PersonIcon />} onClick={() => router.push('/admin-staff/profile')} sx={{ textTransform: 'none', borderRadius: 2, borderColor: ACCENT, color: ACCENT }}>
+          <Button size="small" variant="outlined" startIcon={<PersonIcon sx={{ fontSize: 15 }} />}
+            onClick={() => router.push('/admin-staff/profile')}
+            sx={{ textTransform: 'none', borderRadius: '9px', fontWeight: 600, fontSize: 13, borderColor: ACCENT, color: ACCENT, '&:hover': { bgcolor: `${ACCENT}08` } }}>
             Profile
           </Button>
         </Box>
@@ -347,46 +371,51 @@ export default function AdminStaffOverview() {
 
       {metrics && (
         <>
-          {/* KPI Row */}
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+          {/* ── KPI Row ──────────────────────────────────────────── */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 3 }}>
             {[
-              { label: 'Pending Reviews', value: metrics.submissions_for_review?.total ?? 0, sub: 'Across all modules', color: '#f59e0b', icon: ReviewIcon, path: '/admin-staff/grants/proposals' },
-              { label: 'Active Projects', value: metrics.projects?.active ?? 0, sub: `${metrics.projects?.total ?? 0} total`, color: '#3b82f6', icon: ProjectsIcon, path: '/admin-staff/research/projects' },
-              { label: 'Proposal Success', value: `${metrics.proposals?.success_rate ?? 0}%`, sub: `${metrics.proposals?.awarded ?? 0} awarded`, color: '#10b981', icon: AwardsIcon, path: '/admin-staff/grants/proposals' },
-              { label: 'Total Funding', value: fmtMoney(metrics.awards?.total_amount), sub: `${metrics.awards?.active ?? 0} active awards`, color: ACCENT, icon: FinanceIcon, path: '/admin-staff/grants/awards' },
+              { label: 'Pending Reviews',   value: metrics.submissions_for_review?.total ?? 0, sub: 'Across all modules',             color: '#f59e0b', icon: ReviewIcon,   path: '/admin-staff/grants/proposals' },
+              { label: 'Active Projects',   value: metrics.projects?.active ?? 0,              sub: `${metrics.projects?.total ?? 0} total`, color: '#3b82f6', icon: ProjectsIcon, path: '/admin-staff/research/projects' },
+              { label: 'Proposal Success',  value: `${metrics.proposals?.success_rate ?? 0}%`, sub: `${metrics.proposals?.awarded ?? 0} awarded`,  color: '#10b981', icon: AwardsIcon,  path: '/admin-staff/grants/proposals' },
+              { label: 'Total Funding',     value: fmtMoney(metrics.awards?.total_amount),     sub: `${metrics.awards?.active ?? 0} active awards`, color: ACCENT,    icon: FinanceIcon, path: '/admin-staff/grants/awards' },
             ].map(kpi => (
-              <Box key={kpi.label} sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' }, minWidth: 0 }}>
+              <Box key={kpi.label} sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 6px)', md: '1 1 calc(25% - 9px)' }, minWidth: 0 }}>
                 <KpiCard label={kpi.label} value={kpi.value} sub={kpi.sub} color={kpi.color} icon={kpi.icon} onClick={() => router.push(kpi.path)} />
               </Box>
             ))}
           </Box>
 
-          {/* Charts */}
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2.5, mb: 3 }}>
+          {/* ── Charts ───────────────────────────────────────────── */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
             {[
-              { title: 'Proposals by Status', data: metrics.charts?.proposals_by_status },
-              { title: 'Projects by Status', data: metrics.charts?.projects_by_status },
+              { title: 'Proposals by Status',    data: metrics.charts?.proposals_by_status },
+              { title: 'Projects by Status',     data: metrics.charts?.projects_by_status },
               { title: 'Review Queue Breakdown', data: metrics.charts?.submissions_by_type?.filter(d => d.count > 0) },
             ].map(chart => (
-              <Box key={chart.title} sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(33.333% - 14px)' }, minWidth: 0 }}>
-                <Paper elevation={0} variant="outlined" sx={{ p: 2.5, borderRadius: 2.5, height: '100%' }}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>{chart.title}</Typography>
+              <Box key={chart.title} sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(33.333% - 11px)' }, minWidth: 0 }}>
+                <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '10px', p: 2.25, height: '100%' }}>
+                  <Typography sx={{ fontSize: 12.5, fontWeight: 700, mb: 2, textTransform: 'uppercase', letterSpacing: 0.4, color: 'text.secondary' }}>
+                    {chart.title}
+                  </Typography>
                   <BarChart data={chart.data} dark={dark} />
-                </Paper>
+                </Box>
               </Box>
             ))}
           </Box>
 
-          {/* Submissions + Due Tasks */}
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2.5, mb: 3, alignItems: 'stretch' }}>
+          {/* ── Submissions + Due Tasks ───────────────────────────── */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3, alignItems: 'stretch' }}>
+            {/* Submissions */}
             <Box sx={{ flex: { xs: '1 1 100%', lg: '7 1 0' }, minWidth: 0, display: 'flex' }}>
-              <Paper elevation={0} variant="outlined" sx={{ borderRadius: 2.5, overflow: 'hidden', flex: 1 }}>
-                <Box sx={{ px: 2.5, py: 2, borderBottom: `1px solid ${theme.palette.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', overflow: 'hidden', flex: 1 }}>
+                <Box sx={{ px: 2.5, py: 1.75, borderBottom: `1px solid ${theme.palette.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Box>
                     <Typography sx={{ fontSize: 14, fontWeight: 700 }}>Submissions for Review</Typography>
-                    <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Live queue — click a row to open</Typography>
+                    <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>Live queue — click a row to open</Typography>
                   </Box>
-                  <Chip label={`${metrics.pending_submissions?.length ?? 0} items`} size="small" sx={{ fontWeight: 700, bgcolor: `${ACCENT}14`, color: ACCENT }} />
+                  <Box sx={{ px: 1.25, py: 0.4, borderRadius: '7px', bgcolor: `${ACCENT}12`, color: ACCENT, fontSize: 11, fontWeight: 700 }}>
+                    {metrics.pending_submissions?.length ?? 0} items
+                  </Box>
                 </Box>
                 {!metrics.pending_submissions?.length ? (
                   <Typography sx={{ p: 4, textAlign: 'center', color: 'text.secondary', fontSize: 13 }}>No pending submissions right now.</Typography>
@@ -394,40 +423,55 @@ export default function AdminStaffOverview() {
                   <TableContainer>
                     <Table size="small">
                       <TableHead>
-                        <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
+                        <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)' }}>
                           <TableCell sx={headCell}>Type</TableCell>
                           <TableCell sx={headCell}>Title</TableCell>
                           <TableCell sx={headCell}>Status</TableCell>
                           <TableCell sx={headCell}>Submitted</TableCell>
-                          <TableCell sx={headCell} align="right">Open</TableCell>
+                          <TableCell sx={headCell} align="right"></TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {metrics.pending_submissions.map(item => (
-                          <TableRow key={`${item.type}-${item.id}`} hover sx={{ cursor: 'pointer' }} onClick={() => router.push(submissionPath(item))}>
-                            <TableCell><Chip label={item.type_label} size="small" sx={{ fontSize: 10, height: 22, fontWeight: 700 }} /></TableCell>
-                            <TableCell><Typography sx={{ fontSize: 13, fontWeight: 600 }} noWrap>{item.title}</Typography></TableCell>
-                            <TableCell><Chip label={(item.status || '').replace(/_/g, ' ')} size="small" sx={{ fontSize: 10, height: 22, textTransform: 'capitalize' }} /></TableCell>
-                            <TableCell sx={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(item.submitted_at)}</TableCell>
-                            <TableCell align="right"><ArrowIcon sx={{ fontSize: 16, color: 'text.disabled' }} /></TableCell>
-                          </TableRow>
-                        ))}
+                        {metrics.pending_submissions.map(item => {
+                          const tc = submissionTypeColor(item.type);
+                          return (
+                            <TableRow key={`${item.type}-${item.id}`} hover onClick={() => router.push(submissionPath(item))}
+                              sx={{ cursor: 'pointer', '&:last-child td': { borderBottom: 0 }, transition: 'background 0.15s', '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.03)' : `${ACCENT}06` } }}>
+                              <TableCell>
+                                <Box sx={{ display: 'inline-flex', px: 1, py: 0.2, borderRadius: '5px', bgcolor: `${tc}14`, color: tc, fontSize: 10.5, fontWeight: 700 }}>
+                                  {item.type_label}
+                                </Box>
+                              </TableCell>
+                              <TableCell><Typography sx={{ fontSize: 13, fontWeight: 600 }} noWrap>{item.title}</Typography></TableCell>
+                              <TableCell>
+                                <Typography sx={{ fontSize: 11, color: 'text.secondary', textTransform: 'capitalize' }}>
+                                  {(item.status || '').replace(/_/g, ' ')}
+                                </Typography>
+                              </TableCell>
+                              <TableCell sx={{ fontSize: 12, whiteSpace: 'nowrap', color: 'text.secondary' }}>{fmtDate(item.submitted_at)}</TableCell>
+                              <TableCell align="right"><ArrowIcon sx={{ fontSize: 15, color: 'text.disabled' }} /></TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </TableContainer>
                 )}
-              </Paper>
+              </Box>
             </Box>
 
+            {/* Due Tasks */}
             <Box sx={{ flex: { xs: '1 1 100%', lg: '5 1 0' }, minWidth: 0, display: 'flex' }}>
-              <Paper elevation={0} variant="outlined" sx={{ borderRadius: 2.5, overflow: 'hidden', flex: 1 }}>
-                <Box sx={{ px: 2.5, py: 2, borderBottom: `1px solid ${theme.palette.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', overflow: 'hidden', flex: 1 }}>
+                <Box sx={{ px: 2.5, py: 1.75, borderBottom: `1px solid ${theme.palette.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Box>
                     <Typography sx={{ fontSize: 14, fontWeight: 700 }}>Due & Upcoming Tasks</Typography>
-                    <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Milestones due within 30 days</Typography>
+                    <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>Milestones due within 30 days</Typography>
                   </Box>
                   {overdueCount > 0 && (
-                    <Chip icon={<WarningIcon sx={{ fontSize: '14px !important' }} />} label={`${overdueCount} overdue`} size="small" color="error" sx={{ fontWeight: 700 }} />
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.4, borderRadius: '7px', bgcolor: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: 11, fontWeight: 700 }}>
+                      <WarningIcon sx={{ fontSize: 13 }} />{overdueCount} overdue
+                    </Box>
                   )}
                 </Box>
                 {!metrics.due_tasks?.length ? (
@@ -436,7 +480,7 @@ export default function AdminStaffOverview() {
                   <TableContainer>
                     <Table size="small">
                       <TableHead>
-                        <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
+                        <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)' }}>
                           <TableCell sx={headCell}>Milestone</TableCell>
                           <TableCell sx={headCell}>Due</TableCell>
                           <TableCell sx={headCell}>Priority</TableCell>
@@ -444,21 +488,25 @@ export default function AdminStaffOverview() {
                       </TableHead>
                       <TableBody>
                         {metrics.due_tasks.map(task => (
-                          <TableRow
-                            key={task.id}
-                            hover
-                            sx={{ cursor: 'pointer', bgcolor: task.is_overdue ? (dark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)') : 'inherit' }}
-                            onClick={() => router.push(`/admin-staff/research/projects/${task.project_id}`)}
-                          >
+                          <TableRow key={task.id} hover onClick={() => router.push(`/admin-staff/research/projects/${task.project_id}`)}
+                            sx={{
+                              cursor: 'pointer',
+                              '&:last-child td': { borderBottom: 0 },
+                              borderLeft: task.is_overdue ? '3px solid #ef4444' : '3px solid transparent',
+                              transition: 'background 0.15s',
+                              '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' },
+                            }}>
                             <TableCell>
                               <Typography sx={{ fontSize: 12.5, fontWeight: 600 }} noWrap>{task.title}</Typography>
-                              <Typography sx={{ fontSize: 10, color: 'text.secondary' }} noWrap>{task.project_title}</Typography>
+                              <Typography sx={{ fontSize: 10.5, color: 'text.secondary' }} noWrap>{task.project_title}</Typography>
                             </TableCell>
-                            <TableCell sx={{ fontSize: 12, whiteSpace: 'nowrap', color: task.is_overdue ? 'error.main' : 'text.primary', fontWeight: task.is_overdue ? 700 : 400 }}>
+                            <TableCell sx={{ fontSize: 12, whiteSpace: 'nowrap', color: task.is_overdue ? '#ef4444' : 'text.primary', fontWeight: task.is_overdue ? 700 : 400 }}>
                               {fmtDate(task.due_date)}
                             </TableCell>
                             <TableCell>
-                              <Chip label={task.priority || 'medium'} size="small" sx={{ fontSize: 10, height: 20, textTransform: 'capitalize' }} />
+                              <Box sx={{ display: 'inline-flex', px: 0.875, py: 0.2, borderRadius: '5px', bgcolor: `${priorityColor(task.priority)}14`, color: priorityColor(task.priority), fontSize: 10.5, fontWeight: 700, textTransform: 'capitalize' }}>
+                                {task.priority || 'medium'}
+                              </Box>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -466,96 +514,107 @@ export default function AdminStaffOverview() {
                     </Table>
                   </TableContainer>
                 )}
-              </Paper>
+              </Box>
             </Box>
           </Box>
 
-          {/* Institution snapshot */}
-          <Paper elevation={0} variant="outlined" sx={{ p: 2.5, borderRadius: 2.5, mb: 3 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Institution Snapshot</Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+          {/* ── Institution snapshot ─────────────────────────────── */}
+          <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', p: 2.25, mb: 3 }}>
+            <Typography sx={{ fontSize: 12.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'text.secondary', mb: 2 }}>Institution Snapshot</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
               {[
-                { label: 'Proposals', value: metrics.proposals?.total, detail: `${metrics.proposals?.in_review ?? 0} in review` },
-                { label: 'Projects', value: metrics.projects?.total, detail: `${metrics.projects?.proposed ?? 0} awaiting approval` },
-                { label: 'Ethics Apps', value: metrics.ethics?.total, detail: `${metrics.ethics?.pending_review ?? 0} pending` },
-                { label: 'Recent (30d)', value: (metrics.recent_activity?.proposals ?? 0) + (metrics.recent_activity?.projects ?? 0) + (metrics.recent_activity?.ethics ?? 0), detail: 'new submissions' },
+                { label: 'Proposals',    value: metrics.proposals?.total,  detail: `${metrics.proposals?.in_review ?? 0} in review`,     color: '#3b82f6' },
+                { label: 'Projects',     value: metrics.projects?.total,   detail: `${metrics.projects?.proposed ?? 0} awaiting approval`, color: ACCENT },
+                { label: 'Ethics Apps',  value: metrics.ethics?.total,     detail: `${metrics.ethics?.pending_review ?? 0} pending`,        color: '#10b981' },
+                { label: 'Recent (30d)', value: (metrics.recent_activity?.proposals ?? 0) + (metrics.recent_activity?.projects ?? 0) + (metrics.recent_activity?.ethics ?? 0), detail: 'new submissions', color: '#8b5cf6' },
               ].map(row => (
-                <Box key={row.label} sx={{ flex: { xs: '1 1 calc(50% - 8px)', sm: '1 1 calc(25% - 12px)' }, minWidth: 0 }}>
-                  <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', border: `1px solid ${theme.palette.divider}`, height: '100%' }}>
-                    <Typography sx={{ fontSize: 22, fontWeight: 800, color: ACCENT }}>{row.value ?? 0}</Typography>
-                    <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{row.label}</Typography>
-                    <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>{row.detail}</Typography>
+                <Box key={row.label} sx={{ flex: { xs: '1 1 calc(50% - 6px)', sm: '1 1 calc(25% - 9px)' }, minWidth: 0 }}>
+                  <Box sx={{ p: 1.75, borderRadius: '9px', border: '1px solid', borderColor: 'divider', borderLeft: `4px solid ${row.color}`, height: '100%' }}>
+                    <Typography sx={{ fontSize: 24, fontWeight: 800, color: row.color, lineHeight: 1 }}>{row.value ?? 0}</Typography>
+                    <Typography sx={{ fontSize: 12, fontWeight: 600, mt: 0.5 }}>{row.label}</Typography>
+                    <Typography sx={{ fontSize: 10.5, color: 'text.secondary', mt: 0.25 }}>{row.detail}</Typography>
                   </Box>
                 </Box>
               ))}
             </Box>
-          </Paper>
+          </Box>
         </>
       )}
 
       <Divider sx={{ my: 3 }} />
 
-      {/* Role modules */}
+      {/* ── Role workspace modules ────────────────────────────── */}
       {config.modules.length > 0 && (
         <Box sx={{ mb: 3 }}>
-          <Typography sx={{ fontSize: 15, fontWeight: 700, mb: 1.5 }}>Your Workspace</Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-            {config.modules.map(({ label, icon: Icon, color, bg, path, stat, prefix = '' }) => (
-              <Box key={label} sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(33.333% - 11px)' }, minWidth: 0 }}>
-                <Paper elevation={0} variant="outlined" onClick={() => router.push(path)} sx={{ p: 2, borderRadius: 2.5, cursor: 'pointer', height: '100%', '&:hover': { borderColor: color } }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Icon sx={{ color, fontSize: 20 }} />
-                    </Box>
-                    <Box>
-                      <Typography sx={{ fontSize: 11, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase' }}>{label}</Typography>
-                      <Typography sx={{ fontSize: 22, fontWeight: 800 }}>{prefix}{stats[stat] ?? '—'}</Typography>
-                    </Box>
+          <Typography sx={{ fontSize: 12.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'text.secondary', mb: 1.75 }}>Your Workspace</Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+            {config.modules.map(({ label, icon: Icon, color, path, stat, prefix = '' }) => (
+              <Box key={label} sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 6px)', md: '1 1 calc(33.333% - 8px)' }, minWidth: 0 }}>
+                <Box onClick={() => router.push(path)} sx={{
+                  bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider',
+                  borderLeft: `4px solid ${color}`, borderRadius: '10px',
+                  p: 2, cursor: 'pointer', height: '100%',
+                  transition: 'all 0.18s', '&:hover': { borderColor: color, bgcolor: `${color}06` },
+                }}>
+                  <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, mb: 0.5 }}>{label}</Typography>
+                  <Typography sx={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1 }}>{prefix}{stats[stat] ?? '—'}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
+                    <Icon sx={{ color, fontSize: 14 }} />
+                    <Typography sx={{ fontSize: 11, color, fontWeight: 600 }}>View →</Typography>
                   </Box>
-                </Paper>
+                </Box>
               </Box>
             ))}
           </Box>
         </Box>
       )}
 
-      {/* Quick actions + permissions */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2.5, alignItems: 'stretch' }}>
+      {/* ── Quick actions + permissions ───────────────────────── */}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'stretch' }}>
         <Box sx={{ flex: { xs: '1 1 100%', md: '5 1 0' }, minWidth: 0, display: 'flex' }}>
-          <Paper elevation={0} variant="outlined" sx={{ p: 2.5, borderRadius: 2.5, flex: 1 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Quick Actions</Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', p: 2.25, flex: 1 }}>
+            <Typography sx={{ fontSize: 12.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'text.secondary', mb: 1.75 }}>Quick Actions</Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.875 }}>
               {config.actions.map(({ label, path, icon: Icon }) => (
                 <Box key={label} onClick={() => router.push(path)} sx={{
-                  display: 'flex', alignItems: 'center', gap: 1.5, p: 1.25, borderRadius: 2, cursor: 'pointer',
-                  border: `1px solid ${theme.palette.divider}`, '&:hover': { borderColor: config.color, bgcolor: `${config.color}06` },
+                  display: 'flex', alignItems: 'center', gap: 1.5, px: 1.5, py: 1.1, borderRadius: '9px', cursor: 'pointer',
+                  border: `1px solid ${theme.palette.divider}`,
+                  transition: 'all 0.15s',
+                  '&:hover': { borderColor: config.color, bgcolor: `${config.color}07`, '& .qa-icon': { color: config.color } },
                 }}>
-                  <Icon sx={{ color: config.color, fontSize: 18 }} />
+                  <Icon className="qa-icon" sx={{ color: 'text.secondary', fontSize: 17, transition: 'color 0.15s' }} />
                   <Typography sx={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{label}</Typography>
                   <ArrowIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
                 </Box>
               ))}
             </Box>
-          </Paper>
+          </Box>
         </Box>
         <Box sx={{ flex: { xs: '1 1 100%', md: '7 1 0' }, minWidth: 0, display: 'flex' }}>
-          <Paper elevation={0} variant="outlined" sx={{ p: 2.5, borderRadius: 2.5, flex: 1 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 1 }}>Your Permissions</Typography>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2 }}>As a {config.label}, you can access:</Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+          <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', p: 2.25, flex: 1 }}>
+            <Typography sx={{ fontSize: 12.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'text.secondary', mb: 0.75 }}>Your Permissions</Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 1.75 }}>As a {config.label}, you can access:</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
               {(PERMISSION_CHIPS[role] || []).map(({ label, color }) => (
-                <Chip key={label} label={label} size="small" sx={{ bgcolor: `${color}15`, color, fontWeight: 600, fontSize: 11 }} />
+                <Box key={label} sx={{ display: 'inline-flex', px: 1.25, py: 0.4, borderRadius: '7px', bgcolor: `${color}14`, color, fontSize: 11.5, fontWeight: 600, border: `1px solid ${color}20` }}>
+                  {label}
+                </Box>
               ))}
             </Box>
             <Box sx={{ mt: 2.5 }}>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.75 }}>Profile completeness</Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
+                <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Profile completeness</Typography>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, color: ACCENT }}>
+                  {[user?.name, user?.job_title, user?.department, user?.email].filter(Boolean).length * 25}%
+                </Typography>
+              </Box>
               <LinearProgress
                 variant="determinate"
                 value={[user?.name, user?.job_title, user?.department, user?.email].filter(Boolean).length / 4 * 100}
-                sx={{ height: 6, borderRadius: 3, bgcolor: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', '& .MuiLinearProgress-bar': { bgcolor: ACCENT } }}
+                sx={{ height: 6, borderRadius: 3, bgcolor: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', '& .MuiLinearProgress-bar': { bgcolor: ACCENT, borderRadius: 3 } }}
               />
             </Box>
-          </Paper>
+          </Box>
         </Box>
       </Box>
     </Box>

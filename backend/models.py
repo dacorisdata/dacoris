@@ -2047,3 +2047,187 @@ class WorkflowStageHistory(Base):
     stage = relationship("WorkflowStage")
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
     reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Module 10: Training & Capacity Building
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TrainingProgramStatus(str, enum.Enum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
+
+
+class TrainingProgramLevel(str, enum.Enum):
+    BEGINNER = "beginner"
+    INTERMEDIATE = "intermediate"
+    ADVANCED = "advanced"
+
+
+class TrainingDeliveryMode(str, enum.Enum):
+    ONLINE = "online"
+    IN_PERSON = "in_person"
+    HYBRID = "hybrid"
+    SELF_PACED = "self_paced"
+
+
+class TrainingProgram(Base):
+    __tablename__ = "training_programs"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(100), nullable=True)
+    level = Column(Enum(TrainingProgramLevel), default=TrainingProgramLevel.BEGINNER)
+    delivery_mode = Column(Enum(TrainingDeliveryMode), default=TrainingDeliveryMode.ONLINE)
+    cpd_hours = Column(Float, default=0)
+    duration_hours = Column(Float, nullable=True)
+    status = Column(Enum(TrainingProgramStatus), default=TrainingProgramStatus.DRAFT)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    max_enrollments = Column(Integer, nullable=True)
+    instructor_name = Column(String(200), nullable=True)
+    prerequisites = Column(JSON, nullable=True)
+    learning_outcomes = Column(JSON, nullable=True)
+    certification_awarded = Column(Boolean, default=True)
+    enrollment_type = Column(String(50), default="open")
+    is_system_default = Column(Boolean, default=False, nullable=False, server_default="false")
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    institution = relationship("Institution")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    enrollments = relationship("TrainingEnrollment", back_populates="program", cascade="all, delete-orphan")
+
+
+class TrainingEnrollmentStatus(str, enum.Enum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    DROPPED = "dropped"
+    SUSPENDED = "suspended"
+
+
+class TrainingEnrollment(Base):
+    __tablename__ = "training_enrollments"
+    __table_args__ = (
+        UniqueConstraint('program_id', 'user_id', name='uix_training_enrollment_program_user'),
+    )
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    program_id = Column(String, ForeignKey("training_programs.id"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(Enum(TrainingEnrollmentStatus), default=TrainingEnrollmentStatus.ACTIVE)
+    progress_percentage = Column(Float, default=0)
+    enrolled_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    final_grade = Column(String(20), nullable=True)
+    enrolled_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+
+    program = relationship("TrainingProgram", back_populates="enrollments")
+    user = relationship("User", foreign_keys=[user_id])
+    enrolled_by = relationship("User", foreign_keys=[enrolled_by_id])
+    certificate = relationship("TrainingCertificate", back_populates="enrollment", uselist=False)
+
+
+class TrainingCertificate(Base):
+    __tablename__ = "training_certificates"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    enrollment_id = Column(String, ForeignKey("training_enrollments.id"), nullable=False, unique=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    program_id = Column(String, ForeignKey("training_programs.id"), nullable=False, index=True)
+    certificate_number = Column(String(50), nullable=False, unique=True)
+    verification_code = Column(String(32), nullable=False, unique=True)
+    issue_date = Column(DateTime(timezone=True), server_default=func.now())
+    cpd_hours_awarded = Column(Float, default=0)
+    recipient_name = Column(String(200), nullable=True)
+    program_title = Column(String(300), nullable=True)
+
+    enrollment = relationship("TrainingEnrollment", back_populates="certificate")
+    user = relationship("User", foreign_keys=[user_id])
+    program = relationship("TrainingProgram")
+
+
+class SkillProficiency(str, enum.Enum):
+    BEGINNER = "beginner"
+    INTERMEDIATE = "intermediate"
+    ADVANCED = "advanced"
+    EXPERT = "expert"
+
+
+class UserSkill(Base):
+    __tablename__ = "user_skills"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    skill_name = Column(String(150), nullable=False)
+    category = Column(String(100), nullable=True)
+    proficiency_level = Column(Enum(SkillProficiency), default=SkillProficiency.BEGINNER)
+    years_experience = Column(Float, nullable=True)
+    last_used_date = Column(Date, nullable=True)
+    verified = Column(Boolean, default=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class TrainingNeedsStatus(str, enum.Enum):
+    SUBMITTED = "submitted"
+    REVIEWED = "reviewed"
+    ACTIONED = "actioned"
+
+
+class TrainingNeedsAssessment(Base):
+    __tablename__ = "training_needs_assessments"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    career_stage = Column(String(100), nullable=True)
+    research_areas = Column(JSON, nullable=True)
+    desired_skills = Column(JSON, nullable=True)
+    current_challenges = Column(Text, nullable=True)
+    preferred_formats = Column(JSON, nullable=True)
+    available_hours_per_month = Column(Integer, nullable=True)
+    status = Column(Enum(TrainingNeedsStatus), default=TrainingNeedsStatus.SUBMITTED)
+    admin_notes = Column(Text, nullable=True)
+    reviewed_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+    institution = relationship("Institution")
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
+
+
+class CPDActivityType(str, enum.Enum):
+    COURSE = "course"
+    WORKSHOP = "workshop"
+    CONFERENCE = "conference"
+    SELF_STUDY = "self_study"
+    WEBINAR = "webinar"
+    OTHER = "other"
+
+
+class CPDRecord(Base):
+    __tablename__ = "cpd_records"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text, nullable=True)
+    activity_type = Column(Enum(CPDActivityType), default=CPDActivityType.COURSE)
+    cpd_hours = Column(Float, nullable=False)
+    activity_date = Column(Date, nullable=False)
+    provider = Column(String(200), nullable=True)
+    enrollment_id = Column(String, ForeignKey("training_enrollments.id"), nullable=True)
+    verified = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+    enrollment = relationship("TrainingEnrollment")

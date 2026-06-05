@@ -201,4 +201,32 @@ export const researcherAPI = {
   updateProfile: (data) => api.put('/auth/me', data),
 };
 
+// Training & Capacity Building endpoints
+export const trainingAPI = {
+  adminStats: () => api.get('/training/stats/admin'),
+  learnerStats: () => api.get('/training/stats/learner'),
+  listPrograms: (params) => api.get('/training/programs', { params }),
+  getProgram: (id) => api.get(`/training/programs/${id}`),
+  createProgram: (data) => api.post('/training/programs', data),
+  updateProgram: (id, data) => api.put(`/training/programs/${id}`, data),
+  deleteProgram: (id) => api.delete(`/training/programs/${id}`),
+  listEnrollments: (params) => api.get('/training/enrollments', { params }),
+  myEnrollments: () => api.get('/training/enrollments/my'),
+  enroll: (data) => api.post('/training/enrollments', data),
+  updateEnrollment: (id, data) => api.patch(`/training/enrollments/${id}`, data),
+  myCertificates: () => api.get('/training/certificates/my'),
+  verifyCertificate: (code) => api.get(`/training/certificates/verify/${code}`),
+  skillsCatalog: () => api.get('/training/skills/catalog'),
+  mySkills: () => api.get('/training/skills/my'),
+  addSkill: (data) => api.post('/training/skills', data),
+  updateSkill: (id, data) => api.put(`/training/skills/${id}`, data),
+  deleteSkill: (id) => api.delete(`/training/skills/${id}`),
+  myNeedsAssessment: () => api.get('/training/needs-assessment/my'),
+  submitNeedsAssessment: (data) => api.post('/training/needs-assessment', data),
+  listNeedsAssessments: (params) => api.get('/training/needs-assessments', { params }),
+  reviewNeedsAssessment: (id, data) => api.patch(`/training/needs-assessments/${id}`, data),
+  myCPD: (params) => api.get('/training/cpd/my', { params }),
+  addCPD: (data) => api.post('/training/cpd', data),
+};
+
 export default api;

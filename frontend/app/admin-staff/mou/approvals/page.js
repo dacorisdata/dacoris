@@ -11,14 +11,14 @@ import {
 } from '@mui/icons-material';
 import api from '../../../../lib/api';
 
-const ACCENT = '#7c3aed';
+const ACCENT = '#16a699';
 
 const PENDING_STATUSES = ['INTERNAL_REVIEW', 'LEGAL_REVIEW', 'EXEC_APPROVAL', 'PENDING_SIGNING'];
 
 const STATUS_CONFIG = {
   INTERNAL_REVIEW:  { label: 'Internal Review', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
   LEGAL_REVIEW:     { label: 'Legal Review',    color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-  EXEC_APPROVAL:    { label: 'Exec Approval',   color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+  EXEC_APPROVAL:    { label: 'Exec Approval',   color: '#0b3c5d', bg: 'rgba(11,60,93,0.12)' },
   PENDING_SIGNING:  { label: 'Pending Signing', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
 };
 

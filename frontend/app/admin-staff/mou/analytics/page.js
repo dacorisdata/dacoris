@@ -5,13 +5,13 @@ import { Box, Typography, Chip, CircularProgress, useTheme, Alert } from '@mui/m
 import { BarChart as AnalyticsIcon, Handshake as MouIcon, People as PartnersIcon } from '@mui/icons-material';
 import api from '../../../../lib/api';
 
-const ACCENT = '#7c3aed';
+const ACCENT = '#16a699';
 
 const STATUS_COLORS = {
   DRAFT:           '#64748b',
   INTERNAL_REVIEW: '#f59e0b',
   LEGAL_REVIEW:    '#f97316',
-  EXEC_APPROVAL:   '#8b5cf6',
+  EXEC_APPROVAL:   '#0b3c5d',
   PENDING_SIGNING: '#3b82f6',
   ACTIVE:          '#10b981',
   MID_TERM_REVIEW: '#06b6d4',
@@ -23,14 +23,14 @@ const STATUS_COLORS = {
 };
 
 const TYPE_COLORS = {
-  GENERAL_COLLABORATION: '#7c3aed',
+  GENERAL_COLLABORATION: '#16a699',
   ACADEMIC_EXCHANGE:     '#3b82f6',
   RESEARCH_PARTNERSHIP:  '#10b981',
   DATA_SHARING:          '#06b6d4',
   JOINT_DEGREE:          '#f59e0b',
   CLINICAL:              '#ef4444',
   INDUSTRY:              '#f97316',
-  CONSORTIUM:            '#8b5cf6',
+  CONSORTIUM:            '#0b3c5d',
   CO_FUNDING:            '#ec4899',
 };
 
@@ -147,7 +147,7 @@ export default function MouAnalyticsPage() {
 
       {/* Top KPI row */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <Stat label="Total MoUs"       value={dashboard?.total}           color="#7c3aed"  bg="rgba(124,58,237,0.06)" path="/admin-staff/mou/list" />
+        <Stat label="Total MoUs"       value={dashboard?.total}           color="#16a699"  bg="rgba(22,166,153,0.06)" path="/admin-staff/mou/list" />
         <Stat label="Active"           value={dashboard?.active}          color="#10b981"  bg="rgba(16,185,129,0.06)" path="/admin-staff/mou/list?status=ACTIVE" />
         <Stat label="Draft"            value={dashboard?.draft}           color="#64748b"  path="/admin-staff/mou/list?status=DRAFT" />
         <Stat label="Pending Signing"  value={dashboard?.pending_signing} color="#3b82f6"  path="/admin-staff/mou/list?status=PENDING_SIGNING" />

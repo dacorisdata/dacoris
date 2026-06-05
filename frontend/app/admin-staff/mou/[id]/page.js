@@ -23,14 +23,14 @@ import {
 } from '@mui/icons-material';
 import api from '../../../../lib/api';
 
-const ACCENT = '#7c3aed';
+const ACCENT = '#16a699';
 
 // The main workflow pipeline stages in order
 const PIPELINE = [
   { key: 'DRAFT',           label: 'Draft',          icon: DraftIcon,   color: '#64748b' },
   { key: 'INTERNAL_REVIEW', label: 'Internal Review',icon: ReviewIcon,  color: '#f59e0b' },
   { key: 'LEGAL_REVIEW',    label: 'Legal Review',   icon: LegalIcon,   color: '#f97316' },
-  { key: 'EXEC_APPROVAL',   label: 'Exec Approval',  icon: ExecIcon,    color: '#8b5cf6' },
+  { key: 'EXEC_APPROVAL',   label: 'Exec Approval',  icon: ExecIcon,    color: '#0b3c5d' },
   { key: 'PENDING_SIGNING', label: 'Signing',        icon: SigningIcon, color: '#3b82f6' },
   { key: 'ACTIVE',          label: 'Active',         icon: ActiveIcon,  color: '#10b981' },
 ];
@@ -39,7 +39,7 @@ const STATUS_CONFIG = {
   DRAFT:            { label: 'Draft',           color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
   INTERNAL_REVIEW:  { label: 'Internal Review', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
   LEGAL_REVIEW:     { label: 'Legal Review',    color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-  EXEC_APPROVAL:    { label: 'Exec Approval',   color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+  EXEC_APPROVAL:    { label: 'Exec Approval',   color: '#0b3c5d', bg: 'rgba(11,60,93,0.12)' },
   PENDING_SIGNING:  { label: 'Pending Signing', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
   ACTIVE:           { label: 'Active',          color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
   MID_TERM_REVIEW:  { label: 'Mid-Term Review', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
@@ -54,7 +54,7 @@ const ACTIVITY_STATUS_CONFIG = {
   PLANNED:            { label: 'Planned',           color: '#64748b' },
   IN_PROGRESS:        { label: 'In Progress',        color: '#3b82f6' },
   DELAYED:            { label: 'Delayed',            color: '#f97316' },
-  EVIDENCE_SUBMITTED: { label: 'Evidence Submitted', color: '#8b5cf6' },
+  EVIDENCE_SUBMITTED: { label: 'Evidence Submitted', color: '#0d9488' },
   VERIFIED:           { label: 'Verified',           color: '#06b6d4' },
   COMPLETED:          { label: 'Completed',          color: '#10b981' },
   CANCELLED:          { label: 'Cancelled',          color: '#ef4444' },
@@ -692,7 +692,7 @@ export default function MouDetailPage() {
           <Button onClick={() => setWfDialog({ open: false, action: '' })} sx={{ textTransform: 'none', color: 'text.secondary' }}>Cancel</Button>
           <Button variant="contained" onClick={doWorkflow} disabled={actionLoading}
             sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2,
-              '&:hover': { bgcolor: '#6d28d9' } }}>
+              '&:hover': { bgcolor: '#138f82' } }}>
             {actionLoading ? <CircularProgress size={16} color="inherit" /> : 'Confirm'}
           </Button>
         </DialogActions>
@@ -734,7 +734,7 @@ export default function MouDetailPage() {
           <Button variant="contained" onClick={createActivity}
             disabled={!actForm.title}
             sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2,
-              '&:hover': { bgcolor: '#6d28d9' } }}>
+              '&:hover': { bgcolor: '#138f82' } }}>
             Add Activity
           </Button>
         </DialogActions>
@@ -773,7 +773,7 @@ export default function MouDetailPage() {
           <Button onClick={() => setPartDialog(false)} sx={{ textTransform: 'none', color: 'text.secondary' }}>Cancel</Button>
           <Button variant="contained" onClick={addParticipant} disabled={!partForm.partner_id}
             sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2,
-              '&:hover': { bgcolor: '#6d28d9' } }}>
+              '&:hover': { bgcolor: '#138f82' } }}>
             Link Partner
           </Button>
         </DialogActions>

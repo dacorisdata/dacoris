@@ -13,7 +13,7 @@ import {
 } from '@mui/icons-material';
 import api from '../../../../lib/api';
 
-const ACCENT = '#7c3aed';
+const ACCENT = '#16a699';
 const STEPS = ['Basic Info', 'Scope & Obligations', 'Terms & Settings', 'Review'];
 
 const MOU_TYPES = [
@@ -292,14 +292,14 @@ export default function CreateMouPage() {
         {step < STEPS.length - 1 ? (
           <Button variant="contained" endIcon={<NextIcon />} onClick={handleNext}
             sx={{ bgcolor: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
-              '&:hover': { bgcolor: '#6d28d9' } }}>
+              '&:hover': { bgcolor: '#138f82' } }}>
             Next
           </Button>
         ) : (
           <Button variant="contained" startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
             onClick={handleSubmit} disabled={saving}
             sx={{ bgcolor: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
-              '&:hover': { bgcolor: '#6d28d9' } }}>
+              '&:hover': { bgcolor: '#138f82' } }}>
             {saving ? 'Creating…' : 'Create MoU Draft'}
           </Button>
         )}

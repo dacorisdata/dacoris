@@ -14,10 +14,10 @@ import {
 } from '@mui/icons-material';
 import api from '../../../../lib/api';
 
-const ACCENT = '#7c3aed';
+const ACCENT = '#16a699';
 
 const TIER_CONFIG = {
-  STRATEGIC: { label: 'Strategic', color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' },
+  STRATEGIC: { label: 'Strategic', color: '#16a699', bg: 'rgba(22,166,153,0.1)' },
   ACTIVE:    { label: 'Active',    color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
   DORMANT:   { label: 'Dormant',   color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' },
 };
@@ -115,7 +115,7 @@ export default function PartnersPage() {
         </Box>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateDialog(true)}
           sx={{ bgcolor: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
-            '&:hover': { bgcolor: '#6d28d9' } }}>
+            '&:hover': { bgcolor: '#138f82' } }}>
           Add Partner
         </Button>
       </Box>
@@ -258,7 +258,7 @@ export default function PartnersPage() {
           <Button onClick={() => setCreateDialog(false)} sx={{ textTransform: 'none', color: 'text.secondary' }}>Cancel</Button>
           <Button variant="contained" onClick={handleCreate} disabled={saving || !form.organisation_name.trim()}
             sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2,
-              '&:hover': { bgcolor: '#6d28d9' } }}>
+              '&:hover': { bgcolor: '#138f82' } }}>
             {saving ? <CircularProgress size={16} color="inherit" /> : 'Add Partner'}
           </Button>
         </DialogActions>
@@ -296,7 +296,7 @@ export default function PartnersPage() {
             sx={{ textTransform: 'none', color: 'text.secondary' }}>Cancel</Button>
           <Button variant="contained" onClick={handleAddContact} disabled={saving || !contactForm.full_name.trim()}
             sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2,
-              '&:hover': { bgcolor: '#6d28d9' } }}>
+              '&:hover': { bgcolor: '#138f82' } }}>
             {saving ? <CircularProgress size={16} color="inherit" /> : 'Add Contact'}
           </Button>
         </DialogActions>

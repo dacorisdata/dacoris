@@ -18,6 +18,7 @@ from models import (
     GrantOpportunity
 )
 from auth import require_global_admin, get_password_hash
+from services.training_defaults import ensure_default_programs
 
 router = APIRouter(prefix="/api/global-admin", tags=["global-admin"])
 
@@ -133,7 +134,9 @@ async def create_institution(
     db.add(institution)
     await db.commit()
     await db.refresh(institution)
-    
+
+    await ensure_default_programs(db, institution.id, created_by_id=current_user.id)
+
     return institution
 
 @router.get("/institutions/{institution_id}", response_model=InstitutionResponse)

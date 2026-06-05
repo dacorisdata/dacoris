@@ -16,13 +16,13 @@ import {
 import { useAuth } from '../../../contexts/AuthContext';
 import api from '../../../lib/api';
 
-const ACCENT = '#7c3aed';
+const ACCENT = '#16a699';
 
 const STATUS_CONFIG = {
   DRAFT:            { label: 'Draft',          color: '#64748b', bg: 'rgba(100,116,139,0.1)' },
   INTERNAL_REVIEW:  { label: 'Internal Review',color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
   LEGAL_REVIEW:     { label: 'Legal Review',   color: '#f97316', bg: 'rgba(249,115,22,0.1)' },
-  EXEC_APPROVAL:    { label: 'Exec Approval',  color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)' },
+  EXEC_APPROVAL:    { label: 'Exec Approval',  color: '#0b3c5d', bg: 'rgba(11,60,93,0.1)' },
   PENDING_SIGNING:  { label: 'Pending Signing',color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
   ACTIVE:           { label: 'Active',         color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
   PENDING_RENEWAL:  { label: 'Pending Renewal',color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
@@ -120,14 +120,14 @@ export default function MouDashboard() {
         <Button variant="contained" startIcon={<AddIcon />}
           onClick={() => router.push('/admin-staff/mou/create')}
           sx={{ bgcolor: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
-            '&:hover': { bgcolor: '#6d28d9' } }}>
+            '&:hover': { bgcolor: '#138f82' } }}>
           New MoU
         </Button>
       </Box>
 
       {/* Stat Cards */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <StatCard icon={MouIcon}     label="Total MoUs"       value={stats?.total}            color="#7c3aed" bg="rgba(124,58,237,0.1)"  path="/admin-staff/mou/list" />
+        <StatCard icon={MouIcon}     label="Total MoUs"       value={stats?.total}            color="#16a699" bg="rgba(22,166,153,0.1)"  path="/admin-staff/mou/list" />
         <StatCard icon={ActiveIcon}  label="Active"           value={stats?.active}           color="#10b981" bg="rgba(16,185,129,0.1)" path="/admin-staff/mou/list?status=ACTIVE" />
         <StatCard icon={PendingIcon} label="Pending Signing"  value={stats?.pending_signing}  color="#3b82f6" bg="rgba(59,130,246,0.1)"  path="/admin-staff/mou/list?status=PENDING_SIGNING" />
         <StatCard icon={RenewalIcon} label="Pending Renewal"  value={stats?.pending_renewal}  color="#f59e0b" bg="rgba(245,158,11,0.1)"  path="/admin-staff/mou/list?status=PENDING_RENEWAL" />
