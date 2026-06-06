@@ -1,17 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime, date, timezone
+from io import BytesIO
 import secrets
 
 from database import get_db
 from models import (
-    User,
+    User, Institution,
     TrainingProgram, TrainingProgramStatus, TrainingProgramLevel, TrainingDeliveryMode,
+    TrainingModule, TrainingMaterial,
     TrainingEnrollment, TrainingEnrollmentStatus,
+    TrainingAttendance, TrainingAttendanceStatus,
     TrainingCertificate,
     UserSkill, SkillProficiency,
     TrainingNeedsAssessment, TrainingNeedsStatus,
@@ -19,6 +23,13 @@ from models import (
 )
 from auth import get_current_user
 from services.training_defaults import ensure_default_programs
+from services.training_attendance import (
+    sync_enrollment_progress,
+    serialize_attendance,
+    attendance_summary_for_enrollment,
+    program_session_count,
+)
+from services.training_certificate_pdf import generate_certificate_pdf
 
 router = APIRouter(prefix="/api/training", tags=["training"])
 
@@ -93,6 +104,7 @@ class ProgramCreate(BaseModel):
     learning_outcomes: Optional[List[str]] = None
     certification_awarded: bool = True
     enrollment_type: str = "open"
+    session_count: int = 5
 
 
 class ProgramUpdate(BaseModel):
@@ -111,6 +123,7 @@ class ProgramUpdate(BaseModel):
     learning_outcomes: Optional[List[str]] = None
     certification_awarded: Optional[bool] = None
     enrollment_type: Optional[str] = None
+    session_count: Optional[int] = None
     status: Optional[str] = None
 
 
@@ -123,6 +136,15 @@ class EnrollmentUpdate(BaseModel):
     status: Optional[str] = None
     progress_percentage: Optional[float] = None
     final_grade: Optional[str] = None
+
+
+class AttendanceMark(BaseModel):
+    session_number: int = Field(..., ge=1)
+    attendance_date: date
+
+
+class AttendanceReject(BaseModel):
+    manager_notes: Optional[str] = None
 
 
 class SkillCreate(BaseModel):
@@ -168,7 +190,12 @@ class CPDCreate(BaseModel):
 
 # ─── Serializers ────────────────────────────────────────────────────────────
 
-def _serialize_program(p: TrainingProgram, enrollment_count: int = 0) -> dict:
+def _serialize_program(
+    p: TrainingProgram,
+    enrollment_count: int = 0,
+    module_count: int = 0,
+    material_count: int = 0,
+) -> dict:
     return {
         "id": p.id,
         "institution_id": p.institution_id,
@@ -188,15 +215,20 @@ def _serialize_program(p: TrainingProgram, enrollment_count: int = 0) -> dict:
         "learning_outcomes": p.learning_outcomes or [],
         "certification_awarded": p.certification_awarded,
         "enrollment_type": p.enrollment_type,
+        "session_count": program_session_count(p),
         "enrollment_count": enrollment_count,
+        "module_count": module_count,
+        "material_count": material_count,
+        "has_materials": material_count > 0,
         "is_system_default": bool(p.is_system_default),
         "created_at": p.created_at,
         "created_by_name": p.created_by.name if p.created_by else None,
     }
 
 
-def _serialize_enrollment(e: TrainingEnrollment) -> dict:
-    return {
+async def _serialize_enrollment(db: AsyncSession, e: TrainingEnrollment, include_attendance: bool = False) -> dict:
+    summary = await attendance_summary_for_enrollment(db, e)
+    data = {
         "id": e.id,
         "program_id": e.program_id,
         "program_title": e.program.title if e.program else None,
@@ -212,7 +244,36 @@ def _serialize_enrollment(e: TrainingEnrollment) -> dict:
         "final_grade": e.final_grade,
         "has_certificate": e.certificate is not None,
         "certificate_id": e.certificate.id if e.certificate else None,
+        "attendance_summary": summary,
     }
+    if include_attendance:
+        att_result = await db.execute(
+            select(TrainingAttendance)
+            .options(
+                selectinload(TrainingAttendance.marked_by),
+                selectinload(TrainingAttendance.confirmed_by),
+            )
+            .where(TrainingAttendance.enrollment_id == e.id)
+            .order_by(TrainingAttendance.session_number)
+        )
+        data["attendance"] = [serialize_attendance(r) for r in att_result.scalars().all()]
+    return data
+
+
+async def _load_enrollment(db: AsyncSession, enrollment_id: str) -> TrainingEnrollment:
+    result = await db.execute(
+        select(TrainingEnrollment)
+        .options(
+            selectinload(TrainingEnrollment.program),
+            selectinload(TrainingEnrollment.user),
+            selectinload(TrainingEnrollment.certificate),
+        )
+        .where(TrainingEnrollment.id == enrollment_id)
+    )
+    enrollment = result.scalar_one_or_none()
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+    return enrollment
 
 
 def _serialize_certificate(c: TrainingCertificate) -> dict:
@@ -460,7 +521,9 @@ async def list_programs(
     result = await db.execute(q)
     programs = result.scalars().all()
 
-    counts = {}
+    enroll_counts = {}
+    module_counts = {}
+    material_counts = {}
     if programs:
         ids = [p.id for p in programs]
         count_rows = await db.execute(
@@ -468,9 +531,31 @@ async def list_programs(
             .where(TrainingEnrollment.program_id.in_(ids))
             .group_by(TrainingEnrollment.program_id)
         )
-        counts = {row[0]: row[1] for row in count_rows.all()}
+        enroll_counts = {row[0]: row[1] for row in count_rows.all()}
 
-    return [_serialize_program(p, counts.get(p.id, 0)) for p in programs]
+        mod_rows = await db.execute(
+            select(TrainingModule.program_id, func.count(TrainingModule.id))
+            .where(TrainingModule.program_id.in_(ids))
+            .group_by(TrainingModule.program_id)
+        )
+        module_counts = {row[0]: row[1] for row in mod_rows.all()}
+
+        mat_rows = await db.execute(
+            select(TrainingMaterial.program_id, func.count(TrainingMaterial.id))
+            .where(TrainingMaterial.program_id.in_(ids))
+            .group_by(TrainingMaterial.program_id)
+        )
+        material_counts = {row[0]: row[1] for row in mat_rows.all()}
+
+    return [
+        _serialize_program(
+            p,
+            enroll_counts.get(p.id, 0),
+            module_counts.get(p.id, 0),
+            material_counts.get(p.id, 0),
+        )
+        for p in programs
+    ]
 
 
 @router.post("/programs")
@@ -501,6 +586,7 @@ async def create_program(
         learning_outcomes=body.learning_outcomes,
         certification_awarded=body.certification_awarded,
         enrollment_type=body.enrollment_type,
+        session_count=max(1, body.session_count),
         status=TrainingProgramStatus.DRAFT,
         is_system_default=False,
     )
@@ -625,6 +711,8 @@ async def list_enrollments(
             selectinload(TrainingEnrollment.program),
             selectinload(TrainingEnrollment.user),
             selectinload(TrainingEnrollment.certificate),
+            selectinload(TrainingEnrollment.attendance_records).selectinload(TrainingAttendance.marked_by),
+            selectinload(TrainingEnrollment.attendance_records).selectinload(TrainingAttendance.confirmed_by),
         )
         .join(TrainingProgram)
         .where(TrainingProgram.institution_id == inst_id)
@@ -639,7 +727,8 @@ async def list_enrollments(
             pass
 
     result = await db.execute(q)
-    return [_serialize_enrollment(e) for e in result.scalars().all()]
+    enrollments = result.scalars().all()
+    return [await _serialize_enrollment(db, e, include_attendance=True) for e in enrollments]
 
 
 @router.get("/enrollments/my")
@@ -653,11 +742,14 @@ async def my_enrollments(
             selectinload(TrainingEnrollment.program),
             selectinload(TrainingEnrollment.user),
             selectinload(TrainingEnrollment.certificate),
+            selectinload(TrainingEnrollment.attendance_records).selectinload(TrainingAttendance.marked_by),
+            selectinload(TrainingEnrollment.attendance_records).selectinload(TrainingAttendance.confirmed_by),
         )
         .where(TrainingEnrollment.user_id == current_user.id)
         .order_by(TrainingEnrollment.enrolled_at.desc())
     )
-    return [_serialize_enrollment(e) for e in result.scalars().all()]
+    enrollments = result.scalars().all()
+    return [await _serialize_enrollment(db, e, include_attendance=True) for e in enrollments]
 
 
 @router.post("/enrollments")
@@ -712,8 +804,8 @@ async def create_enrollment(
     )
     db.add(enrollment)
     await db.commit()
-    await db.refresh(enrollment, ["program", "user", "certificate"])
-    return _serialize_enrollment(enrollment)
+    enrollment = await _load_enrollment(db, enrollment.id)
+    return await _serialize_enrollment(db, enrollment, include_attendance=True)
 
 
 @router.patch("/enrollments/{enrollment_id}")
@@ -741,14 +833,19 @@ async def update_enrollment(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     if body.progress_percentage is not None:
-        if not is_admin and body.progress_percentage > 100:
-            raise HTTPException(status_code=400, detail="Invalid progress")
+        if not is_admin:
+            raise HTTPException(
+                status_code=400,
+                detail="Progress is calculated from confirmed attendance records",
+            )
         enrollment.progress_percentage = min(100, max(0, body.progress_percentage))
 
     if body.final_grade is not None and is_admin:
         enrollment.final_grade = body.final_grade
 
     if body.status:
+        if not is_admin:
+            raise HTTPException(status_code=400, detail="Only training managers can change enrollment status")
         new_status = TrainingEnrollmentStatus(body.status)
         enrollment.status = new_status
         if new_status == TrainingEnrollmentStatus.COMPLETED:
@@ -758,8 +855,206 @@ async def update_enrollment(
                 await _issue_certificate(db, enrollment)
 
     await db.commit()
-    await db.refresh(enrollment, ["program", "user", "certificate"])
-    return _serialize_enrollment(enrollment)
+    enrollment = await _load_enrollment(db, enrollment.id)
+    return await _serialize_enrollment(db, enrollment, include_attendance=True)
+
+
+async def _get_enrollment_for_user(
+    db: AsyncSession, enrollment_id: str, user: User, admin_ok: bool = False,
+) -> TrainingEnrollment:
+    result = await db.execute(
+        select(TrainingEnrollment)
+        .options(
+            selectinload(TrainingEnrollment.program),
+            selectinload(TrainingEnrollment.user),
+            selectinload(TrainingEnrollment.certificate),
+            selectinload(TrainingEnrollment.attendance_records),
+        )
+        .where(TrainingEnrollment.id == enrollment_id)
+    )
+    enrollment = result.scalar_one_or_none()
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+    is_admin = _is_training_admin(user)
+    if enrollment.user_id != user.id and not (admin_ok and is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if admin_ok and is_admin:
+        inst_id = _require_institution(user)
+        if enrollment.program and enrollment.program.institution_id != inst_id:
+            raise HTTPException(status_code=403, detail="Enrollment not in your institution")
+    return enrollment
+
+
+@router.get("/enrollments/{enrollment_id}/attendance")
+async def list_attendance(
+    enrollment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    is_admin = _is_training_admin(current_user)
+    enrollment = await _get_enrollment_for_user(db, enrollment_id, current_user, admin_ok=True)
+    if not is_admin and enrollment.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    records = sorted(enrollment.attendance_records or [], key=lambda r: r.session_number)
+    return [serialize_attendance(r) for r in records]
+
+
+@router.post("/enrollments/{enrollment_id}/attendance")
+async def mark_attendance(
+    enrollment_id: str,
+    body: AttendanceMark,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    enrollment = await _get_enrollment_for_user(db, enrollment_id, current_user, admin_ok=False)
+    if enrollment.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the enrolled learner can mark attendance")
+    if enrollment.status != TrainingEnrollmentStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Enrollment is not active")
+
+    total = program_session_count(enrollment.program)
+    if body.session_number > total:
+        raise HTTPException(status_code=400, detail=f"Session number must be between 1 and {total}")
+
+    existing = next(
+        (r for r in (enrollment.attendance_records or []) if r.session_number == body.session_number),
+        None,
+    )
+    if existing and existing.status != TrainingAttendanceStatus.REJECTED:
+        raise HTTPException(status_code=400, detail="Attendance already submitted for this session")
+    if existing and existing.status == TrainingAttendanceStatus.REJECTED:
+        existing.attendance_date = body.attendance_date
+        existing.status = TrainingAttendanceStatus.PENDING
+        existing.marked_by_id = current_user.id
+        existing.marked_at = datetime.now(timezone.utc)
+        existing.confirmed_by_id = None
+        existing.confirmed_at = None
+        existing.manager_notes = None
+        record = existing
+    else:
+        record = TrainingAttendance(
+            enrollment_id=enrollment.id,
+            session_number=body.session_number,
+            attendance_date=body.attendance_date,
+            status=TrainingAttendanceStatus.PENDING,
+            marked_by_id=current_user.id,
+        )
+        db.add(record)
+
+    await db.commit()
+    await db.refresh(record, ["marked_by"])
+    return serialize_attendance(record)
+
+
+@router.get("/attendance/pending")
+async def list_pending_attendance(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _is_training_admin(current_user):
+        raise HTTPException(status_code=403, detail="Training admin access required")
+    inst_id = _require_institution(current_user)
+
+    result = await db.execute(
+        select(TrainingAttendance)
+        .options(
+            selectinload(TrainingAttendance.enrollment).selectinload(TrainingEnrollment.program),
+            selectinload(TrainingAttendance.enrollment).selectinload(TrainingEnrollment.user),
+            selectinload(TrainingAttendance.marked_by),
+        )
+        .join(TrainingEnrollment)
+        .join(TrainingProgram)
+        .where(
+            and_(
+                TrainingProgram.institution_id == inst_id,
+                TrainingAttendance.status == TrainingAttendanceStatus.PENDING,
+            )
+        )
+        .order_by(TrainingAttendance.marked_at.desc())
+    )
+    records = result.scalars().all()
+    return [
+        {
+            **serialize_attendance(r),
+            "learner_name": r.enrollment.user.name if r.enrollment and r.enrollment.user else None,
+            "program_title": r.enrollment.program.title if r.enrollment and r.enrollment.program else None,
+            "enrollment_id": r.enrollment_id,
+        }
+        for r in records
+    ]
+
+
+@router.patch("/attendance/{attendance_id}/confirm")
+async def confirm_attendance(
+    attendance_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _is_training_admin(current_user):
+        raise HTTPException(status_code=403, detail="Training admin access required")
+    inst_id = _require_institution(current_user)
+
+    result = await db.execute(
+        select(TrainingAttendance)
+        .options(
+            selectinload(TrainingAttendance.enrollment).selectinload(TrainingEnrollment.program),
+            selectinload(TrainingAttendance.enrollment).selectinload(TrainingEnrollment.certificate),
+            selectinload(TrainingAttendance.marked_by),
+        )
+        .where(TrainingAttendance.id == attendance_id)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="Attendance record not found")
+    if record.enrollment.program.institution_id != inst_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if record.status != TrainingAttendanceStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Attendance is not pending confirmation")
+
+    record.status = TrainingAttendanceStatus.CONFIRMED
+    record.confirmed_by_id = current_user.id
+    record.confirmed_at = datetime.now(timezone.utc)
+    await sync_enrollment_progress(db, record.enrollment, _issue_certificate)
+    await db.commit()
+    await db.refresh(record, ["marked_by", "confirmed_by"])
+    return serialize_attendance(record)
+
+
+@router.patch("/attendance/{attendance_id}/reject")
+async def reject_attendance(
+    attendance_id: str,
+    body: AttendanceReject,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _is_training_admin(current_user):
+        raise HTTPException(status_code=403, detail="Training admin access required")
+    inst_id = _require_institution(current_user)
+
+    result = await db.execute(
+        select(TrainingAttendance)
+        .options(
+            selectinload(TrainingAttendance.enrollment).selectinload(TrainingEnrollment.program),
+            selectinload(TrainingAttendance.marked_by),
+        )
+        .where(TrainingAttendance.id == attendance_id)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="Attendance record not found")
+    if record.enrollment.program.institution_id != inst_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if record.status != TrainingAttendanceStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Attendance is not pending confirmation")
+
+    record.status = TrainingAttendanceStatus.REJECTED
+    record.confirmed_by_id = current_user.id
+    record.confirmed_at = datetime.now(timezone.utc)
+    record.manager_notes = body.manager_notes
+    await sync_enrollment_progress(db, record.enrollment, _issue_certificate)
+    await db.commit()
+    await db.refresh(record, ["marked_by", "confirmed_by"])
+    return serialize_attendance(record)
 
 
 # ─── Certificates ───────────────────────────────────────────────────────────
@@ -796,6 +1091,54 @@ async def verify_certificate(
         "issue_date": cert.issue_date,
         "cpd_hours_awarded": cert.cpd_hours_awarded,
     }
+
+
+@router.get("/certificates/{certificate_id}/pdf")
+async def download_certificate_pdf(
+    certificate_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(TrainingCertificate)
+        .options(
+            selectinload(TrainingCertificate.user),
+            selectinload(TrainingCertificate.program).selectinload(TrainingProgram.institution),
+        )
+        .where(TrainingCertificate.id == certificate_id)
+    )
+    cert = result.scalar_one_or_none()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+
+    is_owner = cert.user_id == current_user.id
+    is_admin = _is_training_admin(current_user)
+    if not is_owner and not is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if is_admin and not is_owner:
+        inst_id = _require_institution(current_user)
+        if cert.program and cert.program.institution_id != inst_id:
+            raise HTTPException(status_code=403, detail="Certificate not in your institution")
+
+    institution_name = "DACORIS"
+    if cert.program and cert.program.institution:
+        institution_name = cert.program.institution.name
+
+    pdf_bytes = generate_certificate_pdf(
+        recipient_name=cert.recipient_name or (cert.user.name if cert.user else ""),
+        program_title=cert.program_title or "",
+        certificate_number=cert.certificate_number,
+        verification_code=cert.verification_code,
+        cpd_hours=cert.cpd_hours_awarded or 0,
+        issue_date=cert.issue_date,
+        institution_name=institution_name,
+    )
+    filename = f"{cert.certificate_number}.pdf".replace(" ", "_")
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ─── Skills ─────────────────────────────────────────────────────────────────

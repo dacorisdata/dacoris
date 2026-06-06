@@ -23,4 +23,8 @@ async def init_db():
             ALTER TABLE training_programs
             ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN NOT NULL DEFAULT FALSE
         """))
+        await conn.execute(text("""
+            ALTER TABLE training_programs
+            ADD COLUMN IF NOT EXISTS session_count INTEGER NOT NULL DEFAULT 5
+        """))
     print("Database tables created successfully")

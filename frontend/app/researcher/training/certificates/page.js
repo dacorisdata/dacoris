@@ -6,7 +6,7 @@ import {
   Box, Typography, CircularProgress, Alert, useTheme, Chip, Button,
   Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
-import { WorkspacePremium as CertIcon, ContentCopy as CopyIcon } from '@mui/icons-material';
+import { WorkspacePremium as CertIcon, ContentCopy as CopyIcon, Download as DownloadIcon } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { trainingAPI } from '../../../../lib/api';
 
@@ -26,6 +26,7 @@ export default function CertificatesPage() {
   const [error, setError] = useState('');
   const [viewing, setViewing] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(null);
 
   useEffect(() => { init(); }, []);
 
@@ -50,6 +51,24 @@ export default function CertificatesPage() {
     navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const downloadPdf = async (cert) => {
+    setDownloading(cert.id);
+    try {
+      const res = await trainingAPI.downloadCertificatePdf(cert.id);
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${cert.certificate_number}.pdf`.replace(/\s/g, '_');
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to download certificate PDF');
+    } finally {
+      setDownloading(null);
+    }
   };
 
   if (loading) {
@@ -105,9 +124,17 @@ export default function CertificatesPage() {
               </Box>
               <Typography sx={{ fontWeight: 700, fontSize: 15, mb: 0.5 }}>{c.program_title}</Typography>
               <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 1 }}>{c.recipient_name}</Typography>
-              <Box sx={{ display: 'flex', gap: 1 }}>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                 <Chip label={fmtDate(c.issue_date)} size="small" sx={{ fontSize: 10 }} />
                 <Chip label={`${c.cpd_hours_awarded} CPD hrs`} size="small" sx={{ fontSize: 10, color: ACCENT, bgcolor: `${ACCENT}12` }} />
+                <Button
+                  size="small" startIcon={<DownloadIcon />}
+                  onClick={ev => { ev.stopPropagation(); downloadPdf(c); }}
+                  disabled={downloading === c.id}
+                  sx={{ fontSize: 10, py: 0, minWidth: 0, color: ACCENT }}
+                >
+                  PDF
+                </Button>
               </Box>
             </Box>
           ))}
@@ -138,6 +165,14 @@ export default function CertificatesPage() {
           </Box>
         </DialogContent>
         <DialogActions>
+          <Button
+            startIcon={<DownloadIcon />}
+            disabled={downloading === viewing?.id}
+            onClick={() => viewing && downloadPdf(viewing)}
+            sx={{ color: ACCENT }}
+          >
+            {downloading === viewing?.id ? 'Generating…' : 'Download PDF'}
+          </Button>
           <Button onClick={() => setViewing(null)}>Close</Button>
         </DialogActions>
       </Dialog>

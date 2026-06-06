@@ -214,7 +214,13 @@ export const trainingAPI = {
   myEnrollments: () => api.get('/training/enrollments/my'),
   enroll: (data) => api.post('/training/enrollments', data),
   updateEnrollment: (id, data) => api.patch(`/training/enrollments/${id}`, data),
+  listAttendance: (enrollmentId) => api.get(`/training/enrollments/${enrollmentId}/attendance`),
+  markAttendance: (enrollmentId, data) => api.post(`/training/enrollments/${enrollmentId}/attendance`, data),
+  listPendingAttendance: () => api.get('/training/attendance/pending'),
+  confirmAttendance: (id) => api.patch(`/training/attendance/${id}/confirm`),
+  rejectAttendance: (id, data) => api.patch(`/training/attendance/${id}/reject`, data),
   myCertificates: () => api.get('/training/certificates/my'),
+  downloadCertificatePdf: (id) => api.get(`/training/certificates/${id}/pdf`, { responseType: 'blob' }),
   verifyCertificate: (code) => api.get(`/training/certificates/verify/${code}`),
   skillsCatalog: () => api.get('/training/skills/catalog'),
   mySkills: () => api.get('/training/skills/my'),
@@ -227,6 +233,29 @@ export const trainingAPI = {
   reviewNeedsAssessment: (id, data) => api.patch(`/training/needs-assessments/${id}`, data),
   myCPD: (params) => api.get('/training/cpd/my', { params }),
   addCPD: (data) => api.post('/training/cpd', data),
+  getProgramContent: (programId) => api.get(`/training/programs/${programId}/content`),
+  createModule: (programId, data) => api.post(`/training/programs/${programId}/modules`, data),
+  updateModule: (moduleId, data) => api.put(`/training/modules/${moduleId}`, data),
+  deleteModule: (moduleId) => api.delete(`/training/modules/${moduleId}`),
+  uploadMaterial: (programId, file, opts = {}) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (opts.title) fd.append('title', opts.title);
+    if (opts.moduleId) fd.append('module_id', opts.moduleId);
+    return api.post(`/training/programs/${programId}/materials`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  uploadMaterialsBatch: (programId, files, opts = {}) => {
+    const fd = new FormData();
+    files.forEach((file) => fd.append('files', file));
+    if (opts.moduleId) fd.append('module_id', opts.moduleId);
+    return api.post(`/training/programs/${programId}/materials/batch`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  deleteMaterial: (id) => api.delete(`/training/materials/${id}`),
+  previewMaterial: (id) => api.get(`/training/materials/${id}/preview`, { responseType: 'blob' }),
 };
 
 export default api;

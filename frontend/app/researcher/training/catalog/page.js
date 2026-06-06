@@ -60,7 +60,26 @@ export default function TrainingCatalogPage() {
       setSuccess('Enrolled successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
-      setError(e.response?.data?.detail || 'Enrollment failed');
+      const detail = e.response?.data?.detail || '';
+      if (detail.toLowerCase().includes('already enrolled')) {
+        setEnrolledIds(prev => new Set([...prev, programId]));
+        setSuccess('You are already enrolled in this programme.');
+        setTimeout(() => setSuccess(''), 3000);
+      } else {
+        setError(detail || 'Enrollment failed');
+        try {
+          const enrollRes = await trainingAPI.myEnrollments();
+          const ids = new Set((enrollRes.data || []).map(en => en.program_id));
+          if (ids.has(programId)) {
+            setEnrolledIds(ids);
+            setError('');
+            setSuccess('Enrolled successfully!');
+            setTimeout(() => setSuccess(''), 3000);
+          }
+        } catch {
+          // keep original error
+        }
+      }
     } finally {
       setEnrolling(null);
     }

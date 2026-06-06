@@ -11,6 +11,7 @@ import {
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
   Publish as PublishIcon, Archive as ArchiveIcon,
+  FolderOpen as ContentIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { trainingAPI } from '../../../../lib/api';
@@ -39,7 +40,7 @@ const CATEGORIES = [
 
 const EMPTY_FORM = {
   title: '', description: '', category: '', level: 'beginner', delivery_mode: 'online',
-  cpd_hours: '', duration_hours: '', instructor_name: '', max_enrollments: '',
+  cpd_hours: '', duration_hours: '', session_count: '5', instructor_name: '', max_enrollments: '',
   learning_outcomes: '', certification_awarded: true,
 };
 
@@ -92,6 +93,7 @@ export default function AdminTrainingProgramsPage() {
       delivery_mode: p.delivery_mode || 'online',
       cpd_hours: p.cpd_hours ?? '',
       duration_hours: p.duration_hours ?? '',
+      session_count: String(p.session_count ?? 5),
       instructor_name: p.instructor_name || '',
       max_enrollments: p.max_enrollments ?? '',
       learning_outcomes: (p.learning_outcomes || []).join('\n'),
@@ -107,6 +109,7 @@ export default function AdminTrainingProgramsPage() {
       ...form,
       cpd_hours: parseFloat(form.cpd_hours) || 0,
       duration_hours: form.duration_hours ? parseFloat(form.duration_hours) : null,
+      session_count: parseInt(form.session_count, 10) || 5,
       max_enrollments: form.max_enrollments ? parseInt(form.max_enrollments, 10) : null,
       learning_outcomes: form.learning_outcomes
         ? form.learning_outcomes.split('\n').map(s => s.trim()).filter(Boolean)
@@ -196,6 +199,8 @@ export default function AdminTrainingProgramsPage() {
               <TableCell sx={{ fontWeight: 700 }}>Programme</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Category</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>CPD Hrs</TableCell>
+              <TableCell sx={{ fontWeight: 700 }} align="center">Modules</TableCell>
+              <TableCell sx={{ fontWeight: 700 }} align="center">Materials</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Enrolled</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
@@ -204,7 +209,7 @@ export default function AdminTrainingProgramsPage() {
           <TableBody>
             {programs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                <TableCell colSpan={8} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
                   No programmes yet. Core programmes are provisioned automatically on first load.
                 </TableCell>
               </TableRow>
@@ -226,11 +231,34 @@ export default function AdminTrainingProgramsPage() {
                   </TableCell>
                   <TableCell>{p.category || '—'}</TableCell>
                   <TableCell>{p.cpd_hours}</TableCell>
+                  <TableCell align="center">
+                    <Chip
+                      label={p.module_count ?? 0}
+                      size="small"
+                      variant="outlined"
+                      sx={{ minWidth: 32, fontWeight: 700, fontSize: 11 }}
+                    />
+                  </TableCell>
+                  <TableCell align="center">
+                    {(p.material_count ?? 0) > 0 ? (
+                      <Chip
+                        label={p.material_count}
+                        size="small"
+                        sx={{ bgcolor: `${ACCENT}18`, color: ACCENT, fontWeight: 700, fontSize: 11 }}
+                      />
+                    ) : (
+                      <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>—</Typography>
+                    )}
+                  </TableCell>
                   <TableCell>{p.enrollment_count}</TableCell>
                   <TableCell>
                     <Chip label={sm.label} size="small" sx={{ bgcolor: sm.bg, color: sm.color, fontWeight: 600, fontSize: 11 }} />
                   </TableCell>
                   <TableCell align="right">
+                    <IconButton size="small" onClick={() => router.push(`/admin-staff/training/programs/${p.id}`)}
+                      title="Modules & materials">
+                      <ContentIcon fontSize="small" sx={{ color: ACCENT }} />
+                    </IconButton>
                     <IconButton size="small" onClick={() => openEdit(p)}><EditIcon fontSize="small" /></IconButton>
                     {p.status === 'draft' && (
                       <IconButton size="small" onClick={() => setStatus(p.id, 'published')} title="Publish">
@@ -287,9 +315,11 @@ export default function AdminTrainingProgramsPage() {
               </Select>
             </FormControl>
           </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2 }}>
             <TextField label="CPD Hours" type="number" value={form.cpd_hours} onChange={e => setForm(f => ({ ...f, cpd_hours: e.target.value }))} />
             <TextField label="Duration (hrs)" type="number" value={form.duration_hours} onChange={e => setForm(f => ({ ...f, duration_hours: e.target.value }))} />
+            <TextField label="Sessions" type="number" value={form.session_count} onChange={e => setForm(f => ({ ...f, session_count: e.target.value }))}
+              helperText="Attendance sessions required" />
             <TextField label="Max Enrollments" type="number" value={form.max_enrollments} onChange={e => setForm(f => ({ ...f, max_enrollments: e.target.value }))} />
           </Box>
           <TextField label="Instructor" value={form.instructor_name} onChange={e => setForm(f => ({ ...f, instructor_name: e.target.value }))} fullWidth />

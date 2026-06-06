@@ -43,6 +43,7 @@ from routes.mou import router as mou_router
 from routes.admin_staff import router as admin_staff_router
 from routes.workflows import router as workflows_router
 from routes.training.training import router as training_router
+from routes.training.content import router as training_content_router
 
 load_dotenv()
 
@@ -103,6 +104,7 @@ app.include_router(mou_router)
 app.include_router(admin_staff_router)
 app.include_router(workflows_router)
 app.include_router(training_router)
+app.include_router(training_content_router)
 
 class UserCreate(BaseModel):
     email: str

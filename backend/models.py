@@ -2093,6 +2093,7 @@ class TrainingProgram(Base):
     learning_outcomes = Column(JSON, nullable=True)
     certification_awarded = Column(Boolean, default=True)
     enrollment_type = Column(String(50), default="open")
+    session_count = Column(Integer, default=5, nullable=False, server_default="5")
     is_system_default = Column(Boolean, default=False, nullable=False, server_default="false")
     created_by_id = Column(String, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -2101,6 +2102,51 @@ class TrainingProgram(Base):
     institution = relationship("Institution")
     created_by = relationship("User", foreign_keys=[created_by_id])
     enrollments = relationship("TrainingEnrollment", back_populates="program", cascade="all, delete-orphan")
+    modules = relationship(
+        "TrainingModule", back_populates="program", cascade="all, delete-orphan",
+        order_by="TrainingModule.sort_order",
+    )
+    materials = relationship(
+        "TrainingMaterial", back_populates="program", cascade="all, delete-orphan",
+        foreign_keys="TrainingMaterial.program_id",
+    )
+
+
+class TrainingModule(Base):
+    __tablename__ = "training_modules"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    program_id = Column(String, ForeignKey("training_programs.id"), nullable=False, index=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text, nullable=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    program = relationship("TrainingProgram", back_populates="modules")
+    materials = relationship(
+        "TrainingMaterial", back_populates="module", cascade="all, delete-orphan",
+        foreign_keys="TrainingMaterial.module_id",
+    )
+
+
+class TrainingMaterial(Base):
+    __tablename__ = "training_materials"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    program_id = Column(String, ForeignKey("training_programs.id"), nullable=False, index=True)
+    module_id = Column(String, ForeignKey("training_modules.id"), nullable=True, index=True)
+    title = Column(String(300), nullable=False)
+    original_filename = Column(String(500), nullable=False)
+    stored_filename = Column(String(500), nullable=False)
+    file_size_bytes = Column(Integer, default=0)
+    mime_type = Column(String(120), nullable=True)
+    uploaded_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    program = relationship("TrainingProgram", back_populates="materials", foreign_keys=[program_id])
+    module = relationship("TrainingModule", back_populates="materials", foreign_keys=[module_id])
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
 
 
 class TrainingEnrollmentStatus(str, enum.Enum):
@@ -2130,6 +2176,38 @@ class TrainingEnrollment(Base):
     user = relationship("User", foreign_keys=[user_id])
     enrolled_by = relationship("User", foreign_keys=[enrolled_by_id])
     certificate = relationship("TrainingCertificate", back_populates="enrollment", uselist=False)
+    attendance_records = relationship(
+        "TrainingAttendance", back_populates="enrollment", cascade="all, delete-orphan",
+        order_by="TrainingAttendance.session_number",
+    )
+
+
+class TrainingAttendanceStatus(str, enum.Enum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
+
+
+class TrainingAttendance(Base):
+    __tablename__ = "training_attendance"
+    __table_args__ = (
+        UniqueConstraint('enrollment_id', 'session_number', name='uix_training_attendance_enrollment_session'),
+    )
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    enrollment_id = Column(String, ForeignKey("training_enrollments.id"), nullable=False, index=True)
+    session_number = Column(Integer, nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    status = Column(Enum(TrainingAttendanceStatus), default=TrainingAttendanceStatus.PENDING)
+    marked_by_id = Column(String, ForeignKey("users.id"), nullable=False)
+    marked_at = Column(DateTime(timezone=True), server_default=func.now())
+    confirmed_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    manager_notes = Column(Text, nullable=True)
+
+    enrollment = relationship("TrainingEnrollment", back_populates="attendance_records")
+    marked_by = relationship("User", foreign_keys=[marked_by_id])
+    confirmed_by = relationship("User", foreign_keys=[confirmed_by_id])
 
 
 class TrainingCertificate(Base):

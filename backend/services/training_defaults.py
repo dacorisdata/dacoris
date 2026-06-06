@@ -166,6 +166,8 @@ async def ensure_default_programs(
     for tmpl in DEFAULT_PROGRAMS:
         if tmpl["title"] in titles_present:
             continue
+        hours = tmpl.get("duration_hours") or tmpl.get("cpd_hours") or 8
+        sessions = tmpl.get("session_count") or max(1, int(round(hours / 4)))
         prog = TrainingProgram(
             institution_id=institution_id,
             created_by_id=created_by_id,
@@ -178,6 +180,7 @@ async def ensure_default_programs(
             delivery_mode=TrainingDeliveryMode(tmpl["delivery_mode"]),
             cpd_hours=tmpl["cpd_hours"],
             duration_hours=tmpl["duration_hours"],
+            session_count=sessions,
             instructor_name=tmpl["instructor_name"],
             learning_outcomes=tmpl["learning_outcomes"],
             certification_awarded=tmpl["certification_awarded"],
