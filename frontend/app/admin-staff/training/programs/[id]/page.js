@@ -11,6 +11,7 @@ import {
   ArrowBack as BackIcon, Add as AddIcon, Delete as DeleteIcon,
   Edit as EditIcon, ExpandMore as ExpandIcon, UploadFile as UploadIcon,
   Description as FileIcon, FolderOpen as ModuleIcon, Visibility as PreviewIcon,
+  SwapHoriz as ReplaceIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { trainingAPI } from '../../../../../lib/api';
@@ -41,6 +42,8 @@ export default function ProgramContentPage() {
   const [uploadProgress, setUploadProgress] = useState(null);
   const fileInputRef = useRef(null);
   const batchInputRef = useRef(null);
+  const replaceInputRef = useRef(null);
+  const [replacingId, setReplacingId] = useState(null);
 
   useEffect(() => { init(); }, [programId]);
 
@@ -162,6 +165,30 @@ export default function ProgramContentPage() {
     router.push(`/admin-staff/training/materials/${mat.id}?program=${programId}`);
   };
 
+  const triggerReplace = (mat) => {
+    setReplacingId(mat.id);
+    replaceInputRef.current?.click();
+  };
+
+  const handleReplaceSelect = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !replacingId) return;
+    setUploading(true);
+    setError('');
+    try {
+      await trainingAPI.replaceMaterial(replacingId, file);
+      setSuccess('Material replaced');
+      await loadContent();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Replace failed');
+    } finally {
+      setUploading(false);
+      setReplacingId(null);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -189,6 +216,13 @@ export default function ProgramContentPage() {
         multiple
         accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.zip,image/*"
         onChange={(e) => handleFileSelect(e, true)}
+      />
+      <input
+        ref={replaceInputRef}
+        type="file"
+        hidden
+        accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.zip,image/*"
+        onChange={handleReplaceSelect}
       />
 
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
@@ -235,7 +269,7 @@ export default function ProgramContentPage() {
         <Box sx={{ mb: 3, bgcolor: 'background.paper', borderRadius: 3, p: 2.5, border: `1px solid ${theme.palette.divider}` }}>
           <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1.5 }}>Programme-level Materials</Typography>
           {programMaterials.map(mat => (
-            <MaterialRow key={mat.id} mat={mat} onDelete={deleteMaterial} onPreview={openPreview} />
+            <MaterialRow key={mat.id} mat={mat} onDelete={deleteMaterial} onPreview={openPreview} onReplace={triggerReplace} replacing={replacingId === mat.id} />
           ))}
         </Box>
       )}
@@ -289,7 +323,7 @@ export default function ProgramContentPage() {
                 <Typography sx={{ fontSize: 12, color: 'text.secondary', fontStyle: 'italic' }}>No materials in this module yet.</Typography>
               ) : (
                 mod.materials.map(mat => (
-                  <MaterialRow key={mat.id} mat={mat} onDelete={deleteMaterial} onPreview={openPreview} />
+                  <MaterialRow key={mat.id} mat={mat} onDelete={deleteMaterial} onPreview={openPreview} onReplace={triggerReplace} replacing={replacingId === mat.id} />
                 ))
               )}
             </AccordionDetails>
@@ -319,7 +353,7 @@ export default function ProgramContentPage() {
   );
 }
 
-function MaterialRow({ mat, onDelete, onPreview }) {
+function MaterialRow({ mat, onDelete, onPreview, onReplace, replacing }) {
   return (
     <Box sx={{
       display: 'flex', alignItems: 'center', gap: 1.5, py: 1, px: 1.5, mb: 0.5,
@@ -336,6 +370,9 @@ function MaterialRow({ mat, onDelete, onPreview }) {
           {mat.uploaded_by_name ? ` · ${mat.uploaded_by_name}` : ''}
         </Typography>
       </Box>
+      <IconButton size="small" disabled={replacing} onClick={(e) => { e.stopPropagation(); onReplace(mat); }} title="Replace file">
+        <ReplaceIcon fontSize="small" sx={{ color: '#64748b' }} />
+      </IconButton>
       <IconButton size="small" onClick={(e) => { e.stopPropagation(); onPreview(mat); }} title="Preview">
         <PreviewIcon fontSize="small" sx={{ color: ACCENT }} />
       </IconButton>

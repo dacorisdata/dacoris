@@ -328,6 +328,50 @@ async def upload_program_materials_batch(
     }
 
 
+@router.put("/materials/{material_id}")
+async def replace_material(
+    material_id: str,
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _is_training_admin(current_user):
+        raise HTTPException(status_code=403, detail="Training admin access required")
+    inst_id = _require_institution(current_user)
+
+    result = await db.execute(
+        select(TrainingMaterial)
+        .options(selectinload(TrainingMaterial.program))
+        .where(TrainingMaterial.id == material_id)
+    )
+    mat = result.scalar_one_or_none()
+    if not mat or mat.program.institution_id != inst_id:
+        raise HTTPException(status_code=404, detail="Material not found")
+
+    old_path = get_file_path(mat.stored_filename, TRAINING_UPLOAD_SUBFOLDER)
+    file_info = await save_upload(file, subfolder=TRAINING_UPLOAD_SUBFOLDER)
+
+    mat.title = title.strip() if title else file_info["original_filename"]
+    mat.original_filename = file_info["original_filename"]
+    mat.stored_filename = file_info["stored_filename"]
+    mat.file_size_bytes = file_info["file_size_bytes"]
+    mat.mime_type = file_info["mime_type"]
+    mat.uploaded_by_id = current_user.id
+
+    await db.commit()
+    await db.refresh(mat)
+    mat.uploaded_by = current_user
+
+    if os.path.exists(old_path) and old_path != get_file_path(mat.stored_filename, TRAINING_UPLOAD_SUBFOLDER):
+        try:
+            os.remove(old_path)
+        except OSError:
+            pass
+
+    return _serialize_material(mat)
+
+
 @router.delete("/materials/{material_id}")
 async def delete_material(
     material_id: str,

@@ -793,7 +793,16 @@ async def create_enrollment(
             and_(TrainingEnrollment.program_id == prog.id, TrainingEnrollment.user_id == target_user_id)
         )
     )
-    if existing.scalar_one_or_none():
+    prior = existing.scalar_one_or_none()
+    if prior:
+        if prior.status == TrainingEnrollmentStatus.DROPPED:
+            prior.status = TrainingEnrollmentStatus.ACTIVE
+            prior.progress_percentage = 0
+            prior.completed_at = None
+            prior.enrolled_at = datetime.now(timezone.utc)
+            await db.commit()
+            prior = await _load_enrollment(db, prior.id)
+            return await _serialize_enrollment(db, prior, include_attendance=True)
         raise HTTPException(status_code=400, detail="Already enrolled in this program")
 
     enrollment = TrainingEnrollment(
@@ -844,15 +853,44 @@ async def update_enrollment(
         enrollment.final_grade = body.final_grade
 
     if body.status:
+        try:
+            new_status = TrainingEnrollmentStatus(body.status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid enrollment status")
+
+        learner_self_service = {
+            TrainingEnrollmentStatus.DROPPED,
+            TrainingEnrollmentStatus.SUSPENDED,
+        }
         if not is_admin:
-            raise HTTPException(status_code=400, detail="Only training managers can change enrollment status")
-        new_status = TrainingEnrollmentStatus(body.status)
+            if new_status not in learner_self_service:
+                raise HTTPException(
+                    status_code=400,
+                    detail="You can only cancel or suspend your enrollment",
+                )
+            if enrollment.status != TrainingEnrollmentStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only active enrollments can be cancelled or suspended",
+                )
+        else:
+            if enrollment.status == TrainingEnrollmentStatus.COMPLETED and new_status != TrainingEnrollmentStatus.COMPLETED:
+                raise HTTPException(status_code=400, detail="Completed enrollments cannot be changed")
+
+        prior_status = enrollment.status
         enrollment.status = new_status
         if new_status == TrainingEnrollmentStatus.COMPLETED:
             enrollment.completed_at = datetime.now(timezone.utc)
             enrollment.progress_percentage = 100
             if enrollment.program and enrollment.program.certification_awarded:
                 await _issue_certificate(db, enrollment)
+        elif new_status in (TrainingEnrollmentStatus.DROPPED, TrainingEnrollmentStatus.SUSPENDED):
+            enrollment.completed_at = None
+        elif new_status == TrainingEnrollmentStatus.ACTIVE and is_admin and prior_status in (
+            TrainingEnrollmentStatus.SUSPENDED,
+            TrainingEnrollmentStatus.DROPPED,
+        ):
+            enrollment.completed_at = None
 
     await db.commit()
     enrollment = await _load_enrollment(db, enrollment.id)

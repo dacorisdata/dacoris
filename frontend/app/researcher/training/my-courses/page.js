@@ -10,7 +10,7 @@ import {
   WorkspacePremium as CertIcon, EventAvailable as AttendIcon,
   CheckCircle as ConfirmedIcon, HourglassEmpty as PendingIcon, Cancel as RejectedIcon,
   MenuBook as MaterialsIcon, ExpandMore as ExpandIcon, Visibility as PreviewIcon,
-  Description as FileIcon,
+  Description as FileIcon, PauseCircle as SuspendIcon, Cancel as CancelIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { trainingAPI } from '../../../../lib/api';
@@ -20,7 +20,8 @@ const ACCENT = '#1ca7a1';
 const STATUS_META = {
   active:    { label: 'In Progress', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
   completed: { label: 'Completed',   color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-  dropped:   { label: 'Dropped',     color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+  dropped:   { label: 'Cancelled',   color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+  suspended: { label: 'Suspended',   color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
 };
 
 const ATTEND_META = {
@@ -92,6 +93,22 @@ export default function MyCoursesPage() {
     router.push(`/researcher/training/materials/${mat.id}`);
   };
 
+  const changeEnrollmentStatus = async (enrollmentId, status, label) => {
+    const msg = status === 'dropped'
+      ? 'Cancel this enrollment? You can re-enrol from the training catalog afterwards.'
+      : 'Suspend this enrollment? Your research manager can reactivate it when you are ready to continue.';
+    if (!confirm(msg)) return;
+    setError('');
+    try {
+      await trainingAPI.updateEnrollment(enrollmentId, { status });
+      setSuccess(`Enrollment ${label.toLowerCase()}`);
+      await init();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) {
+      setError(e.response?.data?.detail || `Failed to ${label.toLowerCase()} enrollment`);
+    }
+  };
+
   const markAttendance = async (enrollmentId, sessionNumber) => {
     const dateKey = `${enrollmentId}-${sessionNumber}`;
     const attendanceDate = sessionDates[dateKey] || todayISO();
@@ -121,6 +138,8 @@ export default function MyCoursesPage() {
   }
 
   const active = enrollments.filter(e => e.status === 'active');
+  const suspended = enrollments.filter(e => e.status === 'suspended');
+  const cancelled = enrollments.filter(e => e.status === 'dropped');
   const completed = enrollments.filter(e => e.status === 'completed');
 
   return (
@@ -172,7 +191,19 @@ export default function MyCoursesPage() {
                             {e.program_category} · {e.cpd_hours} CPD hrs · {summary.confirmed || 0}/{summary.session_count || 0} sessions confirmed
                           </Typography>
                         </Box>
-                        <Chip label={sm.label} size="small" sx={{ bgcolor: sm.bg, color: sm.color, fontWeight: 600 }} />
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <Chip label={sm.label} size="small" sx={{ bgcolor: sm.bg, color: sm.color, fontWeight: 600 }} />
+                          <Button size="small" variant="outlined" startIcon={<SuspendIcon />}
+                            onClick={() => changeEnrollmentStatus(e.id, 'suspended', 'Suspend')}
+                            sx={{ fontSize: 11, borderColor: '#f59e0b', color: '#f59e0b', py: 0.25 }}>
+                            Suspend
+                          </Button>
+                          <Button size="small" variant="outlined" startIcon={<CancelIcon />}
+                            onClick={() => changeEnrollmentStatus(e.id, 'dropped', 'Cancel')}
+                            sx={{ fontSize: 11, borderColor: 'error.main', color: 'error.main', py: 0.25 }}>
+                            Cancel
+                          </Button>
+                        </Box>
                       </Box>
 
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
@@ -265,6 +296,46 @@ export default function MyCoursesPage() {
                     </Box>
                   );
                 })}
+              </Box>
+            </Box>
+          )}
+
+          {suspended.length > 0 && (
+            <Box sx={{ mb: 4 }}>
+              <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 2 }}>Suspended ({suspended.length})</Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {suspended.map(e => (
+                  <Box key={e.id} sx={{
+                    bgcolor: 'background.paper', borderRadius: 2, p: 2.5,
+                    border: `1px solid ${theme.palette.divider}`,
+                  }}>
+                    <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{e.program_title}</Typography>
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
+                      Suspended by you or your research manager. Contact your manager to reactivate.
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          {cancelled.length > 0 && (
+            <Box sx={{ mb: 4 }}>
+              <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 2 }}>Cancelled ({cancelled.length})</Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {cancelled.map(e => (
+                  <Box key={e.id} sx={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    bgcolor: 'background.paper', borderRadius: 2, p: 2.5,
+                    border: `1px solid ${theme.palette.divider}`,
+                  }}>
+                    <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{e.program_title}</Typography>
+                    <Button size="small" onClick={() => router.push('/researcher/training/catalog')}
+                      sx={{ color: ACCENT }}>
+                      Re-enrol
+                    </Button>
+                  </Box>
+                ))}
               </Box>
             </Box>
           )}

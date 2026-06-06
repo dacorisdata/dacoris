@@ -44,7 +44,9 @@ export default function TrainingCatalogPage() {
         trainingAPI.myEnrollments(),
       ]);
       setPrograms(progRes.data || []);
-      setEnrolledIds(new Set((enrollRes.data || []).map(e => e.program_id)));
+      setEnrolledIds(new Set(
+        (enrollRes.data || []).filter(e => e.status !== 'dropped').map(e => e.program_id),
+      ));
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to load catalog');
     } finally {
@@ -69,7 +71,9 @@ export default function TrainingCatalogPage() {
         setError(detail || 'Enrollment failed');
         try {
           const enrollRes = await trainingAPI.myEnrollments();
-          const ids = new Set((enrollRes.data || []).map(en => en.program_id));
+          const ids = new Set(
+            (enrollRes.data || []).filter(en => en.status !== 'dropped').map(en => en.program_id),
+          );
           if (ids.has(programId)) {
             setEnrolledIds(ids);
             setError('');

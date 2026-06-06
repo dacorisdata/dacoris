@@ -255,6 +255,14 @@ export const trainingAPI = {
     });
   },
   deleteMaterial: (id) => api.delete(`/training/materials/${id}`),
+  replaceMaterial: (id, file, opts = {}) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (opts.title) fd.append('title', opts.title);
+    return api.put(`/training/materials/${id}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   previewMaterial: (id) => api.get(`/training/materials/${id}/preview`, { responseType: 'blob' }),
 };
 

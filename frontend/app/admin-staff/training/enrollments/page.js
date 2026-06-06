@@ -11,6 +11,8 @@ import {
 import {
   CheckCircle as ConfirmIcon, Cancel as RejectIcon,
   WorkspacePremium as CertIcon, ExpandMore as ExpandIcon,
+  PauseCircle as SuspendIcon, PlayCircle as ReactivateIcon,
+  PersonOff as CancelEnrollIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { trainingAPI } from '../../../../lib/api';
@@ -20,7 +22,7 @@ const ACCENT = '#16a699';
 const STATUS_META = {
   active:    { label: 'Active',    color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
   completed: { label: 'Completed', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-  dropped:   { label: 'Dropped',   color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+  dropped:   { label: 'Cancelled', color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
   suspended: { label: 'Suspended', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
 };
 
@@ -95,6 +97,18 @@ export default function AdminTrainingEnrollmentsPage() {
 
   const toggleExpand = (id) => setExpanded(s => ({ ...s, [id]: !s[id] }));
 
+  const updateEnrollmentStatus = async (enrollmentId, status, label) => {
+    if (!confirm(`${label} this enrollment?`)) return;
+    try {
+      await trainingAPI.updateEnrollment(enrollmentId, { status });
+      setSuccess(`Enrollment ${label.toLowerCase()}`);
+      await load();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) {
+      setError(e.response?.data?.detail || `Failed to ${label.toLowerCase()} enrollment`);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -157,7 +171,8 @@ export default function AdminTrainingEnrollmentsPage() {
           <MenuItem value="all">All</MenuItem>
           <MenuItem value="active">Active</MenuItem>
           <MenuItem value="completed">Completed</MenuItem>
-          <MenuItem value="dropped">Dropped</MenuItem>
+          <MenuItem value="dropped">Cancelled</MenuItem>
+          <MenuItem value="suspended">Suspended</MenuItem>
         </Select>
       </FormControl>
 
@@ -170,12 +185,13 @@ export default function AdminTrainingEnrollmentsPage() {
               <TableCell sx={{ fontWeight: 700 }}>Programme</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Attendance</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+              <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {enrollments.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                <TableCell colSpan={6} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
                   No enrollments yet.
                 </TableCell>
               </TableRow>
@@ -222,9 +238,30 @@ export default function AdminTrainingEnrollmentsPage() {
                       <Chip label={sm.label} size="small" sx={{ bgcolor: sm.bg, color: sm.color, fontWeight: 600, fontSize: 11 }} />
                       {e.has_certificate && <CertIcon sx={{ fontSize: 14, color: '#10b981', ml: 0.5, verticalAlign: 'middle' }} />}
                     </TableCell>
+                    <TableCell align="right">
+                      {e.status === 'active' && (
+                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                          <Button size="small" startIcon={<SuspendIcon />} onClick={() => updateEnrollmentStatus(e.id, 'suspended', 'Suspend')}
+                            sx={{ fontSize: 11, color: '#f59e0b', textTransform: 'none' }}>
+                            Suspend
+                          </Button>
+                          <Button size="small" startIcon={<CancelEnrollIcon />} onClick={() => updateEnrollmentStatus(e.id, 'dropped', 'Cancel')}
+                            sx={{ fontSize: 11, color: 'error.main', textTransform: 'none' }}>
+                            Cancel
+                          </Button>
+                        </Box>
+                      )}
+                      {(e.status === 'suspended' || e.status === 'dropped') && (
+                        <Button size="small" startIcon={<ReactivateIcon />}
+                          onClick={() => updateEnrollmentStatus(e.id, 'active', 'Reactivate')}
+                          sx={{ fontSize: 11, color: ACCENT, textTransform: 'none' }}>
+                          Reactivate
+                        </Button>
+                      )}
+                    </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell colSpan={5} sx={{ py: 0, borderBottom: isOpen ? undefined : 'none' }}>
+                    <TableCell colSpan={6} sx={{ py: 0, borderBottom: isOpen ? undefined : 'none' }}>
                       <Collapse in={isOpen}>
                         <Box sx={{ py: 1.5, pl: 5 }}>
                           {(e.attendance || []).length === 0 ? (
