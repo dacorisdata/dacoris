@@ -449,7 +449,7 @@ function LoginPageContent() {
                 }}
               >
                 <OrcidIcon size={22} />
-                Continue with ORCID
+                Continue with ORCID Authentication
               </Button>
 
               {/* SSO callout */}
