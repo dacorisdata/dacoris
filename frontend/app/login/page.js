@@ -226,7 +226,7 @@ function LoginPageContent() {
             </Typography>
 
             <Typography sx={{ fontSize: '0.9375rem', color: 'rgba(255,255,255,0.75)', lineHeight: 1.6, mb: 2.5, maxWidth: 380 }}>
-              Manage your institution's research operations with confidence — from grant applications to final reporting.
+              Manage your institution's research operations with confidence - from grant applications to final reporting.
             </Typography>
 
             {/* Feature cards */}
@@ -449,7 +449,7 @@ function LoginPageContent() {
                 }}
               >
                 <OrcidIcon size={22} />
-                Continue with ORCID Authentication
+                Continue with ORCID
               </Button>
 
               {/* SSO callout */}
