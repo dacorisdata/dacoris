@@ -15,6 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { orcidAPI } from '../../lib/api';
 import { COLORS } from '../../contexts/ThemeContext';
+import { getDashboardRoute } from '../../lib/authRouting';
 
 // ── Animated network canvas ──────────────────────────────────────────────────
 function NetworkCanvas() {
@@ -87,11 +88,7 @@ function TokenHandler({ setToken, fetchUser, router }) {
     hasProcessedToken.current = true;
     setToken(token);
     fetchUser().then((u) => {
-      if (u?.is_global_admin)           router.push('/global-admin/dashboard');
-      else if (u?.is_institution_admin)  router.push('/institution-admin/dashboard');
-      else if (u?.primary_account_type === 'RESEARCHER') router.push('/researcher/dashboard');
-      else if (['ADMIN_STAFF','GRANT_MANAGER','FINANCE_OFFICER','ETHICS_COMMITTEE_MEMBER','DATA_STEWARD','DATA_ENGINEER','INSTITUTIONAL_LEADERSHIP','EXTERNAL_REVIEWER','GUEST_COLLABORATOR','EXTERNAL_FUNDER'].includes(u?.primary_account_type)) router.push('/admin-staff/dashboard');
-      else                               router.push('/onboarding');
+      router.push(getDashboardRoute(u));
     });
   }, [searchParams, setToken, fetchUser, router]);
 
@@ -127,17 +124,7 @@ function LoginPageContent() {
         return;
       }
       setTimeout(() => {
-        if (u.is_global_admin) {
-          window.location.href = '/global-admin/dashboard';
-        } else if (u.is_institution_admin) {
-          window.location.href = '/institution-admin/dashboard';
-        } else if (u.primary_account_type === 'RESEARCHER') {
-          window.location.href = '/researcher/dashboard';
-        } else if (['ADMIN_STAFF','GRANT_MANAGER','FINANCE_OFFICER','ETHICS_COMMITTEE_MEMBER','DATA_STEWARD','DATA_ENGINEER','INSTITUTIONAL_LEADERSHIP','EXTERNAL_REVIEWER','GUEST_COLLABORATOR','EXTERNAL_FUNDER'].includes(u.primary_account_type)) {
-          window.location.href = '/admin-staff/dashboard';
-        } else {
-          window.location.href = '/onboarding';
-        }
+        window.location.href = getDashboardRoute(u);
       }, 100);
     } catch (err) {
       console.error('Login error:', err);

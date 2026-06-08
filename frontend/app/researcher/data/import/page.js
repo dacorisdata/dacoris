@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
 import {
   Box,
   Container,
@@ -51,7 +53,15 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '@/contexts/AuthContext';
 
+const TiptapEditor = dynamic(() => import('@/components/TiptapEditor'), { ssr: false });
+
 const ACCENT = '#1ca7a1';
+
+const isRichTextEmpty = (html) => {
+  if (!html || !html.trim()) return true;
+  const text = html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  return !text;
+};
 
 const extractSheetId = (url) => {
   const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -101,8 +111,9 @@ const SOURCE_TABS = [
   },
 ];
 
-export default function DataImportPage() {
+function DataImportContent() {
   const { user, token } = useAuth();
+  const searchParams = useSearchParams();
 
   const [activeSource, setActiveSource] = useState('google_sheets');
   const [activeStep, setActiveStep] = useState(0);
@@ -142,6 +153,8 @@ export default function DataImportPage() {
   const [histRowsPerPage, setHistRowsPerPage] = useState(10);
   const [retryingId, setRetryingId] = useState(null);
   const [retryError, setRetryError] = useState('');
+  const [versionInfo, setVersionInfo] = useState(null);
+  const [versionLoading, setVersionLoading] = useState(false);
 
   const currentTab = SOURCE_TABS.find(t => t.id === activeSource);
 
@@ -181,6 +194,52 @@ export default function DataImportPage() {
       loadHistory();
     }
   }, [token, loadProjects, loadHistory]);
+
+  useEffect(() => {
+    const tag = searchParams.get('tag');
+    const sourceType = searchParams.get('source_type');
+    const projectId = searchParams.get('project_id');
+    if (tag) {
+      setImportTag(tag);
+      setLabelManuallyEdited(true);
+    }
+    if (sourceType && SOURCE_TABS.some(t => t.id === sourceType)) {
+      setActiveSource(sourceType);
+    }
+    if (projectId) setSelectedProject(projectId);
+  }, [searchParams]);
+
+  const loadVersionInfo = useCallback(async () => {
+    const tag = sanitizeTag(importTag);
+    if (!token || !tag) {
+      setVersionInfo(null);
+      return;
+    }
+    setVersionLoading(true);
+    try {
+      const qs = new URLSearchParams({
+        source_tag: tag,
+        source_type: activeSource,
+        ...(selectedProject && { project_id: selectedProject }),
+      });
+      const res = await fetch(`/api/research/lakehouse-imports/version-info?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setVersionInfo(await res.json());
+      } else {
+        setVersionInfo(null);
+      }
+    } catch (_) {
+      setVersionInfo(null);
+    } finally {
+      setVersionLoading(false);
+    }
+  }, [token, importTag, activeSource, selectedProject]);
+
+  useEffect(() => {
+    if (activeStep >= 1) loadVersionInfo();
+  }, [activeStep, loadVersionInfo]);
 
   useEffect(() => {
     const hasActive = importHistory.some(imp =>
@@ -293,7 +352,7 @@ export default function DataImportPage() {
     }
     if (activeStep === 1) {
       if (!importTag.trim()) return false;
-      if (analysisMode === 'dacoris' && !expectedVisuals.trim()) return false;
+      if (analysisMode === 'dacoris' && isRichTextEmpty(expectedVisuals)) return false;
       return true;
     }
     return true;
@@ -647,6 +706,27 @@ export default function DataImportPage() {
         }}
         sx={{ mb: 2.5 }}
       />
+      {versionLoading ? (
+        <Alert severity="info" sx={{ mb: 2.5, borderRadius: 2 }}>
+          Checking dataset version...
+        </Alert>
+      ) : versionInfo && !versionInfo.is_new_dataset ? (
+        <Alert severity="info" sx={{ mb: 2.5, borderRadius: 2 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            New version of existing dataset
+          </Typography>
+          <Typography variant="caption">
+            This import will be saved as <strong>v{versionInfo.next_version}</strong> of &ldquo;{versionInfo.source_tag}&rdquo;
+            ({versionInfo.total_versions} previous version{versionInfo.total_versions === 1 ? '' : 's'} on record).
+          </Typography>
+        </Alert>
+      ) : versionInfo?.is_new_dataset ? (
+        <Alert severity="success" sx={{ mb: 2.5, borderRadius: 2 }}>
+          <Typography variant="caption">
+            This will be the first version (v1) of dataset &ldquo;{versionInfo.source_tag}&rdquo;.
+          </Typography>
+        </Alert>
+      ) : null}
       <TextField
         fullWidth multiline rows={2}
         label="Description (optional)"
@@ -678,15 +758,20 @@ export default function DataImportPage() {
         </RadioGroup>
       </FormControl>
       {analysisMode === 'dacoris' && (
-        <TextField
-          fullWidth required multiline rows={3}
-          label="Expected Visuals"
-          placeholder="Describe the charts, dashboards, or reports you need (e.g. bar charts by region, trend lines over time, demographic breakdowns...)"
-          value={expectedVisuals}
-          onChange={(e) => setExpectedVisuals(e.target.value)}
-          helperText="This will be submitted with your import metadata for the Dacoris Data Team"
-          sx={{ mb: 2.5 }}
-        />
+        <Box sx={{ mb: 2.5 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+            Expected Visuals <Typography component="span" color="error.main">*</Typography>
+          </Typography>
+          <TiptapEditor
+            compact
+            content={expectedVisuals}
+            onChange={setExpectedVisuals}
+            placeholder="Describe the charts, dashboards, or reports you need (e.g. bar charts by region, trend lines over time, demographic breakdowns...)"
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            This will be submitted with your import metadata for the Dacoris Data Team
+          </Typography>
+        </Box>
       )}
       <FormControl fullWidth sx={{ mb: 2.5 }}>
         <InputLabel>Link to Project (optional)</InputLabel>
@@ -737,7 +822,9 @@ export default function DataImportPage() {
           <Alert severity="success" icon={<SuccessIcon />} sx={{ mb: 3, borderRadius: 2 }}>
             <Typography variant="body1" sx={{ fontWeight: 600 }}>Import registered successfully!</Typography>
             <Typography variant="caption">
-              Status: <strong>{importResult.ingest_status}</strong> · ID: {importResult.id}
+              Status: <strong>{importResult.ingest_status}</strong>
+              {importResult.version_number ? ` · Version: v${importResult.version_number}` : ''}
+              {' · '}ID: {importResult.id}
             </Typography>
           </Alert>
           <Paper sx={{ p: 2.5, bgcolor: 'grey.50', borderRadius: 2, mb: 2 }}>
@@ -786,6 +873,12 @@ export default function DataImportPage() {
               <Typography variant="body2" sx={{ fontWeight: 600 }}>{tag}</Typography>
             </Box>
             <Box>
+              <Typography variant="caption" color="text.secondary">Version</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {versionInfo ? `v${versionInfo.next_version}` : 'v1'}
+              </Typography>
+            </Box>
+            <Box>
               <Typography variant="caption" color="text.secondary">
                 {activeSource === 'google_sheets' ? 'Sheet ID' : activeSource === 'kobo_collect' ? 'Asset UID' : 'File'}
               </Typography>
@@ -807,10 +900,19 @@ export default function DataImportPage() {
                 {analysisMode === 'dacoris' ? 'Dacoris Data Team' : 'Self-analysis'}
               </Typography>
             </Box>
-            {analysisMode === 'dacoris' && expectedVisuals && (
+            {analysisMode === 'dacoris' && !isRichTextEmpty(expectedVisuals) && (
               <Box sx={{ gridColumn: '1 / -1' }}>
                 <Typography variant="caption" color="text.secondary">Expected Visuals</Typography>
-                <Typography variant="body2">{expectedVisuals}</Typography>
+                <Box
+                  sx={{
+                    mt: 0.5,
+                    fontSize: 14,
+                    lineHeight: 1.6,
+                    '& p': { margin: '0 0 0.5em' },
+                    '& ul, & ol': { pl: 2.5, my: 0.5 },
+                  }}
+                  dangerouslySetInnerHTML={{ __html: expectedVisuals }}
+                />
               </Box>
             )}
             {importDesc && (
@@ -940,6 +1042,10 @@ export default function DataImportPage() {
             <TableHead>
               <TableRow sx={{ bgcolor: 'grey.50' }}>
                 <TableCell sx={{ fontWeight: 600 }}>Label</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Version</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Researcher</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Institution</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Department(s)</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Source / File</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
@@ -960,6 +1066,29 @@ export default function DataImportPage() {
                 return (
                   <TableRow key={imp.id} hover sx={imp.ingest_status === 'failed' ? { bgcolor: '#fef2f2' } : undefined}>
                     <TableCell sx={{ fontWeight: 500 }}>{imp.source_tag}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={`v${imp.version_number || 1}`}
+                        size="small"
+                        sx={{
+                          bgcolor: imp.is_current_version === false ? 'grey.100' : '#1ca7a115',
+                          color: imp.is_current_version === false ? 'text.secondary' : ACCENT,
+                          fontWeight: 600,
+                          fontSize: 11,
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption">{imp.researcher_name || '—'}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption">{imp.institution_name || '—'}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption">
+                        {imp.departments?.length ? imp.departments.join(', ') : '—'}
+                      </Typography>
+                    </TableCell>
                     <TableCell>
                       <Chip
                         label={imp.source_type.replace(/_/g, ' ')}
@@ -1122,5 +1251,19 @@ export default function DataImportPage() {
         </TableContainer>
       )}
     </Container>
+  );
+}
+
+export default function DataImportPage() {
+  return (
+    <Suspense fallback={
+      <Container maxWidth="xl" sx={{ py: 4 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress sx={{ color: ACCENT }} />
+        </Box>
+      </Container>
+    }>
+      <DataImportContent />
+    </Suspense>
   );
 }

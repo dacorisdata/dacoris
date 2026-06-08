@@ -205,6 +205,21 @@ class ReviewStatus(str, enum.Enum):
     IN_PROGRESS = "in_progress"
     SUBMITTED = "submitted"
 
+
+class ReviewType(str, enum.Enum):
+    PROPOSAL = "proposal"
+    PROJECT = "project"
+    ETHICS = "ethics"
+
+
+class ReviewerAssignmentStatus(str, enum.Enum):
+    PENDING_SIGNUP = "pending_signup"
+    ASSIGNED = "assigned"
+    IN_PROGRESS = "in_progress"
+    SUBMITTED = "submitted"
+    DECLINED = "declined"
+
+
 class QAStatus(str, enum.Enum):
     STAGED = "staged"
     PASSED = "passed"
@@ -528,6 +543,33 @@ class ProposalStageAssignment(Base):
         UniqueConstraint("proposal_id", "stage_step", "reviewer_id",
                          name="uq_proposal_stage_reviewer"),
     )
+
+
+class ReviewerAssignment(Base):
+    """Unified reviewer invitation and assignment for proposals, projects, and ethics reviews."""
+    __tablename__ = "reviewer_assignments"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False)
+    reviewer_id = Column(String, ForeignKey("users.id"), nullable=True)
+    invited_email = Column(String(200), nullable=False, index=True)
+    invited_name = Column(String(200), nullable=True)
+    review_type = Column(Enum(ReviewType), nullable=False)
+    entity_id = Column(String, nullable=False)
+    entity_review_id = Column(String, nullable=True)
+    entity_title = Column(String(500), nullable=True)
+    invitation_token = Column(String(100), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(32))
+    signup_token = Column(String(100), unique=True, nullable=True)
+    status = Column(Enum(ReviewerAssignmentStatus), default=ReviewerAssignmentStatus.ASSIGNED)
+    assigned_by_id = Column(String, ForeignKey("users.id"), nullable=False)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    institution = relationship("Institution", foreign_keys=[institution_id])
+    reviewer = relationship("User", foreign_keys=[reviewer_id])
+    assigned_by = relationship("User", foreign_keys=[assigned_by_id])
 
 
 class Award(Base):
@@ -1577,6 +1619,12 @@ class DataImport(Base):
     file_name = Column(String(255), nullable=True)
     file_format = Column(String(20), nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
+
+    # Dataset versioning (same label + source type + project = one versioned series)
+    dataset_key = Column(String(255), nullable=True, index=True)
+    version_number = Column(Integer, default=1, nullable=False)
+    is_current_version = Column(Boolean, default=True, nullable=False)
+    supersedes_id = Column(String(36), ForeignKey("data_imports.id"), nullable=True)
     
     # Ingestion tracking
     ingest_status = Column(Enum(DataImportStatus), default=DataImportStatus.PENDING, nullable=False, index=True)
@@ -1607,6 +1655,7 @@ class DataImport(Base):
     researcher = relationship("User", foreign_keys=[researcher_id])
     project = relationship("ResearchProject")
     creator = relationship("User", foreign_keys=[created_by])
+    supersedes = relationship("DataImport", remote_side=[id], foreign_keys=[supersedes_id])
 
 
 # ═══════════════════════════════════════════════════════════════════════════

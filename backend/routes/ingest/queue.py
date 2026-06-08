@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
@@ -41,6 +42,13 @@ class QueuedImportResponse(BaseModel):
     metadata_json: Optional[str] = None
     created_at: datetime
     retry_count: int
+    researcher_name: Optional[str] = None
+    institution_name: Optional[str] = None
+    departments: List[str] = []
+    dataset_key: Optional[str] = None
+    version_number: int = 1
+    is_current_version: bool = True
+    supersedes_id: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -63,6 +71,43 @@ class IngestStatusResponse(BaseModel):
     success: bool
     import_id: str
     updated_at: datetime
+
+def _parse_departments(department: Optional[str]) -> List[str]:
+    if not department:
+        return []
+    return [part.strip() for part in department.split(',') if part.strip()]
+
+
+def _serialize_queued_import(data_import: DataImport) -> dict:
+    researcher = data_import.researcher
+    institution = data_import.institution
+    return {
+        "id": data_import.id,
+        "institution_id": data_import.institution_id,
+        "researcher_id": data_import.researcher_id,
+        "project_id": data_import.project_id,
+        "source_url": data_import.source_url,
+        "source_type": data_import.source_type.value if hasattr(data_import.source_type, "value") else str(data_import.source_type),
+        "source_tag": data_import.source_tag,
+        "file_name": data_import.file_name,
+        "file_format": data_import.file_format,
+        "bronze_path": data_import.bronze_path,
+        "bronze_bucket": data_import.bronze_bucket,
+        "priority": data_import.priority,
+        "file_size_bytes": data_import.file_size_bytes,
+        "ingest_status": data_import.ingest_status.value if hasattr(data_import.ingest_status, "value") else str(data_import.ingest_status),
+        "metadata_json": data_import.metadata_json,
+        "created_at": data_import.created_at,
+        "retry_count": data_import.retry_count,
+        "researcher_name": researcher.name if researcher else None,
+        "institution_name": institution.name if institution else None,
+        "departments": _parse_departments(researcher.department if researcher else None),
+        "dataset_key": data_import.dataset_key,
+        "version_number": data_import.version_number or 1,
+        "is_current_version": data_import.is_current_version if data_import.is_current_version is not None else True,
+        "supersedes_id": data_import.supersedes_id,
+    }
+
 
 # ──── Authentication ─────────────────────────────────────────────────────────
 
@@ -113,7 +158,14 @@ async def get_queued_imports(
         valid_statuses = [DataImportStatus.QUEUED, DataImportStatus.PENDING]
     
     # Build query
-    query = select(DataImport).where(DataImport.ingest_status.in_(valid_statuses))
+    query = (
+        select(DataImport)
+        .options(
+            selectinload(DataImport.institution),
+            selectinload(DataImport.researcher),
+        )
+        .where(DataImport.ingest_status.in_(valid_statuses))
+    )
     
     # Apply ordering
     if priority_order:
@@ -131,7 +183,7 @@ async def get_queued_imports(
     imports = result.scalars().all()
     
     return {
-        "imports": imports,
+        "imports": [_serialize_queued_import(imp) for imp in imports],
         "total": len(imports),
         "timestamp": datetime.utcnow()
     }

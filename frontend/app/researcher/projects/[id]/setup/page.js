@@ -366,112 +366,152 @@ export default function ProjectSetupPage() {
     sessionStorage.setItem(draftKey(projectId), JSON.stringify(data));
   };
 
+  useEffect(() => {
+    if (!id || loading || !project) return undefined;
+    const timer = setTimeout(() => saveDraftLocal(id, formData), 600);
+    return () => clearTimeout(timer);
+  }, [formData, id, loading, project]);
+
+  const buildFormFromProject = (p, me, draft = {}) => ({
+    ...DEFAULT_FORM,
+    ...draft,
+    title: draft.title ?? p.title ?? '',
+    projectCode: draft.projectCode ?? p.project_code ?? '',
+    projectType: draft.projectType ?? p.project_type ?? 'contract_research',
+    shortTitle: draft.shortTitle ?? p.short_title ?? '',
+    researchArea: draft.researchArea ?? p.research_area ?? '',
+    leadInstitution: draft.leadInstitution ?? p.lead_institution ?? me?.institution?.name ?? '',
+    department: draft.department ?? p.department ?? me?.department ?? '',
+    startDate: draft.startDate ?? toInputDate(p.start_date),
+    endDate: draft.endDate ?? toInputDate(p.end_date),
+    involvesHumanSubjects: draft.involvesHumanSubjects ?? !!p.involves_human_subjects,
+    involvesAnimalSubjects: draft.involvesAnimalSubjects ?? !!p.involves_animal_subjects,
+    involvesSensitiveData: draft.involvesSensitiveData ?? !!p.involves_sensitive_data,
+    isClinicalTrial: draft.isClinicalTrial ?? !!p.is_clinical_trial,
+    usesHazardousMaterials: draft.usesHazardousMaterials ?? !!p.uses_hazardous_materials,
+    projectAbstract: draft.projectAbstract ?? p.project_abstract ?? p.description ?? '',
+    backgroundRationale: draft.backgroundRationale ?? p.background_rationale ?? '',
+    problemStatement: draft.problemStatement ?? p.problem_statement ?? '',
+    researchMethodology: draft.researchMethodology ?? p.research_methodology ?? '',
+    researchDesign: draft.researchDesign ?? p.research_design ?? '',
+    targetPopulation: draft.targetPopulation ?? p.target_population ?? '',
+    researchKeywords: draft.researchKeywords ?? parseJsonList(p.research_keywords),
+    researchObjectives: (draft.researchObjectives ?? parseJsonList(p.research_objectives)).map(normalizeObjective),
+    description: draft.description ?? p.project_abstract ?? p.description ?? '',
+    background: draft.background ?? p.background_rationale ?? '',
+    methodology: draft.methodology ?? p.research_methodology ?? '',
+    piFullName: draft.piFullName ?? p.pi_full_name ?? p.pi_name ?? me?.name ?? '',
+    piTitle: draft.piTitle ?? p.pi_academic_title ?? me?.job_title ?? '',
+    piEmail: draft.piEmail ?? p.pi_email ?? me?.email ?? '',
+    piPhone: draft.piPhone ?? p.pi_phone ?? me?.phone ?? '',
+    piInstitution: draft.piInstitution ?? p.lead_institution ?? me?.institution?.name ?? '',
+    piDepartment: draft.piDepartment ?? p.department ?? me?.department ?? '',
+    piOrcid: draft.piOrcid ?? p.pi_orcid ?? me?.orcid_id ?? '',
+    piStaffId: draft.piStaffId ?? p.pi_staff_id ?? '',
+    dmpMode: draft.dmpMode ?? p.dmp_entry_mode ?? 'upload',
+    dmpTypesOfData: draft.dmpTypesOfData ?? p.dmp_types_of_data ?? '',
+    dmpEstimatedVolume: draft.dmpEstimatedVolume ?? p.dmp_estimated_volume ?? '',
+    dmpDataFormats: draft.dmpDataFormats ?? p.dmp_data_formats ?? '',
+    dmpPrimaryStorage: draft.dmpPrimaryStorage ?? p.dmp_primary_storage ?? '',
+    dmpBackupProcedure: draft.dmpBackupProcedure ?? p.dmp_backup_procedure ?? '',
+    dmpAccessControls: draft.dmpAccessControls ?? p.dmp_access_controls ?? '',
+    dmpRetentionPeriod: draft.dmpRetentionPeriod ?? p.dmp_retention_period ?? '',
+    dmpSharingPlan: draft.dmpSharingPlan ?? p.dmp_sharing_plan ?? '',
+    dmpRepository: draft.dmpRepository ?? p.dmp_repository ?? '',
+    dmpLinkedDocumentId: draft.dmpLinkedDocumentId ?? p.dmp_linked_document_id ?? '',
+    financialOverheadRate: draft.financialOverheadRate ?? p.financial_overhead_rate ?? '',
+    financialNotes: draft.financialNotes ?? p.financial_notes ?? '',
+    currency: draft.currency ?? p.reporting_currency ?? 'KES',
+    conflictOfInterest: draft.conflictOfInterest ?? p.conflict_of_interest ?? '',
+    declarations: {
+      ...DEFAULT_DECLARATIONS,
+      ...(draft.declarations || {}),
+      ...(p.declaration_responses || {}),
+    },
+    declarationDate: draft.declarationDate ?? toInputDate(p.declaration_date) ?? '',
+  });
+
+  const fetchProjectBundle = async () => {
+    const token = localStorage.getItem('token');
+    const headers = { Authorization: `Bearer ${token}` };
+    const [projRes, ethicsRes, meRes, dmpDocsRes] = await Promise.all([
+      axios.get(`${API}/research/projects/${id}`, { headers }),
+      axios.get(`${API}/research/ethics/my`, { headers }).catch(() => ({ data: [] })),
+      axios.get(`${API}/auth/me`, { headers }).catch(() => ({ data: null })),
+      axios.get(`${API}/research/projects/my/dmp-documents`, { headers }).catch(() => ({ data: [] })),
+    ]);
+    return {
+      p: projRes.data,
+      me: meRes.data,
+      ethics: ethicsRes.data || [],
+      dmpDocs: dmpDocsRes.data || [],
+    };
+  };
+
+  const loadAwardData = async (p, hydrateForm = false) => {
+    if (!p.award_id) {
+      setAwardData(null);
+      setBudgetData(null);
+      return;
+    }
+    try {
+      const headers = { Authorization: `Bearer ${localStorage.getItem('token')}` };
+      const [awardRes, budgetRes] = await Promise.all([
+        axios.get(`${API}/grants/awards/${p.award_id}`, { headers }),
+        axios.get(`${API}/grants/awards/${p.award_id}/budget`, { headers }),
+      ]);
+      setAwardData(awardRes.data);
+      setBudgetData(budgetRes.data);
+      if (hydrateForm) {
+        setFormData(prev => ({
+          ...prev,
+          fundingSource: awardRes.data.funder_name || prev.fundingSource,
+          totalAward: awardRes.data.total_amount || prev.totalAward,
+          currency: awardRes.data.currency || prev.currency,
+        }));
+      }
+    } catch {
+      setAwardData(null);
+      setBudgetData(null);
+    }
+  };
+
+  const applyProjectBundle = async ({ p, me, ethics, dmpDocs }, { hydrateForm = false } = {}) => {
+    if (p.status && p.status !== 'draft') {
+      router.replace(`/researcher/projects/${id}`);
+      return false;
+    }
+    setProject(p);
+    setMyEthicsApps(ethics);
+    setDmpLibrary(dmpDocs);
+    if (hydrateForm) {
+      const draft = loadDraft(id);
+      setFormData(buildFormFromProject(p, me, draft));
+      await loadAwardData(p, true);
+    } else {
+      await loadAwardData(p, false);
+    }
+    return true;
+  };
+
   const loadProject = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const [projRes, ethicsRes, meRes, dmpDocsRes] = await Promise.all([
-        axios.get(`${API}/research/projects/${id}`, { headers }),
-        axios.get(`${API}/research/ethics/my`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`${API}/auth/me`, { headers }).catch(() => ({ data: null })),
-        axios.get(`${API}/research/projects/my/dmp-documents`, { headers }).catch(() => ({ data: [] })),
-      ]);
-
-      const p = projRes.data;
-      if (p.status && p.status !== 'draft') {
-        router.replace(`/researcher/projects/${id}`);
-        return;
-      }
-      const me = meRes.data;
-      setProject(p);
-      setMyEthicsApps(ethicsRes.data || []);
-      setDmpLibrary(dmpDocsRes.data || []);
-
-      const draft = loadDraft(id);
-      setFormData({
-        ...DEFAULT_FORM,
-        ...draft,
-        title: p.title || '',
-        projectCode: p.project_code || '',
-        projectType: p.project_type || 'contract_research',
-        shortTitle: draft.shortTitle ?? p.short_title ?? '',
-        researchArea: draft.researchArea ?? p.research_area ?? '',
-        leadInstitution: draft.leadInstitution ?? p.lead_institution ?? me?.institution?.name ?? '',
-        department: draft.department ?? p.department ?? me?.department ?? '',
-        startDate: toInputDate(p.start_date),
-        endDate: toInputDate(p.end_date),
-        involvesHumanSubjects: !!p.involves_human_subjects,
-        involvesAnimalSubjects: !!p.involves_animal_subjects,
-        involvesSensitiveData: !!p.involves_sensitive_data,
-        isClinicalTrial: !!p.is_clinical_trial,
-        usesHazardousMaterials: !!p.uses_hazardous_materials,
-        projectAbstract: draft.projectAbstract ?? p.project_abstract ?? p.description ?? '',
-        backgroundRationale: draft.backgroundRationale ?? p.background_rationale ?? '',
-        problemStatement: draft.problemStatement ?? p.problem_statement ?? '',
-        researchMethodology: draft.researchMethodology ?? p.research_methodology ?? '',
-        researchDesign: draft.researchDesign ?? p.research_design ?? '',
-        targetPopulation: draft.targetPopulation ?? p.target_population ?? '',
-        researchKeywords: draft.researchKeywords ?? parseJsonList(p.research_keywords),
-        researchObjectives: (draft.researchObjectives ?? parseJsonList(p.research_objectives)).map(normalizeObjective),
-        description: draft.description ?? p.project_abstract ?? p.description ?? '',
-        background: draft.background ?? p.background_rationale ?? '',
-        methodology: draft.methodology ?? p.research_methodology ?? '',
-        piFullName: draft.piFullName ?? p.pi_full_name ?? p.pi_name ?? me?.name ?? '',
-        piTitle: draft.piTitle ?? p.pi_academic_title ?? me?.job_title ?? '',
-        piEmail: draft.piEmail ?? p.pi_email ?? me?.email ?? '',
-        piPhone: draft.piPhone ?? p.pi_phone ?? me?.phone ?? '',
-        piInstitution: draft.piInstitution ?? p.lead_institution ?? me?.institution?.name ?? '',
-        piDepartment: draft.piDepartment ?? p.department ?? me?.department ?? '',
-        piOrcid: draft.piOrcid ?? p.pi_orcid ?? me?.orcid_id ?? '',
-        piStaffId: draft.piStaffId ?? p.pi_staff_id ?? '',
-        dmpMode: draft.dmpMode ?? p.dmp_entry_mode ?? 'upload',
-        dmpTypesOfData: draft.dmpTypesOfData ?? p.dmp_types_of_data ?? '',
-        dmpEstimatedVolume: draft.dmpEstimatedVolume ?? p.dmp_estimated_volume ?? '',
-        dmpDataFormats: draft.dmpDataFormats ?? p.dmp_data_formats ?? '',
-        dmpPrimaryStorage: draft.dmpPrimaryStorage ?? p.dmp_primary_storage ?? '',
-        dmpBackupProcedure: draft.dmpBackupProcedure ?? p.dmp_backup_procedure ?? '',
-        dmpAccessControls: draft.dmpAccessControls ?? p.dmp_access_controls ?? '',
-        dmpRetentionPeriod: draft.dmpRetentionPeriod ?? p.dmp_retention_period ?? '',
-        dmpSharingPlan: draft.dmpSharingPlan ?? p.dmp_sharing_plan ?? '',
-        dmpRepository: draft.dmpRepository ?? p.dmp_repository ?? '',
-        dmpLinkedDocumentId: draft.dmpLinkedDocumentId ?? p.dmp_linked_document_id ?? '',
-        financialOverheadRate: draft.financialOverheadRate ?? p.financial_overhead_rate ?? '',
-        financialNotes: draft.financialNotes ?? p.financial_notes ?? '',
-        currency: draft.currency ?? p.reporting_currency ?? 'KES',
-        conflictOfInterest: draft.conflictOfInterest ?? p.conflict_of_interest ?? '',
-        declarations: {
-          ...DEFAULT_DECLARATIONS,
-          ...(draft.declarations || {}),
-          ...(p.declaration_responses || {}),
-        },
-        declarationDate: draft.declarationDate ?? toInputDate(p.declaration_date) ?? '',
-      });
-
-      if (p.award_id) {
-        try {
-          const [awardRes, budgetRes] = await Promise.all([
-            axios.get(`${API}/grants/awards/${p.award_id}`, { headers }),
-            axios.get(`${API}/grants/awards/${p.award_id}/budget`, { headers }),
-          ]);
-          setAwardData(awardRes.data);
-          setBudgetData(budgetRes.data);
-          setFormData(prev => ({
-            ...prev,
-            fundingSource: awardRes.data.funder_name || prev.fundingSource,
-            totalAward: awardRes.data.total_amount || prev.totalAward,
-            currency: awardRes.data.currency || prev.currency,
-          }));
-        } catch {
-          setAwardData(null);
-          setBudgetData(null);
-        }
-      }
+      const bundle = await fetchProjectBundle();
+      await applyProjectBundle(bundle, { hydrateForm: true });
     } catch {
       setError('Failed to load project');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshProject = async () => {
+    try {
+      const bundle = await fetchProjectBundle();
+      await applyProjectBundle(bundle, { hydrateForm: false });
+    } catch {
+      setError('Failed to refresh project data');
     }
   };
 
@@ -484,7 +524,7 @@ export default function ProjectSetupPage() {
     await axios.post(`${API}/research/projects/${id}/documents`, fd, {
       headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
     });
-    await loadProject();
+    await refreshProject();
   };
 
   const buildProjectPayload = () => ({
@@ -667,55 +707,67 @@ export default function ProjectSetupPage() {
 
   const addMilestone = async (data) => {
     const res = await axios.post(`${API}/research/projects/${id}/milestones`, data, { headers: authHeaders() });
-    await loadProject();
+    setProject(p => ({ ...p, milestones: [...(p.milestones || []), res.data] }));
     return res.data;
   };
 
   const updateMilestone = async (milestoneId, data) => {
-    await axios.patch(`${API}/research/projects/${id}/milestones/${milestoneId}`, data, { headers: authHeaders() });
-    await loadProject();
+    try {
+      await axios.patch(`${API}/research/projects/${id}/milestones/${milestoneId}`, data, { headers: authHeaders() });
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to save milestone');
+      await refreshProject();
+    }
   };
 
   const deleteMilestone = async (milestoneId) => {
     await axios.delete(`${API}/research/projects/${id}/milestones/${milestoneId}`, { headers: authHeaders() });
-    await loadProject();
+    setProject(p => ({ ...p, milestones: (p.milestones || []).filter(m => m.id !== milestoneId) }));
   };
 
   const addDeliverable = async (data) => {
     const res = await axios.post(`${API}/research/projects/${id}/deliverables`, data, { headers: authHeaders() });
-    await loadProject();
+    setProject(p => ({ ...p, deliverables: [...(p.deliverables || []), res.data] }));
     return res.data;
   };
 
   const updateDeliverable = async (deliverableId, data) => {
-    await axios.patch(`${API}/research/projects/${id}/deliverables/${deliverableId}`, data, { headers: authHeaders() });
-    await loadProject();
+    try {
+      await axios.patch(`${API}/research/projects/${id}/deliverables/${deliverableId}`, data, { headers: authHeaders() });
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to save deliverable');
+      await refreshProject();
+    }
   };
 
   const deleteDeliverable = async (deliverableId) => {
     await axios.delete(`${API}/research/projects/${id}/deliverables/${deliverableId}`, { headers: authHeaders() });
-    await loadProject();
+    setProject(p => ({ ...p, deliverables: (p.deliverables || []).filter(d => d.id !== deliverableId) }));
   };
 
   const createProjectTeam = async (payload) => {
     const res = await axios.post(`${API}/research/projects/${id}/teams`, payload, { headers: authHeaders() });
-    await loadProject();
+    await refreshProject();
     return res.data;
   };
 
   const addBudgetLine = async (data) => {
-    await axios.post(`${API}/research/projects/${id}/budget-lines`, data, { headers: authHeaders() });
-    await loadProject();
+    const res = await axios.post(`${API}/research/projects/${id}/budget-lines`, data, { headers: authHeaders() });
+    setProject(p => ({ ...p, budget_lines: [...(p.budget_lines || []), res.data] }));
   };
 
   const updateBudgetLine = async (lineId, data) => {
-    await axios.patch(`${API}/research/projects/${id}/budget-lines/${lineId}`, data, { headers: authHeaders() });
-    await loadProject();
+    try {
+      await axios.patch(`${API}/research/projects/${id}/budget-lines/${lineId}`, data, { headers: authHeaders() });
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to save budget line');
+      await refreshProject();
+    }
   };
 
   const deleteBudgetLine = async (lineId) => {
     await axios.delete(`${API}/research/projects/${id}/budget-lines/${lineId}`, { headers: authHeaders() });
-    await loadProject();
+    setProject(p => ({ ...p, budget_lines: (p.budget_lines || []).filter(l => l.id !== lineId) }));
   };
 
   const inviteMembers = async (invitees) => {
@@ -730,7 +782,7 @@ export default function ProjectSetupPage() {
         failures.push(`${label}: ${e.response?.data?.detail || 'failed'}`);
       }
     }
-    await loadProject();
+    await refreshProject();
     if (failures.length) {
       throw new Error(
         sent > 0

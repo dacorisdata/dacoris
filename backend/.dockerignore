@@ -20,5 +20,3 @@ env/
 .coverage
 htmlcov/
 uploads/
-alembic/versions/*.py
-!alembic/versions/__init__.py

@@ -11,10 +11,14 @@ const APP_ROUTE_PREFIXES = [
   '/admin-staff',
   '/institution-admin',
   '/global-admin',
+  '/reviewer',
   '/dashboard',
 ];
 
 function isAppRoute(pathname) {
+  if (pathname.startsWith('/reviewer/login') || pathname.startsWith('/reviewer/register')) {
+    return false;
+  }
   return APP_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 

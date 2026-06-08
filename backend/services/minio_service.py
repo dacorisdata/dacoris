@@ -312,6 +312,23 @@ class MinIOService:
                 return False
             raise
     
+    def update_object_metadata(self, bronze_path: str, metadata_tags: Dict[str, str]) -> Dict:
+        """Replace user-defined metadata on an existing Bronze object."""
+        try:
+            metadata_str = {k: str(v) for k, v in metadata_tags.items() if v is not None and str(v) != ''}
+            self.s3_client.copy_object(
+                Bucket=self.bronze_bucket,
+                Key=bronze_path,
+                CopySource={'Bucket': self.bronze_bucket, 'Key': bronze_path},
+                Metadata=metadata_str,
+                MetadataDirective='REPLACE',
+            )
+            return self.get_object_metadata(bronze_path)
+        except ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                raise Exception(f"Object not found: {bronze_path}")
+            raise Exception(f"Failed to update object metadata: {str(e)}")
+
     def get_object_metadata(self, bronze_path: str) -> Dict:
         """Get metadata for Bronze object"""
         try:

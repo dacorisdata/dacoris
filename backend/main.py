@@ -37,6 +37,7 @@ from routes.data.datasets import router as datasets_router
 from routes.data.qa import router as qa_router
 from routes.public_research import router as public_research_router
 from routes.scholarly_works import router as scholarly_works_router
+from routes.research_catalog import router as research_catalog_router
 from routes.publications import router as publications_router
 from routes.manuscripts import router as manuscripts_router
 from routes.mou import router as mou_router
@@ -44,6 +45,7 @@ from routes.admin_staff import router as admin_staff_router
 from routes.workflows import router as workflows_router
 from routes.training.training import router as training_router
 from routes.training.content import router as training_content_router
+from routes.reviewer import router as reviewer_router, reviews_compat_router
 
 load_dotenv()
 
@@ -98,6 +100,7 @@ app.include_router(datasets_router)
 app.include_router(qa_router)
 app.include_router(public_research_router)
 app.include_router(scholarly_works_router)
+app.include_router(research_catalog_router)
 app.include_router(publications_router)
 app.include_router(manuscripts_router)
 app.include_router(mou_router)
@@ -105,6 +108,8 @@ app.include_router(admin_staff_router)
 app.include_router(workflows_router)
 app.include_router(training_router)
 app.include_router(training_content_router)
+app.include_router(reviewer_router)
+app.include_router(reviews_compat_router)
 
 class UserCreate(BaseModel):
     email: str

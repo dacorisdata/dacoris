@@ -98,9 +98,9 @@ const ROLE_CONFIG = {
     label: 'External Reviewer', color: ACCENT,
     description: 'Review and score assigned grant applications.',
     modules: [
-      { label: 'Assigned Reviews', icon: ReviewIcon, color: '#f97316', bg: 'rgba(249,115,22,0.1)', path: '/admin-staff/reviews', stat: 'assigned_reviews' },
+      { label: 'Assigned Reviews', icon: ReviewIcon, color: '#f97316', bg: 'rgba(249,115,22,0.1)', path: '/reviewer/tasks', stat: 'assigned_reviews' },
     ],
-    actions: [{ label: 'My Reviews', path: '/admin-staff/reviews', icon: ReviewIcon }],
+    actions: [{ label: 'My Reviews', path: '/reviewer/reviews', icon: ReviewIcon }],
   },
   ADMIN_STAFF: {
     label: 'Admin Staff', color: ACCENT,

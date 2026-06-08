@@ -78,6 +78,7 @@ export default function TiptapEditor({
   onAddComment,         // (commentId, selectedText) => void
   onResolveComment,     // (commentId) => void
   currentUser,
+  compact = false,
 }) {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
@@ -139,6 +140,7 @@ export default function TiptapEditor({
       onWordCount?.(editor.storage.characterCount.words());
     },
     onSelectionUpdate: ({ editor }) => {
+      if (compact) return;
       const { from, to } = editor.state.selection;
       if (disabled || from === to) { setFloatingBtn({ visible: false, x: 0, y: 0 }); return; }
       // Position floating comment button near selection
@@ -202,20 +204,24 @@ export default function TiptapEditor({
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
         {toolbarBtn(false, () => editor.chain().focus().undo().run(), <Undo fontSize="small" />, 'Undo', !editor.can().chain().focus().undo().run())}
         {toolbarBtn(false, () => editor.chain().focus().redo().run(), <Redo fontSize="small" />, 'Redo', !editor.can().chain().focus().redo().run())}
-        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-        <Tooltip title="Add comment on selected text">
-          <span>
-            <IconButton size="small" onClick={addInlineComment} disabled={disabled}
-              sx={{ color: unresolvedComments > 0 ? '#f59e0b' : 'text.secondary', position: 'relative' }}>
-              <CommentIcon fontSize="small" />
-              {unresolvedComments > 0 && (
-                <Box sx={{ position: 'absolute', top: 0, right: 0, width: 14, height: 14, borderRadius: '50%', bgcolor: '#f59e0b', color: 'white', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
-                  {unresolvedComments}
-                </Box>
-              )}
-            </IconButton>
-          </span>
-        </Tooltip>
+        {!compact && (
+          <>
+            <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+            <Tooltip title="Add comment on selected text">
+              <span>
+                <IconButton size="small" onClick={addInlineComment} disabled={disabled}
+                  sx={{ color: unresolvedComments > 0 ? '#f59e0b' : 'text.secondary', position: 'relative' }}>
+                  <CommentIcon fontSize="small" />
+                  {unresolvedComments > 0 && (
+                    <Box sx={{ position: 'absolute', top: 0, right: 0, width: 14, height: 14, borderRadius: '50%', bgcolor: '#f59e0b', color: 'white', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                      {unresolvedComments}
+                    </Box>
+                  )}
+                </IconButton>
+              </span>
+            </Tooltip>
+          </>
+        )}
         <Box sx={{ flex: 1 }} />
         <Typography sx={{ fontSize: 12, color: 'text.secondary', px: 1 }}>
           {wordCount} words · {charCount} chars
@@ -225,7 +231,7 @@ export default function TiptapEditor({
       {/* Editor + floating comment button */}
       <Box sx={{ position: 'relative' }}>
         {/* Floating "Add Comment" button on text selection */}
-        {floatingBtn.visible && !disabled && (
+        {floatingBtn.visible && !disabled && !compact && (
           <Box
             onClick={addInlineComment}
             sx={{
@@ -245,7 +251,10 @@ export default function TiptapEditor({
 
         <Box sx={{
           '& .ProseMirror': {
-            minHeight: 400, maxHeight: 600, overflowY: 'auto', p: 3,
+            minHeight: compact ? 140 : 400,
+            maxHeight: compact ? 280 : 600,
+            overflowY: 'auto',
+            p: compact ? 2 : 3,
             outline: 'none', fontSize: 15, lineHeight: 1.7,
             fontFamily: theme.typography.fontFamily, color: theme.palette.text.primary,
             '& p.is-editor-empty:first-of-type::before': { content: 'attr(data-placeholder)', float: 'left', color: theme.palette.text.disabled, pointerEvents: 'none', height: 0 },

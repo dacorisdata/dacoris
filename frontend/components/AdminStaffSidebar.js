@@ -145,7 +145,7 @@ const NAV_SECTIONS = [
     section: 'External Reviews',
     roles: ['EXTERNAL_REVIEWER'],
     items: [
-      { icon: StarIcon, label: 'Assigned Reviews', path: '/admin-staff/reviews', roles: ['EXTERNAL_REVIEWER'] },
+      { icon: StarIcon, label: 'Assigned Reviews', path: '/reviewer/tasks', roles: ['EXTERNAL_REVIEWER'] },
     ],
   },
 ];

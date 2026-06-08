@@ -6,9 +6,10 @@ from typing import Optional, Dict
 from datetime import datetime, timezone
 
 from database import get_db
-from models import ProposalReview, Proposal, ReviewStatus, ProposalStatus, User
+from models import ProposalReview, Proposal, ReviewStatus, ProposalStatus, User, ReviewerAssignment, ReviewType, ReviewerAssignmentStatus
 from auth import require_roles, ResearchRole
 from services.notifications import create_notification
+from services.email_service import EmailService
 
 router = APIRouter(prefix="/api/grants/reviews", tags=["reviews"])
 
@@ -54,6 +55,36 @@ async def assign_reviewer(
         proposal.status = ProposalStatus.UNDER_REVIEW
 
     await db.commit()
+    await db.refresh(review)
+
+    reviewer = await db.get(User, data.reviewer_id)
+    if reviewer:
+        assignment = ReviewerAssignment(
+            institution_id=proposal.institution_id,
+            reviewer_id=data.reviewer_id,
+            invited_email=reviewer.email,
+            invited_name=reviewer.name,
+            review_type=ReviewType.PROPOSAL,
+            entity_id=proposal_id,
+            entity_review_id=review.id,
+            entity_title=proposal.title,
+            status=ReviewerAssignmentStatus.ASSIGNED,
+            assigned_by_id=current_user.id,
+        )
+        db.add(assignment)
+        await db.commit()
+
+        inviter_name = current_user.name or current_user.email
+        await EmailService.send_review_assignment_email(
+            email=reviewer.email,
+            reviewer_name=reviewer.name or "",
+            review_type="proposal",
+            entity_title=proposal.title,
+            inviter_name=inviter_name,
+            invitation_token=assignment.invitation_token,
+            has_account=True,
+        )
+
     await create_notification(
         db, data.reviewer_id,
         title="Review assignment",
@@ -69,7 +100,8 @@ async def submit_review(
     data: SubmitReviewRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
-        ResearchRole.ETHICS_REVIEWER, ResearchRole.GRANT_OFFICER
+        ResearchRole.ETHICS_REVIEWER, ResearchRole.GRANT_OFFICER,
+        ResearchRole.EXTERNAL_REVIEWER,
     ]))
 ):
     review = await db.get(ProposalReview, review_id)

@@ -10,7 +10,7 @@ These endpoints handle:
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, desc
+from sqlalchemy import select, and_, or_, func, desc, update
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Tuple
@@ -24,7 +24,8 @@ import httpx
 from database import get_db
 from models import (
     User, ResearchProject, DataImport, DataImportStatus, DataSourceType,
-    ResearchRole, Institution
+    ResearchRole, Institution, Award, Proposal, ProposalCollaborator,
+    ProjectMember, ProjectTeam,
 )
 from auth import require_roles, get_current_user
 from services.minio_service import get_minio_service
@@ -86,9 +87,32 @@ class DataImportResponse(BaseModel):
     ingest_triggered_at: Optional[datetime]
     ingest_completed_at: Optional[datetime]
     metadata_json: Optional[str] = None
+    researcher_name: Optional[str] = None
+    institution_name: Optional[str] = None
+    departments: List[str] = []
+    dataset_key: Optional[str] = None
+    version_number: int = 1
+    is_current_version: bool = True
+    supersedes_id: Optional[str] = None
+    analysis_mode: str = 'self'
+    expected_visuals: Optional[str] = None
     
     class Config:
         from_attributes = True
+
+class AnalysisPreferencesUpdate(BaseModel):
+    analysis_mode: str = Field(..., description="self or dacoris")
+    expected_visuals: Optional[str] = None
+
+class VersionInfoResponse(BaseModel):
+    dataset_key: str
+    source_tag: str
+    source_type: str
+    project_id: Optional[str] = None
+    next_version: int
+    current_version: int
+    total_versions: int
+    is_new_dataset: bool
 
 class DataImportListResponse(BaseModel):
     imports: List[DataImportResponse]
@@ -100,6 +124,202 @@ class DataImportListResponse(BaseModel):
 
 def _sanitize_label(value: str) -> str:
     return re.sub(r'[^a-z0-9_]', '', value.lower().replace(' ', '_').replace('-', '_'))[:100]
+
+
+def _parse_departments(department: Optional[str]) -> List[str]:
+    if not department:
+        return []
+    return [part.strip() for part in department.split(',') if part.strip()]
+
+
+def _is_rich_text_empty(value: Optional[str]) -> bool:
+    if not value or not value.strip():
+        return True
+    text = re.sub(r'<[^>]+>', '', value).replace('&nbsp;', ' ').strip()
+    return not text
+
+
+def _extract_analysis_fields(metadata_json: Optional[str]) -> Tuple[str, Optional[str]]:
+    mode = 'self'
+    visuals = None
+    if metadata_json:
+        try:
+            meta = json.loads(metadata_json)
+            mode = meta.get('analysis_mode') or 'self'
+            visuals = meta.get('expected_visuals')
+        except json.JSONDecodeError:
+            pass
+    return mode, visuals
+
+
+def _import_to_response(data_import: DataImport) -> DataImportResponse:
+    researcher = data_import.researcher
+    institution = data_import.institution
+    analysis_mode, expected_visuals = _extract_analysis_fields(data_import.metadata_json)
+    return DataImportResponse(
+        id=data_import.id,
+        institution_id=data_import.institution_id,
+        researcher_id=data_import.researcher_id,
+        project_id=data_import.project_id,
+        source_url=data_import.source_url,
+        source_type=data_import.source_type.value if hasattr(data_import.source_type, 'value') else str(data_import.source_type),
+        source_tag=data_import.source_tag,
+        file_name=data_import.file_name,
+        file_format=data_import.file_format,
+        ingest_status=data_import.ingest_status.value if hasattr(data_import.ingest_status, 'value') else str(data_import.ingest_status),
+        bronze_path=data_import.bronze_path,
+        bronze_bucket=data_import.bronze_bucket,
+        file_size_bytes=data_import.file_size_bytes,
+        record_count=data_import.record_count,
+        description=data_import.description,
+        priority=data_import.priority,
+        retry_count=data_import.retry_count,
+        error_message=data_import.error_message,
+        created_at=data_import.created_at,
+        ingest_triggered_at=data_import.ingest_triggered_at,
+        ingest_completed_at=data_import.ingest_completed_at,
+        metadata_json=data_import.metadata_json,
+        researcher_name=researcher.name if researcher else None,
+        institution_name=institution.name if institution else None,
+        departments=_parse_departments(researcher.department if researcher else None),
+        dataset_key=data_import.dataset_key,
+        version_number=data_import.version_number or 1,
+        is_current_version=data_import.is_current_version if data_import.is_current_version is not None else True,
+        supersedes_id=data_import.supersedes_id,
+        analysis_mode=analysis_mode,
+        expected_visuals=expected_visuals,
+    )
+
+
+def _normalize_source_type(source_type) -> DataSourceType:
+    if isinstance(source_type, DataSourceType):
+        return source_type
+    return DataSourceType(str(source_type).lower())
+
+
+def _canonical_tag(source_tag: str) -> str:
+    return _sanitize_label(source_tag) or (source_tag or '').strip()
+
+
+def _build_dataset_key(
+    researcher_id: str,
+    source_tag: str,
+    source_type,
+    project_id: Optional[str],
+) -> str:
+    tag = _canonical_tag(source_tag)
+    st = _normalize_source_type(source_type).value
+    return f"{researcher_id}:{tag}:{st}:{project_id or ''}"
+
+
+def _series_where(
+    researcher_id: str,
+    source_tag: str,
+    source_type,
+    project_id: Optional[str],
+):
+    """Match all imports in the same versioned dataset series."""
+    tag = _canonical_tag(source_tag)
+    st = _normalize_source_type(source_type)
+    clauses = [
+        DataImport.researcher_id == researcher_id,
+        DataImport.source_tag == tag,
+        DataImport.source_type == st,
+    ]
+    if project_id:
+        clauses.append(DataImport.project_id == project_id)
+    else:
+        clauses.append(or_(DataImport.project_id.is_(None), DataImport.project_id == ''))
+    return and_(*clauses)
+
+
+def _generate_bronze_path(
+    institution_id: str,
+    project_id: Optional[str],
+    source_tag: str,
+    file_format: str,
+    version_number: int,
+) -> str:
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    project_part = f"proj-{project_id}" if project_id else "no-project"
+    fmt = file_format or 'csv'
+    return f"inst-{institution_id}/{project_part}/{source_tag}_v{version_number}_{timestamp}.{fmt}"
+
+
+async def _resolve_versioning(
+    db: AsyncSession,
+    researcher_id: str,
+    source_tag: str,
+    source_type,
+    project_id: Optional[str],
+) -> dict:
+    tag = _canonical_tag(source_tag)
+    dataset_key = _build_dataset_key(researcher_id, tag, source_type, project_id)
+    series_filter = _series_where(researcher_id, tag, source_type, project_id)
+
+    # Normalize legacy rows so series matching stays consistent
+    await db.execute(
+        update(DataImport)
+        .where(series_filter)
+        .values(dataset_key=dataset_key)
+    )
+
+    max_q = select(func.max(DataImport.version_number)).where(series_filter)
+    max_ver = (await db.execute(max_q)).scalar() or 0
+    next_ver = max_ver + 1
+
+    prev_q = (
+        select(DataImport)
+        .where(and_(series_filter, DataImport.is_current_version == True))
+        .order_by(desc(DataImport.version_number))
+        .limit(1)
+    )
+    prev = (await db.execute(prev_q)).scalar_one_or_none()
+    supersedes_id = prev.id if prev else None
+
+    if max_ver > 0:
+        await db.execute(
+            update(DataImport)
+            .where(series_filter)
+            .values(is_current_version=False)
+        )
+
+    return {
+        'dataset_key': dataset_key,
+        'version_number': next_ver,
+        'supersedes_id': supersedes_id,
+        'is_current_version': True,
+    }
+
+
+async def _get_version_info(
+    db: AsyncSession,
+    researcher_id: str,
+    source_tag: str,
+    source_type,
+    project_id: Optional[str],
+) -> VersionInfoResponse:
+    tag = _canonical_tag(source_tag)
+    dataset_key = _build_dataset_key(researcher_id, tag, source_type, project_id)
+    series_filter = _series_where(researcher_id, tag, source_type, project_id)
+    st = _normalize_source_type(source_type).value
+
+    count_q = select(func.count(DataImport.id)).where(series_filter)
+    total = (await db.execute(count_q)).scalar() or 0
+
+    current_q = select(func.max(DataImport.version_number)).where(series_filter)
+    current = (await db.execute(current_q)).scalar() or 0
+
+    return VersionInfoResponse(
+        dataset_key=dataset_key,
+        source_tag=tag,
+        source_type=st,
+        project_id=project_id,
+        next_version=current + 1,
+        current_version=current,
+        total_versions=total,
+        is_new_dataset=total == 0,
+    )
 
 
 def _merge_metadata_json(
@@ -118,13 +338,17 @@ def _merge_metadata_json(
         meta.update(extra)
     if analysis_mode:
         meta['analysis_mode'] = analysis_mode
-    if expected_visuals:
+        if analysis_mode == 'self':
+            meta.pop('expected_visuals', None)
+        elif expected_visuals:
+            meta['expected_visuals'] = expected_visuals
+    elif expected_visuals:
         meta['expected_visuals'] = expected_visuals
     return json.dumps(meta) if meta else None
 
 
 def _validate_analysis_fields(analysis_mode: Optional[str], expected_visuals: Optional[str]):
-    if analysis_mode == 'dacoris' and not (expected_visuals and expected_visuals.strip()):
+    if analysis_mode == 'dacoris' and _is_rich_text_empty(expected_visuals):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Expected visuals are required when procuring the Dacoris Data Team",
@@ -142,7 +366,7 @@ def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
 async def _mark_stuck_imports_failed(db: AsyncSession, imports: list) -> None:
     """Mark imports that have been stuck too long as failed with a clear error."""
     now = datetime.now(timezone.utc)
-    changed = False
+    changed_ids = []
 
     for imp in imports:
         if imp.ingest_status == DataImportStatus.INGESTING and imp.ingest_triggered_at:
@@ -155,7 +379,7 @@ async def _mark_stuck_imports_failed(db: AsyncSession, imports: list) -> None:
                 )
                 imp.retry_count += 1
                 imp.last_retry_at = now
-                changed = True
+                changed_ids.append(imp.id)
 
         elif imp.ingest_status in (DataImportStatus.QUEUED, DataImportStatus.PENDING):
             elapsed_min = (now - _as_utc(imp.created_at)).total_seconds() / 60
@@ -167,10 +391,14 @@ async def _mark_stuck_imports_failed(db: AsyncSession, imports: list) -> None:
                 )
                 imp.retry_count += 1
                 imp.last_retry_at = now
-                changed = True
+                changed_ids.append(imp.id)
 
-    if changed:
+    if changed_ids:
         await db.commit()
+        # Re-load relationships on affected imports after commit (commit expires ORM state)
+        for imp in imports:
+            if imp.id in changed_ids:
+                await db.refresh(imp, ['researcher', 'institution'])
 
 
 def _google_sheets_export_url(url: str) -> str:
@@ -203,7 +431,19 @@ def _resolve_fetch_headers(data_import: DataImport) -> Dict[str, str]:
     return {}
 
 
+def _truncate_metadata_value(value: str, max_len: int = 900) -> str:
+    text = str(value).strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + '...'
+
+
 def _build_ingest_metadata(data_import: DataImport) -> dict:
+    """Build string key-value tags attached to MinIO Bronze objects on upload."""
+    researcher = data_import.researcher
+    institution = data_import.institution
+    departments = _parse_departments(researcher.department if researcher else None)
+
     metadata = {
         'import_id': data_import.id,
         'institution_id': str(data_import.institution_id),
@@ -211,13 +451,33 @@ def _build_ingest_metadata(data_import: DataImport) -> dict:
         'project_id': str(data_import.project_id) if data_import.project_id else '',
         'source_tag': data_import.source_tag,
         'source_type': data_import.source_type.value if hasattr(data_import.source_type, 'value') else str(data_import.source_type),
+        'version_number': str(data_import.version_number or 1),
+        'is_current_version': str(
+            data_import.is_current_version if data_import.is_current_version is not None else True
+        ).lower(),
+        'analysis_mode': 'self',
     }
+    if researcher and researcher.name:
+        metadata['researcher_name'] = researcher.name
+    if institution and institution.name:
+        metadata['institution_name'] = institution.name
+    if departments:
+        metadata['departments'] = ', '.join(departments)
+    if data_import.dataset_key:
+        metadata['dataset_key'] = data_import.dataset_key
+    if data_import.supersedes_id:
+        metadata['supersedes_id'] = data_import.supersedes_id
+    if data_import.description:
+        metadata['description'] = _truncate_metadata_value(data_import.description, max_len=500)
     if data_import.metadata_json:
         try:
             extra = json.loads(data_import.metadata_json)
-            for key in ('analysis_mode', 'expected_visuals', 'asset_uid'):
-                if key in extra and extra[key]:
-                    metadata[key] = str(extra[key])
+            if extra.get('analysis_mode'):
+                metadata['analysis_mode'] = str(extra['analysis_mode'])
+            if extra.get('expected_visuals'):
+                metadata['expected_visuals'] = _truncate_metadata_value(extra['expected_visuals'])
+            if extra.get('asset_uid'):
+                metadata['asset_uid'] = str(extra['asset_uid'])
         except json.JSONDecodeError:
             pass
     return metadata
@@ -361,26 +621,30 @@ async def _estimate_record_count(data_import: DataImport) -> Optional[int]:
 
 
 def _schedule_ingestion(background_tasks: BackgroundTasks, data_import: DataImport, db: AsyncSession):
-    metadata = _build_ingest_metadata(data_import)
     background_tasks.add_task(
         trigger_bronze_ingestion,
         import_id=data_import.id,
         db_session=db,
-        metadata=metadata,
     )
 
 # ──── Background Tasks ───────────────────────────────────────────────────────
 
 async def trigger_bronze_ingestion(
     import_id: str,
-    metadata: dict,
     db_session: AsyncSession,
 ):
     """Background task to ingest data to MinIO Bronze bucket."""
     minio_service = get_minio_service()
 
     try:
-        stmt = select(DataImport).where(DataImport.id == import_id)
+        stmt = (
+            select(DataImport)
+            .options(
+                selectinload(DataImport.institution),
+                selectinload(DataImport.researcher),
+            )
+            .where(DataImport.id == import_id)
+        )
         result = await db_session.execute(stmt)
         data_import = result.scalar_one_or_none()
 
@@ -392,6 +656,7 @@ async def trigger_bronze_ingestion(
         data_import.ingest_triggered_at = datetime.utcnow()
         await db_session.commit()
 
+        metadata = _build_ingest_metadata(data_import)
         bronze_path = data_import.bronze_path
         source_url = data_import.source_url or ''
 
@@ -523,13 +788,20 @@ async def register_data_import(
             suggested_tag, _ = await _suggest_google_sheets_label(payload.source_url)
             if suggested_tag:
                 source_tag = suggested_tag
+
+    source_tag = _canonical_tag(source_tag) or source_tag
     
-    # Generate Bronze path (for future ingestion)
-    from datetime import datetime
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    project_part = f"proj-{payload.project_id}" if payload.project_id else "no-project"
-    bronze_path = f"inst-{payload.institution_id}/{project_part}/{source_tag}_{timestamp}.{payload.file_format or 'csv'}"
-    
+    versioning = await _resolve_versioning(
+        db, payload.researcher_id, source_tag, payload.source_type, payload.project_id
+    )
+    bronze_path = _generate_bronze_path(
+        payload.institution_id,
+        payload.project_id,
+        source_tag,
+        payload.file_format or 'csv',
+        versioning['version_number'],
+    )
+
     # Create metadata record with QUEUED status
     merged_metadata = _merge_metadata_json(
         payload.metadata_json,
@@ -552,7 +824,11 @@ async def register_data_import(
         ingest_status=DataImportStatus.QUEUED,
         bronze_path=bronze_path,
         bronze_bucket="dacoris-bronze",
-        created_by=current_user.id
+        created_by=current_user.id,
+        dataset_key=versioning['dataset_key'],
+        version_number=versioning['version_number'],
+        is_current_version=versioning['is_current_version'],
+        supersedes_id=versioning['supersedes_id'],
     )
 
     record_count = await _estimate_record_count(data_import)
@@ -565,7 +841,7 @@ async def register_data_import(
 
     _schedule_ingestion(background_tasks, data_import, db)
 
-    return data_import
+    return _import_to_response(data_import)
 
 
 @router.post("/upload-csv", response_model=DataImportResponse, status_code=status.HTTP_201_CREATED)
@@ -601,11 +877,16 @@ async def upload_csv_file(
             detail="You don't have access to this institution"
         )
     
-    # Generate Bronze path
+    source_tag = _canonical_tag(source_tag) or source_tag
+    versioning = await _resolve_versioning(
+        db, current_user.id, source_tag, DataSourceType.FILE_UPLOAD, project_id
+    )
+    bronze_path = _generate_bronze_path(
+        institution_id, project_id, source_tag, 'csv', versioning['version_number']
+    )
+
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    project_part = f"proj-{project_id}" if project_id else "no-project"
-    bronze_path = f"inst-{institution_id}/{project_part}/{source_tag}_{timestamp}.csv"
-    
+
     # Read file content to get size
     file_content = await file.read()
     file_size = len(file_content)
@@ -613,7 +894,7 @@ async def upload_csv_file(
     # Save to temporary location (will be picked up by MinIO later)
     upload_dir = os.getenv("UPLOAD_DIR", "./uploads")
     os.makedirs(upload_dir, exist_ok=True)
-    temp_file_path = os.path.join(upload_dir, f"{source_tag}_{timestamp}.csv")
+    temp_file_path = os.path.join(upload_dir, f"{source_tag}_v{versioning['version_number']}_{timestamp}.csv")
     
     with open(temp_file_path, 'wb') as f:
         f.write(file_content)
@@ -634,7 +915,11 @@ async def upload_csv_file(
         ingest_status=DataImportStatus.QUEUED,
         bronze_path=bronze_path,
         bronze_bucket="dacoris-bronze",
-        created_by=current_user.id
+        created_by=current_user.id,
+        dataset_key=versioning['dataset_key'],
+        version_number=versioning['version_number'],
+        is_current_version=versioning['is_current_version'],
+        supersedes_id=versioning['supersedes_id'],
     )
     
     db.add(data_import)
@@ -644,11 +929,25 @@ async def upload_csv_file(
     return data_import
 
 
+@router.get("/version-info", response_model=VersionInfoResponse)
+async def get_import_version_info(
+    source_tag: str,
+    source_type: DataSourceType,
+    project_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Preview the version number that the next import with this label will receive."""
+    tag = _canonical_tag(source_tag)
+    return await _get_version_info(db, current_user.id, tag, source_type, project_id)
+
+
 @router.get("", response_model=DataImportListResponse)
 async def list_data_imports(
     project_id: Optional[str] = None,
     status_filter: Optional[str] = None,
     source_type: Optional[str] = None,
+    latest_only: bool = False,
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
@@ -681,6 +980,9 @@ async def list_data_imports(
     
     if source_type:
         where_clauses.append(DataImport.source_type == source_type)
+
+    if latest_only:
+        where_clauses.append(DataImport.is_current_version == True)
     
     # Count total
     count_query = select(func.count(DataImport.id)).where(and_(*where_clauses))
@@ -691,6 +993,10 @@ async def list_data_imports(
     offset = (page - 1) * page_size
     query = (
         select(DataImport)
+        .options(
+            selectinload(DataImport.institution),
+            selectinload(DataImport.researcher),
+        )
         .where(and_(*where_clauses))
         .order_by(desc(DataImport.created_at))
         .limit(page_size)
@@ -703,7 +1009,7 @@ async def list_data_imports(
     await _mark_stuck_imports_failed(db, imports)
 
     return {
-        "imports": imports,
+        "imports": [_import_to_response(imp) for imp in imports],
         "total": total,
         "page": page,
         "page_size": page_size
@@ -733,6 +1039,287 @@ async def get_data_import(
         )
     
     return data_import
+
+
+@router.patch("/{import_id}/analysis", response_model=DataImportResponse)
+async def update_import_analysis(
+    import_id: str,
+    payload: AnalysisPreferencesUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update analysis mode and expected visuals for an ingested dataset."""
+    if payload.analysis_mode not in ('self', 'dacoris'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="analysis_mode must be 'self' or 'dacoris'",
+        )
+
+    _validate_analysis_fields(payload.analysis_mode, payload.expected_visuals)
+
+    query = (
+        select(DataImport)
+        .options(
+            selectinload(DataImport.institution),
+            selectinload(DataImport.researcher),
+        )
+        .where(
+            and_(
+                DataImport.id == import_id,
+                DataImport.researcher_id == current_user.id,
+            )
+        )
+    )
+    result = await db.execute(query)
+    data_import = result.scalar_one_or_none()
+
+    if not data_import:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Import not found",
+        )
+
+    if data_import.ingest_status != DataImportStatus.INGESTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Analysis preferences can only be updated for ingested datasets",
+        )
+
+    data_import.metadata_json = _merge_metadata_json(
+        data_import.metadata_json,
+        analysis_mode=payload.analysis_mode,
+        expected_visuals=payload.expected_visuals if payload.analysis_mode == 'dacoris' else None,
+    )
+    data_import.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(data_import)
+
+    if data_import.bronze_path:
+        try:
+            minio_service = get_minio_service()
+            minio_service.update_object_metadata(
+                data_import.bronze_path,
+                _build_ingest_metadata(data_import),
+            )
+        except Exception as e:
+            print(f"Warning: MinIO metadata update failed for {import_id}: {e}")
+
+    return _import_to_response(data_import)
+
+
+_PROVENANCE_PROJECT_OPTS = [
+    selectinload(ResearchProject.pi),
+    selectinload(ResearchProject.award).selectinload(Award.proposal).selectinload(Proposal.opportunity),
+    selectinload(ResearchProject.award).selectinload(Award.proposal).selectinload(Proposal.lead_pi),
+    selectinload(ResearchProject.award).selectinload(Award.proposal).selectinload(Proposal.collaborators).selectinload(ProposalCollaborator.user),
+    selectinload(ResearchProject.members).selectinload(ProjectMember.user),
+    selectinload(ResearchProject.teams).selectinload(ProjectTeam.members),
+]
+
+
+def _serialize_provenance(data_import: DataImport, versions: List[DataImport]) -> dict:
+    analysis_mode, expected_visuals = _extract_analysis_fields(data_import.metadata_json)
+    researcher = data_import.researcher
+    institution = data_import.institution
+    project = data_import.project
+
+    dataset = {
+        **_import_to_response(data_import).model_dump(),
+        'analysis_mode': analysis_mode,
+        'expected_visuals': expected_visuals,
+    }
+
+    award_data = None
+    proposal_data = None
+    opportunity_data = None
+    project_data = None
+    project_members = []
+    project_teams = []
+    proposal_collaborators = []
+
+    if project:
+        award = project.award
+        project_data = {
+            'id': project.id,
+            'title': project.title,
+            'project_code': project.project_code,
+            'status': project.status.value if hasattr(project.status, 'value') else str(project.status),
+            'project_type': project.project_type,
+            'description': project.description,
+            'project_abstract': project.project_abstract,
+            'research_area': project.research_area,
+            'lead_institution': project.lead_institution,
+            'department': project.department,
+            'start_date': project.start_date,
+            'end_date': project.end_date,
+            'pi_id': project.pi_id,
+            'pi_name': project.pi.name if project.pi else project.pi_full_name,
+            'pi_email': project.pi_email or (project.pi.email if project.pi else None),
+            'pi_orcid': project.pi_orcid or (project.pi.orcid_id if project.pi else None),
+        }
+        project_members = [
+            {
+                'id': m.id,
+                'role': m.role,
+                'status': m.status,
+                'name': m.user.name if m.user else m.invited_name,
+                'email': m.user.email if m.user else m.invited_email,
+            }
+            for m in (project.members or [])
+        ]
+        project_teams = [
+            {
+                'id': t.id,
+                'name': t.name,
+                'members': [
+                    {'name': mem.display_name, 'role': mem.role_label}
+                    for mem in (t.members or [])
+                ],
+            }
+            for t in (project.teams or [])
+        ]
+
+        if award:
+            award_data = {
+                'id': award.id,
+                'award_number': award.award_number,
+                'funder_name': award.funder_name,
+                'total_amount': award.total_amount,
+                'currency': award.currency,
+                'start_date': award.start_date,
+                'end_date': award.end_date,
+                'status': award.status.value if hasattr(award.status, 'value') else str(award.status),
+            }
+            proposal = award.proposal
+            if proposal:
+                proposal_data = {
+                    'id': proposal.id,
+                    'title': proposal.title,
+                    'status': proposal.status.value if hasattr(proposal.status, 'value') else str(proposal.status),
+                    'submitted_at': proposal.submitted_at,
+                    'lead_pi_name': proposal.lead_pi.name if proposal.lead_pi else None,
+                    'review_stage_name': proposal.review_stage_name,
+                }
+                proposal_collaborators = [
+                    {
+                        'id': c.id,
+                        'role': c.role,
+                        'status': c.status,
+                        'name': c.user.name if c.user else c.invited_name,
+                        'email': c.user.email if c.user else c.invited_email,
+                        'affiliation': c.invited_affiliation,
+                    }
+                    for c in (proposal.collaborators or [])
+                ]
+                opportunity = proposal.opportunity
+                if opportunity:
+                    opportunity_data = {
+                        'id': opportunity.id,
+                        'title': opportunity.title,
+                        'sponsor': opportunity.sponsor,
+                        'description': opportunity.description,
+                        'category': opportunity.category,
+                        'funding_type': opportunity.funding_type,
+                        'amount_min': opportunity.amount_min,
+                        'amount_max': opportunity.amount_max,
+                        'currency': opportunity.currency,
+                        'deadline': opportunity.deadline,
+                        'geography': opportunity.geography,
+                        'status': opportunity.status,
+                    }
+
+    version_history = [
+        {
+            'id': v.id,
+            'version_number': v.version_number or 1,
+            'is_current_version': v.is_current_version,
+            'record_count': v.record_count,
+            'ingest_completed_at': v.ingest_completed_at,
+            'created_at': v.created_at,
+        }
+        for v in versions
+    ]
+
+    return {
+        'dataset': dataset,
+        'researcher': {
+            'id': data_import.researcher_id,
+            'name': researcher.name if researcher else None,
+            'departments': _parse_departments(researcher.department if researcher else None),
+        },
+        'institution': {
+            'id': data_import.institution_id,
+            'name': institution.name if institution else None,
+        },
+        'project': project_data,
+        'award': award_data,
+        'proposal': proposal_data,
+        'funding_source': opportunity_data,
+        'project_team': project_members,
+        'project_teams': project_teams,
+        'proposal_team': proposal_collaborators,
+        'version_history': version_history,
+        'lineage': [
+            step for step in [
+                {'type': 'dataset', 'id': data_import.id, 'label': data_import.source_tag},
+                {'type': 'project', 'id': project_data['id'], 'label': project_data['title']} if project_data else None,
+                {'type': 'proposal', 'id': proposal_data['id'], 'label': proposal_data['title']} if proposal_data else None,
+                {'type': 'funding_source', 'id': opportunity_data['id'], 'label': opportunity_data['title']} if opportunity_data else None,
+            ] if step
+        ],
+    }
+
+
+@router.get("/{import_id}/provenance")
+async def get_import_provenance(
+    import_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Full data origin chain: dataset → project → proposal → funding source."""
+    query = (
+        select(DataImport)
+        .options(
+            selectinload(DataImport.institution),
+            selectinload(DataImport.researcher),
+            selectinload(DataImport.project).options(*_PROVENANCE_PROJECT_OPTS),
+        )
+        .where(
+            and_(
+                DataImport.id == import_id,
+                DataImport.researcher_id == current_user.id,
+            )
+        )
+    )
+    result = await db.execute(query)
+    data_import = result.scalar_one_or_none()
+
+    if not data_import:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    versions = []
+    versions_q = (
+        select(DataImport)
+        .where(
+            and_(
+                _series_where(
+                    current_user.id,
+                    data_import.source_tag,
+                    data_import.source_type,
+                    data_import.project_id,
+                ),
+                DataImport.ingest_status == DataImportStatus.INGESTED,
+            )
+        )
+        .order_by(desc(DataImport.version_number))
+    )
+    versions_result = await db.execute(versions_q)
+    versions = list(versions_result.scalars().all())
+
+    return _serialize_provenance(data_import, versions)
 
 
 @router.post("/{import_id}/retry", response_model=DataImportResponse)
@@ -821,19 +1408,24 @@ async def upload_excel_file(
             detail="source_tag is required"
         )
 
+    source_tag = _canonical_tag(source_tag) or source_tag
     _validate_analysis_fields(analysis_mode, expected_visuals)
 
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    project_part = f"proj-{project_id}" if project_id else "no-project"
     file_ext = 'xlsx' if file.filename.lower().endswith('.xlsx') else 'xls'
-    bronze_path = f"inst-{institution_id}/{project_part}/{source_tag}_{timestamp}.{file_ext}"
+    versioning = await _resolve_versioning(
+        db, current_user.id, source_tag, DataSourceType.EXCEL, project_id
+    )
+    bronze_path = _generate_bronze_path(
+        institution_id, project_id, source_tag, file_ext, versioning['version_number']
+    )
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
     file_content = await file.read()
     file_size = len(file_content)
 
     upload_dir = os.getenv("UPLOAD_DIR", "./uploads")
     os.makedirs(upload_dir, exist_ok=True)
-    temp_file_path = os.path.join(upload_dir, f"{source_tag}_{timestamp}.{file_ext}")
+    temp_file_path = os.path.join(upload_dir, f"{source_tag}_v{versioning['version_number']}_{timestamp}.{file_ext}")
 
     with open(temp_file_path, 'wb') as f:
         f.write(file_content)
@@ -864,7 +1456,11 @@ async def upload_excel_file(
         ingest_status=DataImportStatus.QUEUED,
         bronze_path=bronze_path,
         bronze_bucket="dacoris-bronze",
-        created_by=current_user.id
+        created_by=current_user.id,
+        dataset_key=versioning['dataset_key'],
+        version_number=versioning['version_number'],
+        is_current_version=versioning['is_current_version'],
+        supersedes_id=versioning['supersedes_id'],
     )
 
     db.add(data_import)
@@ -900,8 +1496,29 @@ async def delete_data_import(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Import not found"
         )
-    
+
+    was_current = data_import.is_current_version
+    series_filter = _series_where(
+        current_user.id,
+        data_import.source_tag,
+        data_import.source_type,
+        data_import.project_id,
+    )
+
     await db.delete(data_import)
     await db.commit()
+
+    if was_current:
+        promote_q = (
+            select(DataImport)
+            .where(series_filter)
+            .order_by(desc(DataImport.version_number))
+            .limit(1)
+        )
+        result = await db.execute(promote_q)
+        successor = result.scalar_one_or_none()
+        if successor:
+            successor.is_current_version = True
+            await db.commit()
     
     return None

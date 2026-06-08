@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import {
   Box,
   Container,
@@ -32,6 +34,13 @@ import {
   CardContent,
   LinearProgress,
   Alert,
+  FormControlLabel,
+  Switch,
+  RadioGroup,
+  Radio,
+  FormControl,
+  FormLabel,
+  CircularProgress,
 } from '@mui/material';
 import {
   Storage as StorageIcon,
@@ -47,8 +56,20 @@ import {
   CheckCircle as CheckIcon,
   Refresh as RefreshIcon,
   ContentCopy as CopyIcon,
+  Publish as NewVersionIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { useAuth } from '@/contexts/AuthContext';
+
+const TiptapEditor = dynamic(() => import('@/components/TiptapEditor'), { ssr: false });
+
+const ACCENT = '#1ca7a1';
+
+const isRichTextEmpty = (html) => {
+  if (!html || !html.trim()) return true;
+  const text = html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  return !text;
+};
 
 const DATA_STAGES = {
   raw: { label: 'Raw', color: '#6b7280', icon: StorageIcon, description: 'Unprocessed data from sources' },
@@ -89,20 +110,27 @@ const mapImportToEntry = (imp, projects) => {
     size: formatFileSize(imp.file_size_bytes),
     created: imp.created_at,
     updated: imp.ingest_completed_at || imp.updated_at || imp.created_at,
-    version: 1,
+    version: imp.version_number || 1,
+    isCurrentVersion: imp.is_current_version !== false,
+    datasetKey: imp.dataset_key,
+    projectId: imp.project_id,
     tags,
     bronzePath: imp.bronze_path,
     bronzeBucket: imp.bronze_bucket,
     fileName: imp.file_name,
     description: imp.description,
     ingestCompletedAt: imp.ingest_completed_at,
+    analysisMode: imp.analysis_mode || 'self',
+    expectedVisuals: imp.expected_visuals || '',
   };
 };
 
 export default function DataLakesPage() {
   const { token } = useAuth();
+  const router = useRouter();
 
   const [currentTab, setCurrentTab] = useState('all');
+  const [latestOnly, setLatestOnly] = useState(true);
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedDataset, setSelectedDataset] = useState(null);
   const [viewDialog, setViewDialog] = useState(false);
@@ -111,6 +139,12 @@ export default function DataLakesPage() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [versionHistory, setVersionHistory] = useState([]);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editAnalysisMode, setEditAnalysisMode] = useState('self');
+  const [editExpectedVisuals, setEditExpectedVisuals] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
   const dataLakeEntries = useMemo(
     () => rawImports.map(imp => mapImportToEntry(imp, projects)),
@@ -135,8 +169,13 @@ export default function DataLakesPage() {
     setLoading(true);
     setLoadError('');
     try {
+      const qs = new URLSearchParams({
+        status_filter: 'ingested',
+        page_size: '100',
+        ...(latestOnly && { latest_only: 'true' }),
+      });
       const res = await fetch(
-        '/api/research/lakehouse-imports?status_filter=ingested&page_size=100',
+        `/api/research/lakehouse-imports?${qs}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       if (!res.ok) {
@@ -149,7 +188,7 @@ export default function DataLakesPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, latestOnly]);
 
   useEffect(() => {
     if (token) {
@@ -167,9 +206,28 @@ export default function DataLakesPage() {
     setAnchorEl(null);
   };
 
-  const handleViewDetails = () => {
+  const handleViewDetails = async () => {
     setViewDialog(true);
     handleMenuClose();
+    if (!selectedDataset?.datasetKey || !token) {
+      setVersionHistory([]);
+      return;
+    }
+    try {
+      const res = await fetch(
+        '/api/research/lakehouse-imports?status_filter=ingested&page_size=100',
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const history = (data.imports || [])
+          .filter(imp => imp.dataset_key === selectedDataset.datasetKey)
+          .sort((a, b) => (b.version_number || 1) - (a.version_number || 1));
+        setVersionHistory(history);
+      }
+    } catch (_) {
+      setVersionHistory([]);
+    }
   };
 
   const handleDelete = async () => {
@@ -189,6 +247,67 @@ export default function DataLakesPage() {
 
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  const handleImportNewVersion = () => {
+    if (!selectedDataset) return;
+    const qs = new URLSearchParams({
+      tag: selectedDataset.name,
+      source_type: selectedDataset.sourceType,
+      ...(selectedDataset.projectId && { project_id: selectedDataset.projectId }),
+    });
+    router.push(`/researcher/data/import?${qs}`);
+    handleMenuClose();
+  };
+
+  const handleEditAnalysis = () => {
+    if (!selectedDataset) return;
+    setEditAnalysisMode(selectedDataset.analysisMode || 'self');
+    setEditExpectedVisuals(selectedDataset.expectedVisuals || '');
+    setEditError('');
+    setEditDialogOpen(true);
+    handleMenuClose();
+  };
+
+  const handleSaveAnalysis = async () => {
+    if (!selectedDataset || !token) return;
+    if (editAnalysisMode === 'dacoris' && isRichTextEmpty(editExpectedVisuals)) {
+      setEditError('Expected visuals are required when procuring the Dacoris Data Team');
+      return;
+    }
+    setEditSaving(true);
+    setEditError('');
+    try {
+      const res = await fetch(`/api/research/lakehouse-imports/${selectedDataset.id}/analysis`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          analysis_mode: editAnalysisMode,
+          expected_visuals: editAnalysisMode === 'dacoris' ? editExpectedVisuals : null,
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.detail || 'Failed to update analysis preferences');
+      }
+      const updated = await res.json();
+      setRawImports(imports =>
+        imports.map(imp => (imp.id === updated.id ? { ...imp, ...updated } : imp)),
+      );
+      setSelectedDataset(prev => prev ? {
+        ...prev,
+        analysisMode: updated.analysis_mode,
+        expectedVisuals: updated.expected_visuals || '',
+      } : prev);
+      setEditDialogOpen(false);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const getFilteredEntries = () => {
@@ -235,9 +354,22 @@ export default function DataLakesPage() {
               Ingested datasets stored in MinIO Bronze — ready for processing
             </Typography>
           </Box>
-          <Button startIcon={<RefreshIcon />} onClick={loadIngestedData} size="small" disabled={loading}>
-            Refresh
-          </Button>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={latestOnly}
+                  onChange={(e) => setLatestOnly(e.target.checked)}
+                  size="small"
+                  sx={{ '& .Mui-checked': { color: '#1ca7a1' }, '& .Mui-checked + .MuiSwitch-track': { bgcolor: '#1ca7a1' } }}
+                />
+              }
+              label={<Typography variant="caption" sx={{ fontWeight: 600 }}>Latest versions only</Typography>}
+            />
+            <Button startIcon={<RefreshIcon />} onClick={loadIngestedData} size="small" disabled={loading}>
+              Refresh
+            </Button>
+          </Box>
         </Box>
 
         {loadError && (
@@ -449,15 +581,24 @@ export default function DataLakesPage() {
                   <TableRow
                     key={entry.id}
                     hover
+                    onClick={() => router.push(`/researcher/data/lakes/${entry.id}`)}
                     sx={{
+                      cursor: 'pointer',
                       '&:hover': { bgcolor: 'grey.50' },
                       transition: 'background-color 0.2s',
                     }}
                   >
                     <TableCell>
                       <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, color: ACCENT }}>
                           {entry.name}
+                          {entry.isCurrentVersion && (
+                            <Chip
+                              label="Latest"
+                              size="small"
+                              sx={{ ml: 1, height: 18, fontSize: 10, bgcolor: '#10b98115', color: '#059669', fontWeight: 600 }}
+                            />
+                          )}
                         </Typography>
                         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                           {entry.tags.map((tag) => (
@@ -552,7 +693,7 @@ export default function DataLakesPage() {
                     <TableCell>
                       <IconButton
                         size="small"
-                        onClick={(e) => handleMenuOpen(e, entry)}
+                        onClick={(e) => { e.stopPropagation(); handleMenuOpen(e, entry); }}
                         sx={{ '&:hover': { bgcolor: 'grey.100' } }}
                       >
                         <MoreIcon fontSize="small" />
@@ -578,6 +719,14 @@ export default function DataLakesPage() {
         <MenuItem onClick={handleViewDetails}>
           <ViewIcon fontSize="small" sx={{ mr: 1.5 }} />
           View Details
+        </MenuItem>
+        <MenuItem onClick={handleImportNewVersion}>
+          <NewVersionIcon fontSize="small" sx={{ mr: 1.5 }} />
+          Import New Version
+        </MenuItem>
+        <MenuItem onClick={handleEditAnalysis}>
+          <EditIcon fontSize="small" sx={{ mr: 1.5 }} />
+          Edit Analysis Request
         </MenuItem>
         <MenuItem onClick={handleMenuClose}>
           <DownloadIcon fontSize="small" sx={{ mr: 1.5 }} />
@@ -643,6 +792,31 @@ export default function DataLakesPage() {
                     {selectedDataset.records != null ? selectedDataset.records.toLocaleString() : '—'}
                   </Typography>
                 </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">
+                    Analysis
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {selectedDataset.analysisMode === 'dacoris' ? 'Dacoris Data Team' : 'Self-analysis'}
+                  </Typography>
+                </Grid>
+                {selectedDataset.analysisMode === 'dacoris' && !isRichTextEmpty(selectedDataset.expectedVisuals) && (
+                  <Grid item xs={12}>
+                    <Typography variant="caption" color="text.secondary">
+                      Expected Visuals
+                    </Typography>
+                    <Box
+                      sx={{
+                        mt: 0.5,
+                        fontSize: 14,
+                        lineHeight: 1.6,
+                        '& p': { margin: '0 0 0.5em' },
+                        '& ul, & ol': { pl: 2.5, my: 0.5 },
+                      }}
+                      dangerouslySetInnerHTML={{ __html: selectedDataset.expectedVisuals }}
+                    />
+                  </Grid>
+                )}
                 {selectedDataset.bronzePath && (
                   <Grid item xs={12}>
                     <Typography variant="caption" color="text.secondary">
@@ -702,6 +876,39 @@ export default function DataLakesPage() {
                     ))}
                   </Box>
                 </Grid>
+                {versionHistory.length > 1 && (
+                  <Grid item xs={12}>
+                    <Typography variant="caption" color="text.secondary">
+                      Version History
+                    </Typography>
+                    <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                      {versionHistory.map((v) => (
+                        <Box
+                          key={v.id}
+                          sx={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            p: 1,
+                            borderRadius: 1,
+                            bgcolor: v.id === selectedDataset.id ? '#1ca7a108' : 'grey.50',
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Chip label={`v${v.version_number || 1}`} size="small" sx={{ fontWeight: 600, fontSize: 11 }} />
+                            {v.is_current_version && (
+                              <Chip label="Latest" size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#10b98115', color: '#059669' }} />
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary">
+                            {(v.record_count != null ? `${v.record_count.toLocaleString()} records · ` : '')}
+                            {new Date(v.ingest_completed_at || v.created_at).toLocaleString()}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Grid>
+                )}
               </Grid>
             </Box>
           )}
@@ -709,6 +916,17 @@ export default function DataLakesPage() {
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button onClick={() => setViewDialog(false)} sx={{ textTransform: 'none' }}>
             Close
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<EditIcon />}
+            onClick={() => {
+              setViewDialog(false);
+              handleEditAnalysis();
+            }}
+            sx={{ textTransform: 'none', borderColor: `${ACCENT}66`, color: ACCENT }}
+          >
+            Edit Analysis
           </Button>
           <Button
             variant="contained"
@@ -721,6 +939,88 @@ export default function DataLakesPage() {
             }}
           >
             Download
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Analysis Dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onClose={() => !editSaving && setEditDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2 } }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Edit Analysis Request
+          </Typography>
+          {selectedDataset && (
+            <Typography variant="caption" color="text.secondary">
+              {selectedDataset.name} · v{selectedDataset.version}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            <FormControl component="fieldset" sx={{ mb: 2.5, width: '100%' }}>
+              <FormLabel component="legend" sx={{ fontWeight: 600, mb: 1, color: 'text.primary' }}>
+                Data Analysis
+              </FormLabel>
+              <RadioGroup
+                value={editAnalysisMode}
+                onChange={(e) => {
+                  setEditAnalysisMode(e.target.value);
+                  if (e.target.value === 'self') setEditExpectedVisuals('');
+                  setEditError('');
+                }}
+              >
+                <FormControlLabel
+                  value="self"
+                  control={<Radio sx={{ color: ACCENT, '&.Mui-checked': { color: ACCENT } }} />}
+                  label="I will analyse the data myself"
+                />
+                <FormControlLabel
+                  value="dacoris"
+                  control={<Radio sx={{ color: ACCENT, '&.Mui-checked': { color: ACCENT } }} />}
+                  label="Procure the services of the Dacoris Data Team"
+                />
+              </RadioGroup>
+            </FormControl>
+            {editAnalysisMode === 'dacoris' && (
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                  Expected Visuals <Typography component="span" color="error.main">*</Typography>
+                </Typography>
+                <TiptapEditor
+                  compact
+                  content={editExpectedVisuals}
+                  onChange={setEditExpectedVisuals}
+                  placeholder="Describe the charts, dashboards, or reports you need..."
+                />
+              </Box>
+            )}
+            {editError && (
+              <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }}>{editError}</Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={() => setEditDialogOpen(false)} disabled={editSaving} sx={{ textTransform: 'none' }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveAnalysis}
+            disabled={editSaving}
+            sx={{
+              bgcolor: ACCENT,
+              '&:hover': { bgcolor: '#158f8a' },
+              textTransform: 'none',
+              minWidth: 100,
+            }}
+          >
+            {editSaving ? <CircularProgress size={22} sx={{ color: 'white' }} /> : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
