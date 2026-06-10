@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, insert
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -12,10 +12,12 @@ from models import (ResearchProject, ProjectStatus, ProjectMember,
                     ProjectMilestone, ProjectTask, ProjectDocument,
                     ProjectTeam, ProjectTeamMember, ProjectDeliverable,
                     ProjectBudgetLine,
-                    User, EthicsApplication, PrimaryAccountType)
+                    User, EthicsApplication, PrimaryAccountType, ReviewerAssignment,
+                    ReviewType, ReviewerAssignmentStatus, UserStatus, user_roles)
 from auth import require_roles, ResearchRole
 from services.notifications import create_notification
 from services.file_upload import save_upload
+from services.reviewer_onboarding import get_or_create_reviewer_user
 from services.dmp_document_parser import parse_dmp_fields
 
 router = APIRouter(prefix="/api/research/projects", tags=["research-projects"])
@@ -1531,3 +1533,149 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
     return {"id": doc.id, "original_filename": doc.original_filename}
+
+
+# ─── Reviewer Assignment ─────────────────────────────────────────────────────
+
+class AssignProjectReviewerBody(BaseModel):
+    reviewer_id: Optional[str] = None
+    new_reviewer_email: Optional[str] = None
+    new_reviewer_name: Optional[str] = None
+    new_reviewer_expertise: Optional[list[str]] = None
+    notes: Optional[str] = None
+
+
+@router.post("/{project_id}/assign-reviewer")
+async def assign_project_reviewer(
+    project_id: str,
+    body: AssignProjectReviewerBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.GRANT_OFFICER, ResearchRole.INSTITUTIONAL_LEAD,
+        ResearchRole.RESEARCH_ADMIN, ResearchRole.SYSTEM_ADMIN
+    ]))
+):
+    """Assign a reviewer to a research project."""
+    project = await db.get(ResearchProject, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    
+    # Determine reviewer - either existing or create new
+    reviewer = None
+    is_new_reviewer = False
+    needs_signup = False
+    signup_token = None
+    
+    if body.reviewer_id:
+        reviewer = await db.get(User, body.reviewer_id)
+        if not reviewer:
+            raise HTTPException(404, "Reviewer not found")
+        needs_signup = not reviewer.password_hash
+    elif body.new_reviewer_email:
+        reviewer, needs_signup, signup_token = await get_or_create_reviewer_user(
+            db,
+            email=body.new_reviewer_email,
+            name=body.new_reviewer_name,
+            institution_id=current_user.primary_institution_id,
+            invited_by_id=current_user.id,
+            role=ResearchRole.EXTERNAL_REVIEWER,
+            expertise=body.new_reviewer_expertise,
+        )
+        is_new_reviewer = needs_signup
+    else:
+        raise HTTPException(400, "Either reviewer_id or new_reviewer_email must be provided")
+
+    if needs_signup and not signup_token:
+        import secrets
+        signup_token = secrets.token_urlsafe(32)
+    
+    # Create reviewer assignment
+    assignment = ReviewerAssignment(
+        institution_id=current_user.primary_institution_id,
+        reviewer_id=reviewer.id,
+        invited_email=reviewer.email,
+        invited_name=reviewer.name,
+        review_type=ReviewType.PROJECT,
+        entity_id=project_id,
+        entity_title=project.title,
+        assigned_by_id=current_user.id,
+        status=ReviewerAssignmentStatus.PENDING_SIGNUP if needs_signup else ReviewerAssignmentStatus.ASSIGNED,
+        signup_token=signup_token if needs_signup else None,
+        notes=body.notes,
+    )
+    db.add(assignment)
+    
+    if not needs_signup:
+        await create_notification(
+            db, reviewer.id,
+            title="Project review assignment",
+            message=f'You have been assigned to review the project: "{project.title}".',
+            entity_type="project", entity_id=project_id,
+        )
+    
+    await db.commit()
+    await db.refresh(assignment)
+    
+    from services.email_service import EmailService
+    
+    token = assignment.signup_token if needs_signup else assignment.invitation_token
+    await EmailService.send_review_assignment_email(
+        email=reviewer.email,
+        reviewer_name=reviewer.name,
+        review_type="project",
+        entity_title=project.title,
+        inviter_name=current_user.name or current_user.email,
+        invitation_token=token,
+        has_account=not needs_signup,
+    )
+    
+    return {
+        "reviewer_id": reviewer.id,
+        "reviewer_name": reviewer.name,
+        "reviewer_email": reviewer.email,
+        "is_new_reviewer": is_new_reviewer,
+    }
+
+
+@router.get("/reviewers/available")
+async def list_available_project_reviewers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.GRANT_OFFICER, ResearchRole.INSTITUTIONAL_LEAD,
+        ResearchRole.RESEARCH_ADMIN, ResearchRole.SYSTEM_ADMIN
+    ]))
+):
+    """List available reviewers for project review."""
+    from sqlalchemy import text
+    result = await db.execute(
+        text("""
+            SELECT DISTINCT u.id, u.name, u.email, array_agg(DISTINCT ur.role::text) as roles
+            FROM users u
+            LEFT JOIN user_roles ur ON u.id = ur.user_id
+            WHERE u.primary_institution_id = :inst_id
+              AND u.status = 'active'
+              AND (ur.role IN ('external_reviewer', 'ethics_reviewer', 'grant_officer', 'research_admin')
+                   OR u.primary_account_type IN ('EXTERNAL_REVIEWER', 'ETHICS_COMMITTEE_MEMBER'))
+            GROUP BY u.id, u.name, u.email
+            ORDER BY u.name
+        """),
+        {"inst_id": current_user.primary_institution_id}
+    )
+    reviewers = []
+    for row in result:
+        reviewers.append({
+            "id": row[0],
+            "name": row[1],
+            "email": row[2],
+            "roles": ', '.join(row[3]) if row[3] else 'Reviewer',
+        })
+    
+    if not reviewers:
+        reviewers.append({
+            "id": current_user.id,
+            "name": current_user.name,
+            "email": current_user.email,
+            "roles": "You (fallback)",
+        })
+    
+    return reviewers

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional, List
@@ -10,13 +10,15 @@ import os, uuid, shutil
 
 from database import get_db
 from models import (EthicsApplication, EthicsStatus, EthicsDocument,
-                    ResearchProject, User)
+                    ResearchProject, User, ReviewerAssignment, ReviewType,
+                    ReviewerAssignmentStatus, PrimaryAccountType, UserStatus, user_roles)
 from auth import require_roles, ResearchRole
 from services.workflow import can_transition_ethics
 from services.ethics_certificate_parser import (
     extract_text_from_file, parse_certificate_fields, build_certificate_notes,
 )
 from services.notifications import create_notification
+from services.reviewer_onboarding import get_or_create_reviewer_user
 
 router = APIRouter(prefix="/api/research/ethics", tags=["ethics"])
 
@@ -519,3 +521,148 @@ async def update_ethics_decision(
         entity_type="ethics", entity_id=app_id
     )
     return {"id": app_id, "status": target_status}
+
+
+# ─── Reviewer Assignment ─────────────────────────────────────────────────────
+
+class AssignEthicsReviewerBody(BaseModel):
+    reviewer_id: Optional[str] = None
+    new_reviewer_email: Optional[str] = None
+    new_reviewer_name: Optional[str] = None
+    new_reviewer_expertise: Optional[list[str]] = None
+    notes: Optional[str] = None
+
+
+@router.post("/{application_id}/assign-reviewer")
+async def assign_ethics_reviewer(
+    application_id: str,
+    body: AssignEthicsReviewerBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.ETHICS_CHAIR, ResearchRole.ETHICS_REVIEWER,
+        ResearchRole.INSTITUTIONAL_LEAD, ResearchRole.SYSTEM_ADMIN
+    ]))
+):
+    """Assign a reviewer to an ethics application."""
+    app = await db.get(EthicsApplication, application_id)
+    if not app:
+        raise HTTPException(404, "Ethics application not found")
+    
+    # Determine reviewer - either existing or create new
+    reviewer = None
+    is_new_reviewer = False
+    needs_signup = False
+    signup_token = None
+    
+    if body.reviewer_id:
+        reviewer = await db.get(User, body.reviewer_id)
+        if not reviewer:
+            raise HTTPException(404, "Reviewer not found")
+        needs_signup = not reviewer.password_hash
+    elif body.new_reviewer_email:
+        reviewer, needs_signup, signup_token = await get_or_create_reviewer_user(
+            db,
+            email=body.new_reviewer_email,
+            name=body.new_reviewer_name,
+            institution_id=current_user.primary_institution_id,
+            invited_by_id=current_user.id,
+            role=ResearchRole.ETHICS_REVIEWER,
+            expertise=body.new_reviewer_expertise,
+        )
+        is_new_reviewer = needs_signup
+    else:
+        raise HTTPException(400, "Either reviewer_id or new_reviewer_email must be provided")
+
+    if needs_signup and not signup_token:
+        import secrets
+        signup_token = secrets.token_urlsafe(32)
+    
+    assignment = ReviewerAssignment(
+        institution_id=current_user.primary_institution_id,
+        reviewer_id=reviewer.id,
+        invited_email=reviewer.email,
+        invited_name=reviewer.name,
+        review_type=ReviewType.ETHICS,
+        entity_id=application_id,
+        entity_title=app.title,
+        assigned_by_id=current_user.id,
+        status=ReviewerAssignmentStatus.PENDING_SIGNUP if needs_signup else ReviewerAssignmentStatus.ASSIGNED,
+        signup_token=signup_token if needs_signup else None,
+        notes=body.notes,
+    )
+    db.add(assignment)
+    
+    if not needs_signup:
+        await create_notification(
+            db, reviewer.id,
+            title="Ethics review assignment",
+            message=f'You have been assigned to review the ethics application: "{app.title}".',
+            entity_type="ethics", entity_id=application_id,
+        )
+    
+    await db.commit()
+    await db.refresh(assignment)
+    
+    from services.email_service import EmailService
+    
+    token = assignment.signup_token if needs_signup else assignment.invitation_token
+    await EmailService.send_review_assignment_email(
+        email=reviewer.email,
+        reviewer_name=reviewer.name,
+        review_type="ethics",
+        entity_title=app.title,
+        inviter_name=current_user.name or current_user.email,
+        invitation_token=token,
+        has_account=not needs_signup,
+    )
+    
+    return {
+        "reviewer_id": reviewer.id,
+        "reviewer_name": reviewer.name,
+        "reviewer_email": reviewer.email,
+        "is_new_reviewer": is_new_reviewer,
+    }
+
+
+@router.get("/reviewers/available")
+async def list_available_ethics_reviewers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.ETHICS_CHAIR, ResearchRole.ETHICS_REVIEWER,
+        ResearchRole.INSTITUTIONAL_LEAD, ResearchRole.SYSTEM_ADMIN
+    ]))
+):
+    """List available reviewers for ethics review."""
+    from sqlalchemy import text
+    result = await db.execute(
+        text("""
+            SELECT DISTINCT u.id, u.name, u.email, array_agg(DISTINCT ur.role::text) as roles
+            FROM users u
+            LEFT JOIN user_roles ur ON u.id = ur.user_id
+            WHERE u.primary_institution_id = :inst_id
+              AND u.status = 'active'
+              AND (ur.role IN ('external_reviewer', 'ethics_reviewer', 'ethics_chair')
+                   OR u.primary_account_type IN ('EXTERNAL_REVIEWER', 'ETHICS_COMMITTEE_MEMBER'))
+            GROUP BY u.id, u.name, u.email
+            ORDER BY u.name
+        """),
+        {"inst_id": current_user.primary_institution_id}
+    )
+    reviewers = []
+    for row in result:
+        reviewers.append({
+            "id": row[0],
+            "name": row[1],
+            "email": row[2],
+            "roles": ', '.join(row[3]) if row[3] else 'Reviewer',
+        })
+    
+    if not reviewers:
+        reviewers.append({
+            "id": current_user.id,
+            "name": current_user.name,
+            "email": current_user.email,
+            "roles": "You (fallback)",
+        })
+    
+    return reviewers

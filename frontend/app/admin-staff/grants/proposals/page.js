@@ -7,13 +7,14 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, TextField, MenuItem, Select, FormControl, InputLabel, useTheme,
   Avatar, Tooltip, IconButton, Dialog, DialogTitle, DialogContent,
-  DialogActions, Autocomplete, Divider, Badge,
+  DialogActions, Autocomplete, Divider, Badge, Checkbox, FormControlLabel,
+  Radio, RadioGroup, FormLabel,
 } from '@mui/material';
 import {
   Search as SearchIcon, Folder as FolderIcon, Visibility as ViewIcon,
   PersonAdd as AssignIcon, CheckCircle as CheckIcon, Warning as WarnIcon,
   Error as OverdueIcon, Schedule as ClockIcon, Close as CloseIcon,
-  Person as PersonIcon,
+  Person as PersonIcon, AddCircle as AddIcon, RemoveCircle as RemoveIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 import api from '../../../../lib/api';
@@ -51,29 +52,51 @@ function AssignReviewerDialog({ open, proposal, reviewers, onClose, onAssigned }
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
   const currentStep = proposal?.review_step ?? 0;
-  const currentStage = WORKFLOW_STAGES[currentStep] || WORKFLOW_STAGES[0];
 
-  const [selectedStep, setSelectedStep] = useState(currentStep);
+  const [selectedStages, setSelectedStages] = useState([currentStep]);
   const [selectedReviewer, setSelectedReviewer] = useState(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [useNewReviewer, setUseNewReviewer] = useState(false);
+  const [newReviewerEmail, setNewReviewerEmail] = useState('');
+  const [newReviewerName, setNewReviewerName] = useState('');
+  const [newReviewerExpertise, setNewReviewerExpertise] = useState(['']);
 
   useEffect(() => {
-    if (open) { setSelectedStep(currentStep); setSelectedReviewer(null); setNotes(''); setError(''); }
+    if (open) {
+      setSelectedStages([currentStep]);
+      setSelectedReviewer(null);
+      setNotes('');
+      setError('');
+      setUseNewReviewer(false);
+      setNewReviewerEmail('');
+      setNewReviewerName('');
+      setNewReviewerExpertise(['']);
+    }
   }, [open, currentStep]);
 
   const handleSave = async () => {
-    if (!selectedReviewer) { setError('Select a reviewer'); return; }
+    if (!useNewReviewer && !selectedReviewer) { setError('Select a reviewer'); return; }
+    if (useNewReviewer && !newReviewerEmail) { setError('Enter reviewer email'); return; }
+    if (selectedStages.length === 0) { setError('Select at least one stage'); return; }
+    
     setSaving(true);
     try {
-      const stage = WORKFLOW_STAGES[selectedStep];
-      await api.post(`/grants/proposals/${proposal.id}/stage-reviewers`, {
-        reviewer_id: selectedReviewer.id,
-        stage_step: selectedStep,
-        stage_name: stage?.label,
+      const payload = {
+        stage_steps: selectedStages,
         notes: notes || undefined,
-      });
+      };
+      
+      if (useNewReviewer) {
+        payload.new_reviewer_email = newReviewerEmail;
+        payload.new_reviewer_name = newReviewerName || undefined;
+        payload.new_reviewer_expertise = newReviewerExpertise.filter(e => e.trim());
+      } else {
+        payload.reviewer_id = selectedReviewer.id;
+      }
+      
+      await api.post(`/grants/proposals/${proposal.id}/stage-reviewers`, payload);
       onAssigned();
       onClose();
     } catch (e) {
@@ -86,14 +109,13 @@ function AssignReviewerDialog({ open, proposal, reviewers, onClose, onAssigned }
   if (!proposal) return null;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, fontSize: 16 }}>
         Assign Reviewer
         <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
       </DialogTitle>
       <DialogContent sx={{ pt: 1 }}>
-        {/* Proposal info */}
-        <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(22,166,153,0.08)' : 'rgba(22,166,153,0.05)', border: '1px solid', borderColor: ACCENT + '33' }}>
+        <Box sx={{ mb: 2.5, p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(22,166,153,0.08)' : 'rgba(22,166,153,0.05)', border: '1px solid', borderColor: ACCENT + '33' }}>
           <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 0.3 }}>{proposal.title}</Typography>
           <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
             {proposal.opportunity?.title || `Opportunity #${proposal.opportunity_id}`} · Submitted {fmtDate(proposal.submitted_at)}
@@ -102,50 +124,123 @@ function AssignReviewerDialog({ open, proposal, reviewers, onClose, onAssigned }
 
         {error && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError('')}>{error}</Alert>}
 
-        {/* Stage selection */}
-        <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-          <InputLabel>Review Stage</InputLabel>
-          <Select value={selectedStep} label="Review Stage" onChange={e => setSelectedStep(Number(e.target.value))}
-            sx={{ borderRadius: 2 }}>
-            {WORKFLOW_STAGES.filter(s => s.step > 0).map(s => (
-              <MenuItem key={s.step} value={s.step}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  {s.step === currentStep && <Chip label="Current" size="small" sx={{ height: 16, fontSize: 9, bgcolor: ACCENT + '22', color: ACCENT }} />}
-                  Stage {s.step}: {s.label}
-                  <Typography sx={{ fontSize: 11, color: 'text.disabled', ml: 0.5 }}>(~{s.days} days)</Typography>
-                </Box>
-              </MenuItem>
+        {/* Stage Selection */}
+        <Box sx={{ mb: 2.5 }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1.5 }}>Select Review Stage(s) *</Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {WORKFLOW_STAGES.slice(1).map((stage) => (
+              <FormControlLabel
+                key={stage.step}
+                control={
+                  <Checkbox
+                    checked={selectedStages.includes(stage.step)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedStages([...selectedStages, stage.step]);
+                      } else {
+                        setSelectedStages(selectedStages.filter(s => s !== stage.step));
+                      }
+                    }}
+                    sx={{ '&.Mui-checked': { color: ACCENT } }}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{stage.label}</Typography>
+                    <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>~{stage.days}d</Typography>
+                  </Box>
+                }
+                sx={{ 
+                  m: 0, p: 1, borderRadius: 1.5, border: '1px solid',
+                  borderColor: selectedStages.includes(stage.step) ? ACCENT : 'divider',
+                  bgcolor: selectedStages.includes(stage.step) ? (dark ? 'rgba(22,166,153,0.08)' : 'rgba(22,166,153,0.05)') : 'transparent',
+                }}
+              />
             ))}
-          </Select>
+          </Box>
+        </Box>
+
+        <Divider sx={{ my: 2.5 }} />
+
+        {/* Reviewer Selection Mode */}
+        <FormControl component="fieldset" sx={{ mb: 2 }}>
+          <FormLabel sx={{ fontSize: 12, fontWeight: 700, color: 'text.primary', mb: 1 }}>Reviewer Selection *</FormLabel>
+          <RadioGroup value={useNewReviewer ? 'new' : 'existing'} onChange={(e) => setUseNewReviewer(e.target.value === 'new')}>
+            <FormControlLabel value="existing" control={<Radio sx={{ '&.Mui-checked': { color: ACCENT } }} />}
+              label={<Typography sx={{ fontSize: 13 }}>Select from existing reviewers</Typography>} />
+            <FormControlLabel value="new" control={<Radio sx={{ '&.Mui-checked': { color: ACCENT } }} />}
+              label={<Typography sx={{ fontSize: 13 }}>Add new reviewer by email</Typography>} />
+          </RadioGroup>
         </FormControl>
 
-        {/* Reviewer autocomplete */}
-        {reviewers.length === 1 && (
-          <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>
-            No users with reviewer roles found. Defaulting to you as the reviewer.
-          </Alert>
-        )}
-        <Autocomplete
-          options={reviewers}
-          getOptionLabel={r => `${r.name} (${r.email})`}
-          value={selectedReviewer}
-          onChange={(_, v) => setSelectedReviewer(v)}
-          renderOption={(props, r) => (
-            <li {...props} key={r.id}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Avatar sx={{ width: 28, height: 28, fontSize: 12, bgcolor: ACCENT }}>{r.name.charAt(0)}</Avatar>
-                <Box>
-                  <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{r.name}</Typography>
-                  <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{r.roles}</Typography>
-                </Box>
+        {/* Existing Reviewer Selection */}
+        {!useNewReviewer && (
+          <Box sx={{ mb: 2.5 }}>
+            {reviewers.length === 0 ? (
+              <Alert severity="info" sx={{ fontSize: 12 }}>No existing reviewers found. You can add a new reviewer by email.</Alert>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 200, overflow: 'auto', p: 0.5 }}>
+                {reviewers.map(r => (
+                  <Box key={r.id}
+                    onClick={() => setSelectedReviewer(selectedReviewer?.id === r.id ? null : r)}
+                    sx={{
+                      display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5, borderRadius: 2, cursor: 'pointer',
+                      border: '1px solid', borderColor: selectedReviewer?.id === r.id ? ACCENT : 'divider',
+                      bgcolor: selectedReviewer?.id === r.id ? (dark ? 'rgba(22,166,153,0.12)' : 'rgba(22,166,153,0.07)') : 'transparent',
+                      '&:hover': { borderColor: ACCENT + '88' },
+                    }}>
+                    <Avatar sx={{ width: 32, height: 32, bgcolor: selectedReviewer?.id === r.id ? ACCENT : '#8b5cf6', fontSize: 12, flexShrink: 0 }}>
+                      {r.name?.charAt(0)}
+                    </Avatar>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{r.name}</Typography>
+                      <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{r.email}</Typography>
+                    </Box>
+                    {selectedReviewer?.id === r.id && <CheckIcon sx={{ fontSize: 16, color: ACCENT, flexShrink: 0 }} />}
+                  </Box>
+                ))}
               </Box>
-            </li>
-          )}
-          renderInput={(params) => (
-            <TextField {...params} label="Select Reviewer" size="small" sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-          )}
-          noOptionsText="No reviewers available."
-        />
+            )}
+          </Box>
+        )}
+
+        {/* New Reviewer Form */}
+        {useNewReviewer && (
+          <Box sx={{ mb: 2.5, p: 2, borderRadius: 2, bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', border: '1px solid', borderColor: 'divider' }}>
+            <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 1.5, color: 'text.secondary' }}>New Reviewer Details</Typography>
+            <TextField fullWidth size="small" label="Email Address *" type="email"
+              value={newReviewerEmail} onChange={(e) => setNewReviewerEmail(e.target.value)}
+              placeholder="reviewer@university.edu" sx={{ mb: 1.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+            <TextField fullWidth size="small" label="Full Name (optional)"
+              value={newReviewerName} onChange={(e) => setNewReviewerName(e.target.value)}
+              placeholder="Dr. Jane Smith" sx={{ mb: 1.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+            <Typography sx={{ fontSize: 11, fontWeight: 700, mb: 1, color: 'text.secondary' }}>Areas of Expertise (optional)</Typography>
+            {newReviewerExpertise.map((exp, idx) => (
+              <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                <TextField fullWidth size="small" value={exp}
+                  onChange={(e) => {
+                    const updated = [...newReviewerExpertise];
+                    updated[idx] = e.target.value;
+                    setNewReviewerExpertise(updated);
+                  }}
+                  placeholder="e.g., Machine Learning, Climate Science"
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                {idx === newReviewerExpertise.length - 1 ? (
+                  <IconButton size="small" onClick={() => setNewReviewerExpertise([...newReviewerExpertise, ''])} sx={{ color: ACCENT }}>
+                    <AddIcon />
+                  </IconButton>
+                ) : (
+                  <IconButton size="small" onClick={() => setNewReviewerExpertise(newReviewerExpertise.filter((_, i) => i !== idx))} sx={{ color: 'error.main' }}>
+                    <RemoveIcon />
+                  </IconButton>
+                )}
+              </Box>
+            ))}
+            <Alert severity="info" sx={{ mt: 1.5, fontSize: 11 }}>
+              An invitation email will be sent with a link to create their account and choose a password.
+            </Alert>
+          </Box>
+        )}
 
         <TextField fullWidth size="small" multiline rows={2} label="Assignment notes (optional)"
           value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any specific review instructions…"
@@ -153,7 +248,9 @@ function AssignReviewerDialog({ open, proposal, reviewers, onClose, onAssigned }
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5 }}>
         <Button onClick={onClose} sx={{ textTransform: 'none', color: 'text.secondary' }}>Cancel</Button>
-        <Button variant="contained" disabled={saving || !selectedReviewer} onClick={handleSave}
+        <Button variant="contained"
+          disabled={saving || selectedStages.length === 0 || (!useNewReviewer && !selectedReviewer) || (useNewReviewer && !newReviewerEmail)}
+          onClick={handleSave}
           startIcon={saving ? <CircularProgress size={13} sx={{ color: 'inherit' }} /> : <AssignIcon />}
           sx={{ textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}>
           {saving ? 'Assigning…' : 'Assign Reviewer'}

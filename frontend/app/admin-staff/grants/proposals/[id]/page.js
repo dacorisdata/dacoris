@@ -7,6 +7,7 @@ import {
   Avatar, Divider, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, IconButton, Tooltip, LinearProgress, useTheme, Collapse,
   List, ListItem, ListItemText, ListItemAvatar, Badge, Tab, Tabs,
+  Checkbox, FormControlLabel, Radio, RadioGroup, FormControl, FormLabel,
 } from '@mui/material';
 import {
   ArrowBack as BackIcon, CheckCircle as CheckIcon,
@@ -22,7 +23,7 @@ import {
   PersonPin as PIIcon, Groups as TeamIcon,
   Schedule as ClockIcon, Warning as WarnIcon, Error as OverdueIcon,
   PersonAdd as ReviewerIcon, AccessTime as DurationIcon,
-  FiberManualRecord as DotIcon,
+  FiberManualRecord as DotIcon, AddCircle as AddIcon, RemoveCircle as RemoveIcon,
 } from '@mui/icons-material';
 import api from '../../../../../lib/api';
 import { useAuth } from '../../../../../contexts/AuthContext';
@@ -404,6 +405,11 @@ export default function AdminProposalDetailPage() {
   const [selReviewer, setSelReviewer]     = useState(null);
   const [assignNotes, setAssignNotes]     = useState('');
   const [assigning, setAssigning]         = useState(false);
+  const [selectedStages, setSelectedStages] = useState([]);
+  const [useNewReviewer, setUseNewReviewer] = useState(false);
+  const [newReviewerEmail, setNewReviewerEmail] = useState('');
+  const [newReviewerName, setNewReviewerName] = useState('');
+  const [newReviewerExpertise, setNewReviewerExpertise] = useState(['']);
 
   useEffect(() => {
     fetchUser().then(u => {
@@ -423,24 +429,41 @@ export default function AdminProposalDetailPage() {
   };
 
   const openAssignDialog = async () => {
-    setSelReviewer(null); setAssignNotes('');
+    setSelReviewer(null);
+    setAssignNotes('');
+    setSelectedStages([currentStep]);
+    setUseNewReviewer(false);
+    setNewReviewerEmail('');
+    setNewReviewerName('');
+    setNewReviewerExpertise(['']);
     setAssignOpen(true);
     await loadReviewers();
   };
 
   const handleAssign = async () => {
-    if (!selReviewer) return;
+    if (!useNewReviewer && !selReviewer) return;
+    if (useNewReviewer && !newReviewerEmail) return;
+    if (selectedStages.length === 0) return;
+    
     setAssigning(true);
     try {
-      const step = proposal?.review_step ?? 0;
-      const stageName = WORKFLOW_STEPS[step]?.label;
-      await api.post(`/grants/proposals/${params.id}/stage-reviewers`, {
-        reviewer_id: selReviewer.id,
-        stage_step: step,
-        stage_name: stageName,
+      const payload = {
+        stage_steps: selectedStages,
         notes: assignNotes || undefined,
-      });
-      setSuccess(`${selReviewer.name} assigned as reviewer for the ${stageName} stage.`);
+      };
+      
+      if (useNewReviewer) {
+        payload.new_reviewer_email = newReviewerEmail;
+        payload.new_reviewer_name = newReviewerName || undefined;
+        payload.new_reviewer_expertise = newReviewerExpertise.filter(e => e.trim());
+      } else {
+        payload.reviewer_id = selReviewer.id;
+      }
+      
+      const response = await api.post(`/grants/proposals/${params.id}/stage-reviewers`, payload);
+      const stagesText = selectedStages.map(s => WORKFLOW_STEPS[s]?.label).join(', ');
+      const reviewerName = response.data.reviewer_name;
+      setSuccess(`${reviewerName} assigned to stage(s): ${stagesText}${response.data.is_new_reviewer ? ' (invitation email sent)' : ''}`);
       setAssignOpen(false);
       await loadAll();
     } catch (e) {
@@ -565,32 +588,6 @@ export default function AdminProposalDetailPage() {
                 onClick={() => setActionDialog('decline')} sx={{ textTransform: 'none', fontWeight: 600 }}>
                 Decline
               </Button>
-            )}
-            {canAdvance && (
-              reviewerMissing ? (
-                /* ── Reviewer missing: show assign button + disabled advance ── */
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <Button variant="contained" startIcon={<ReviewerIcon />}
-                    onClick={openAssignDialog}
-                    sx={{ bgcolor: '#f59e0b', '&:hover': { bgcolor: '#d97706' }, textTransform: 'none', fontWeight: 700, px: 2 }}>
-                    Assign Reviewer First
-                  </Button>
-                  <Tooltip title={`A reviewer must be assigned to the ${WORKFLOW_STEPS[currentStep]?.label} stage before advancing`} arrow>
-                    <span>
-                      <Button variant="outlined" startIcon={<AdvanceIcon />} disabled
-                        sx={{ textTransform: 'none', fontWeight: 700 }}>
-                        {currentStep >= 5 ? 'Issue Award' : `Advance → ${nextStep?.label}`}
-                      </Button>
-                    </span>
-                  </Tooltip>
-                </Box>
-              ) : (
-                <Button variant="contained" startIcon={<AdvanceIcon />}
-                  onClick={() => setActionDialog('advance')}
-                  sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, textTransform: 'none', fontWeight: 700, px: 2.5 }}>
-                  {currentStep >= 5 ? 'Issue Award' : `Advance → ${nextStep?.label}`}
-                </Button>
-              )
             )}
             {isTerminal && (
               <Chip
@@ -1067,62 +1064,179 @@ export default function AdminProposalDetailPage() {
       </Box>
 
       {/* ── ASSIGN REVIEWER DIALOG ─────────────────────────────── */}
-      <Dialog open={assignOpen} onClose={() => setAssignOpen(false)} maxWidth="sm" fullWidth
+      <Dialog open={assignOpen} onClose={() => setAssignOpen(false)} maxWidth="md" fullWidth
         PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, fontSize: 16 }}>
-          Assign Reviewer — {WORKFLOW_STEPS[currentStep]?.label}
+          Assign Reviewer
           <IconButton size="small" onClick={() => setAssignOpen(false)}><CloseIcon /></IconButton>
         </DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
-          <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(22,166,153,0.08)' : 'rgba(22,166,153,0.05)', border: '1px solid', borderColor: ACCENT + '33' }}>
+          <Box sx={{ mb: 2.5, p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(22,166,153,0.08)' : 'rgba(22,166,153,0.05)', border: '1px solid', borderColor: ACCENT + '33' }}>
             <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 0.3 }}>{proposal.title}</Typography>
             <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-              Assigning reviewer for <strong>Stage {currentStep}: {WORKFLOW_STEPS[currentStep]?.label}</strong>
-              {' '}(~{[3,7,14,7,14,7][currentStep]} days expected)
+              Assign a reviewer to one or more review stages
             </Typography>
           </Box>
 
-          {reviewersLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
-          ) : reviewers.length === 0 ? (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              No reviewers available. Please contact your administrator.
-            </Alert>
-          ) : (
-            <Box sx={{ mb: 2 }}>
-              {reviewers.length === 1 && (
-                <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>
-                  No users with reviewer roles found. Defaulting to you as the reviewer.
-                </Alert>
-              )}
-              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1.5 }}>Select Reviewer</Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 240, overflow: 'auto' }}>
-                {reviewers.map(r => (
-                  <Box key={r.id}
-                    onClick={() => setSelReviewer(selReviewer?.id === r.id ? null : r)}
-                    sx={{
-                      display: 'flex', alignItems: 'center', gap: 1.5,
-                      p: 1.5, borderRadius: 2, cursor: 'pointer',
-                      border: '1px solid',
-                      borderColor: selReviewer?.id === r.id ? ACCENT : 'divider',
-                      bgcolor: selReviewer?.id === r.id
-                        ? (dark ? 'rgba(22,166,153,0.12)' : 'rgba(22,166,153,0.07)')
-                        : 'transparent',
-                      '&:hover': { borderColor: ACCENT + '88' },
-                    }}>
-                    <Avatar sx={{ width: 34, height: 34, bgcolor: selReviewer?.id === r.id ? ACCENT : '#8b5cf6', fontSize: 13, flexShrink: 0 }}>
-                      {r.name?.charAt(0)}
-                    </Avatar>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{r.name}</Typography>
-                      <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{r.roles}</Typography>
+          {/* Stage Selection */}
+          <Box sx={{ mb: 2.5 }}>
+            <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1.5 }}>
+              Select Review Stage(s) *
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {WORKFLOW_STEPS.slice(1).map((stage) => (
+                <FormControlLabel
+                  key={stage.step}
+                  control={
+                    <Checkbox
+                      checked={selectedStages.includes(stage.step)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedStages([...selectedStages, stage.step]);
+                        } else {
+                          setSelectedStages(selectedStages.filter(s => s !== stage.step));
+                        }
+                      }}
+                      sx={{ '&.Mui-checked': { color: ACCENT } }}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{stage.label}</Typography>
+                      <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>~{[3,7,14,7,14,7][stage.step]}d</Typography>
                     </Box>
-                    {selReviewer?.id === r.id && (
-                      <CheckIcon sx={{ fontSize: 17, color: ACCENT, flexShrink: 0 }} />
-                    )}
-                  </Box>
-                ))}
-              </Box>
+                  }
+                  sx={{ 
+                    m: 0, 
+                    p: 1, 
+                    borderRadius: 1.5, 
+                    border: '1px solid', 
+                    borderColor: selectedStages.includes(stage.step) ? ACCENT : 'divider',
+                    bgcolor: selectedStages.includes(stage.step) ? (dark ? 'rgba(22,166,153,0.08)' : 'rgba(22,166,153,0.05)') : 'transparent',
+                  }}
+                />
+              ))}
+            </Box>
+          </Box>
+
+          <Divider sx={{ my: 2.5 }} />
+
+          {/* Reviewer Selection Mode */}
+          <FormControl component="fieldset" sx={{ mb: 2 }}>
+            <FormLabel sx={{ fontSize: 12, fontWeight: 700, color: 'text.primary', mb: 1 }}>
+              Reviewer Selection *
+            </FormLabel>
+            <RadioGroup value={useNewReviewer ? 'new' : 'existing'} onChange={(e) => setUseNewReviewer(e.target.value === 'new')}>
+              <FormControlLabel value="existing" control={<Radio sx={{ '&.Mui-checked': { color: ACCENT } }} />} 
+                label={<Typography sx={{ fontSize: 13 }}>Select from existing reviewers</Typography>} />
+              <FormControlLabel value="new" control={<Radio sx={{ '&.Mui-checked': { color: ACCENT } }} />} 
+                label={<Typography sx={{ fontSize: 13 }}>Add new reviewer by email</Typography>} />
+            </RadioGroup>
+          </FormControl>
+
+          {/* Existing Reviewer Selection */}
+          {!useNewReviewer && (
+            <Box sx={{ mb: 2.5 }}>
+              {reviewersLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+              ) : reviewers.length === 0 ? (
+                <Alert severity="info" sx={{ fontSize: 12 }}>
+                  No existing reviewers found. You can add a new reviewer by email.
+                </Alert>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 200, overflow: 'auto', p: 0.5 }}>
+                  {reviewers.map(r => (
+                    <Box key={r.id}
+                      onClick={() => setSelReviewer(selReviewer?.id === r.id ? null : r)}
+                      sx={{
+                        display: 'flex', alignItems: 'center', gap: 1.5,
+                        p: 1.5, borderRadius: 2, cursor: 'pointer',
+                        border: '1px solid',
+                        borderColor: selReviewer?.id === r.id ? ACCENT : 'divider',
+                        bgcolor: selReviewer?.id === r.id
+                          ? (dark ? 'rgba(22,166,153,0.12)' : 'rgba(22,166,153,0.07)')
+                          : 'transparent',
+                        '&:hover': { borderColor: ACCENT + '88' },
+                      }}>
+                      <Avatar sx={{ width: 32, height: 32, bgcolor: selReviewer?.id === r.id ? ACCENT : '#8b5cf6', fontSize: 12, flexShrink: 0 }}>
+                        {r.name?.charAt(0)}
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{r.name}</Typography>
+                        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{r.email}</Typography>
+                      </Box>
+                      {selReviewer?.id === r.id && (
+                        <CheckIcon sx={{ fontSize: 16, color: ACCENT, flexShrink: 0 }} />
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {/* New Reviewer Form */}
+          {useNewReviewer && (
+            <Box sx={{ mb: 2.5, p: 2, borderRadius: 2, bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', border: '1px solid', borderColor: 'divider' }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 1.5, color: 'text.secondary' }}>
+                New Reviewer Details
+              </Typography>
+              <TextField
+                fullWidth
+                size="small"
+                label="Email Address *"
+                type="email"
+                value={newReviewerEmail}
+                onChange={(e) => setNewReviewerEmail(e.target.value)}
+                placeholder="reviewer@university.edu"
+                sx={{ mb: 1.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+              <TextField
+                fullWidth
+                size="small"
+                label="Full Name (optional)"
+                value={newReviewerName}
+                onChange={(e) => setNewReviewerName(e.target.value)}
+                placeholder="Dr. Jane Smith"
+                sx={{ mb: 1.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+              <Typography sx={{ fontSize: 11, fontWeight: 700, mb: 1, color: 'text.secondary' }}>
+                Areas of Expertise (optional)
+              </Typography>
+              {newReviewerExpertise.map((exp, idx) => (
+                <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={exp}
+                    onChange={(e) => {
+                      const updated = [...newReviewerExpertise];
+                      updated[idx] = e.target.value;
+                      setNewReviewerExpertise(updated);
+                    }}
+                    placeholder="e.g., Machine Learning, Climate Science"
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                  />
+                  {idx === newReviewerExpertise.length - 1 ? (
+                    <IconButton
+                      size="small"
+                      onClick={() => setNewReviewerExpertise([...newReviewerExpertise, ''])}
+                      sx={{ color: ACCENT }}>
+                      <AddIcon />
+                    </IconButton>
+                  ) : (
+                    <IconButton
+                      size="small"
+                      onClick={() => setNewReviewerExpertise(newReviewerExpertise.filter((_, i) => i !== idx))}
+                      sx={{ color: 'error.main' }}>
+                      <RemoveIcon />
+                    </IconButton>
+                  )}
+                </Box>
+              ))}
+              <Alert severity="info" sx={{ mt: 1.5, fontSize: 11 }}>
+                An invitation email will be sent with a link to create their account and choose a password.
+              </Alert>
             </Box>
           )}
 
@@ -1135,10 +1249,13 @@ export default function AdminProposalDetailPage() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setAssignOpen(false)} sx={{ textTransform: 'none', color: 'text.secondary' }}>Cancel</Button>
-          <Button variant="contained" disabled={assigning || !selReviewer} onClick={handleAssign}
+          <Button 
+            variant="contained" 
+            disabled={assigning || selectedStages.length === 0 || (!useNewReviewer && !selReviewer) || (useNewReviewer && !newReviewerEmail)} 
+            onClick={handleAssign}
             startIcon={assigning ? <CircularProgress size={13} sx={{ color: 'inherit' }} /> : <ReviewerIcon />}
             sx={{ textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}>
-            {assigning ? 'Assigning…' : `Assign ${selReviewer?.name || 'Reviewer'}`}
+            {assigning ? 'Assigning…' : 'Assign Reviewer'}
           </Button>
         </DialogActions>
       </Dialog>

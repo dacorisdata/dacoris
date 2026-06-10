@@ -19,7 +19,9 @@ import {
   PendingActions as MouQueueIcon, AccountTree as WorkflowIcon,
   School as TrainingIcon, MenuBook as ProgramsIcon,
   Groups as EnrollmentsIcon, Assignment as NeedsIcon,
-  ExpandMore as ExpandMoreIcon,
+  ExpandMore as ExpandMoreIcon, RateReview as ReviewersIcon,
+  Assessment as ReportsAnalyticsIcon,
+  Storage as StorageIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
@@ -70,6 +72,7 @@ const NAV_SECTIONS = [
     section: 'Main',
     items: [
       { icon: DashIcon,    label: 'Overview',    path: '/admin-staff/overview', roles: 'all' },
+      { icon: ReportsAnalyticsIcon, label: 'Reports & Analytics', path: '/admin-staff/reports', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER','FINANCE_OFFICER','ETHICS_COMMITTEE_MEMBER','DATA_STEWARD'] },
       { icon: PersonIcon,  label: 'My Profile',  path: '/admin-staff/profile',  roles: 'all' },
     ],
   },
@@ -101,6 +104,7 @@ const NAV_SECTIONS = [
       { icon: ProjectReviewIcon, label: 'Project Review',       path: '/admin-staff/research/projects/review', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
       { icon: ProjectIcon,       label: 'Projects Tracking',    path: '/admin-staff/research/projects',        roles: ['INSTITUTIONAL_LEADERSHIP','DATA_STEWARD','ETHICS_COMMITTEE_MEMBER','ADMIN_STAFF','GRANT_MANAGER'] },
       { icon: ReviewIcon,        label: 'Ethics Review',        path: '/admin-staff/ethics/reviews',           roles: ['ETHICS_COMMITTEE_MEMBER','ADMIN_STAFF','INSTITUTIONAL_LEADERSHIP'] },
+      { icon: StorageIcon,       label: 'Imported Data',        path: '/admin-staff/data/imports',             roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','DATA_STEWARD','GRANT_MANAGER'] },
     ],
   },
   {
@@ -108,6 +112,7 @@ const NAV_SECTIONS = [
     roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'],
     items: [
       { icon: DirectoryIcon,     label: 'Researcher Directory', path: '/admin-staff/research/directory',       roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
+      { icon: ReviewersIcon,     label: 'Reviewers',            path: '/admin-staff/admin/reviewers',          roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
       { icon: WorkflowIcon,      label: 'Workflows',            path: '/admin-staff/admin/workflows',          roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
     ],
   },

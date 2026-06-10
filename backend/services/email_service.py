@@ -8,6 +8,7 @@ import aiosmtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -595,4 +596,394 @@ class EmailService:
             return True
         except Exception as e:
             print(f"Failed to send review assignment email to {email}: {e}")
+            return False
+
+    @staticmethod
+    async def send_reviewer_account_creation_email(
+        email: str,
+        name: str,
+        password: str,
+        expertise: str,
+        inviter_name: str,
+    ) -> bool:
+        """Send account creation email to new reviewers with credentials."""
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        from_email = os.getenv("FROM_EMAIL", smtp_user)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+        if not smtp_user or not smtp_password:
+            print("ERROR: SMTP credentials not configured")
+            return False
+
+        login_url = f"{frontend_url}/login"
+
+        message = MIMEMultipart("alternative")
+        message["Subject"] = "Your DACORIS Reviewer Account Has Been Created"
+        message["From"] = from_email
+        message["To"] = email
+
+        text_content = f"""
+        Welcome to DACORIS, {name}!
+
+        {inviter_name} has created a reviewer account for you on DACORIS.
+
+        Your Account Details:
+        Email: {email}
+        Temporary Password: {password}
+        Areas of Expertise: {expertise}
+
+        Please log in and change your password:
+        {login_url}
+
+        You will receive review assignments via email and in-app notifications.
+        """
+
+        html_content = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #16a699;">Welcome to DACORIS!</h2>
+              <p>Hello <strong>{name}</strong>,</p>
+              <p><strong>{inviter_name}</strong> has created a reviewer account for you on DACORIS.</p>
+              
+              <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #16a699; border-radius: 5px;">
+                <h3 style="margin: 0 0 15px 0; color: #16a699;">Your Account Details</h3>
+                <p style="margin: 5px 0;"><strong>Email:</strong> {email}</p>
+                <p style="margin: 5px 0;"><strong>Temporary Password:</strong> <code style="background: #fff; padding: 4px 8px; border-radius: 3px; font-family: monospace;">{password}</code></p>
+                <p style="margin: 5px 0;"><strong>Areas of Expertise:</strong> {expertise}</p>
+              </div>
+              
+              <div style="background-color: #fff3cd; padding: 15px; margin: 20px 0; border-left: 4px solid #ffc107; border-radius: 5px;">
+                <p style="margin: 0; color: #856404;"><strong>⚠️ Important:</strong> Please change your password after your first login for security.</p>
+              </div>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="{login_url}" 
+                   style="display: inline-block; padding: 15px 30px; background-color: #16a699; color: white; 
+                          text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  Log In to DACORIS
+                </a>
+              </div>
+              
+              <p style="color: #666; font-size: 14px;">You will receive review assignments via email and in-app notifications.</p>
+              
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+              <p style="color: #999; font-size: 12px;">This is an automated message from DACORIS. Please do not reply to this email.</p>
+            </div>
+          </body>
+        </html>
+        """
+
+        part1 = MIMEText(text_content, "plain")
+        part2 = MIMEText(html_content, "html")
+        message.attach(part1)
+        message.attach(part2)
+
+        try:
+            await aiosmtplib.send(
+                message,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user,
+                password=smtp_password,
+                start_tls=True,
+            )
+            print(f"Reviewer account creation email sent to {email}")
+            return True
+        except Exception as e:
+            print(f"Failed to send account creation email to {email}: {e}")
+            return False
+
+    @staticmethod
+    async def send_reviewer_assignment_email(
+        email: str,
+        reviewer_name: str,
+        proposal_title: str,
+        stages: list[str],
+        inviter_name: str,
+        proposal_id: str,
+        register_token: Optional[str] = None,
+    ) -> bool:
+        """Send review assignment notification email."""
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        from_email = os.getenv("FROM_EMAIL", smtp_user)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+        if not smtp_user or not smtp_password:
+            print("ERROR: SMTP credentials not configured")
+            return False
+
+        stages_text = ", ".join(stages)
+
+        if register_token:
+            review_url = f"{frontend_url}/reviewer/register?token={register_token}"
+            cta = "Create Account & Start Review"
+            action_line = (
+                "Create your reviewer account and choose your own password to access "
+                "this proposal and complete your review."
+            )
+        else:
+            review_url = f"{frontend_url}/reviewer/login"
+            cta = "Log In & Start Review"
+            action_line = (
+                "Please log in to DACORIS to access the proposal and complete your review."
+            )
+
+        message = MIMEMultipart("alternative")
+        message["Subject"] = f"New Review Assignment: {proposal_title}"
+        message["From"] = from_email
+        message["To"] = email
+
+        greeting = f"Hello {reviewer_name}," if reviewer_name else "Hello,"
+
+        text_content = f"""
+        {greeting}
+
+        {inviter_name} has assigned you to review the following proposal:
+        "{proposal_title}"
+
+        Review Stage(s): {stages_text}
+
+        {action_line}
+        {review_url}
+
+        Thank you for your contribution to the review process.
+        """
+
+        html_content = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #16a699;">New Review Assignment</h2>
+              <p>{greeting}</p>
+              <p><strong>{inviter_name}</strong> has assigned you to review the following proposal:</p>
+              
+              <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #16a699; border-radius: 5px;">
+                <h3 style="margin: 0 0 10px 0; color: #16a699;">{proposal_title}</h3>
+                <p style="margin: 0; color: #666;"><strong>Review Stage(s):</strong> {stages_text}</p>
+              </div>
+
+              <p style="color: #666; font-size: 14px;">{action_line}</p>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="{review_url}" 
+                   style="display: inline-block; padding: 15px 30px; background-color: #16a699; color: white; 
+                          text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  {cta}
+                </a>
+              </div>
+              
+              <p style="color: #666; font-size: 14px;">Thank you for your contribution to the review process.</p>
+              
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+              <p style="color: #999; font-size: 12px;">This is an automated message from DACORIS. Please do not reply to this email.</p>
+            </div>
+          </body>
+        </html>
+        """
+
+        part1 = MIMEText(text_content, "plain")
+        part2 = MIMEText(html_content, "html")
+        message.attach(part1)
+        message.attach(part2)
+
+        try:
+            await aiosmtplib.send(
+                message,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user,
+                password=smtp_password,
+                start_tls=True,
+            )
+            print(f"Review assignment email sent to {email}")
+            return True
+        except Exception as e:
+            print(f"Failed to send review assignment email to {email}: {e}")
+            return False
+
+    @staticmethod
+    async def send_project_review_assignment_email(
+        email: str,
+        reviewer_name: str,
+        project_title: str,
+        inviter_name: str,
+        project_id: str,
+    ) -> bool:
+        """Send project review assignment notification email."""
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        from_email = os.getenv("FROM_EMAIL", smtp_user)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+        if not smtp_user or not smtp_password:
+            print("ERROR: SMTP credentials not configured")
+            return False
+
+        review_url = f"{frontend_url}/admin-staff/research/projects/{project_id}"
+
+        message = MIMEMultipart("alternative")
+        message["Subject"] = f"Project Review Assignment: {project_title}"
+        message["From"] = from_email
+        message["To"] = email
+
+        greeting = f"Hello {reviewer_name}," if reviewer_name else "Hello,"
+
+        text_content = f"""
+        {greeting}
+
+        {inviter_name} has assigned you to review the following research project:
+        "{project_title}"
+
+        Please log in to DACORIS to access the project details and complete your review:
+        {review_url}
+
+        Thank you for your contribution to the review process.
+        """
+
+        html_content = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #16a699;">Project Review Assignment</h2>
+              <p>{greeting}</p>
+              <p><strong>{inviter_name}</strong> has assigned you to review the following research project:</p>
+              
+              <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #16a699; border-radius: 5px;">
+                <h3 style="margin: 0; color: #16a699;">{project_title}</h3>
+              </div>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="{review_url}" 
+                   style="display: inline-block; padding: 15px 30px; background-color: #16a699; color: white; 
+                          text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  Access Project & Start Review
+                </a>
+              </div>
+              
+              <p style="color: #666; font-size: 14px;">Thank you for your contribution to the review process.</p>
+              
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+              <p style="color: #999; font-size: 12px;">This is an automated message from DACORIS. Please do not reply to this email.</p>
+            </div>
+          </body>
+        </html>
+        """
+
+        part1 = MIMEText(text_content, "plain")
+        part2 = MIMEText(html_content, "html")
+        message.attach(part1)
+        message.attach(part2)
+
+        try:
+            await aiosmtplib.send(
+                message,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user,
+                password=smtp_password,
+                start_tls=True,
+            )
+            print(f"Project review assignment email sent to {email}")
+            return True
+        except Exception as e:
+            print(f"Failed to send project review assignment email to {email}: {e}")
+            return False
+
+    @staticmethod
+    async def send_ethics_review_assignment_email(
+        email: str,
+        reviewer_name: str,
+        application_title: str,
+        inviter_name: str,
+        application_id: str,
+    ) -> bool:
+        """Send ethics review assignment notification email."""
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        from_email = os.getenv("FROM_EMAIL", smtp_user)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+        if not smtp_user or not smtp_password:
+            print("ERROR: SMTP credentials not configured")
+            return False
+
+        review_url = f"{frontend_url}/admin-staff/ethics/reviews/{application_id}"
+
+        message = MIMEMultipart("alternative")
+        message["Subject"] = f"Ethics Review Assignment: {application_title}"
+        message["From"] = from_email
+        message["To"] = email
+
+        greeting = f"Hello {reviewer_name}," if reviewer_name else "Hello,"
+
+        text_content = f"""
+        {greeting}
+
+        {inviter_name} has assigned you to review the following ethics application:
+        "{application_title}"
+
+        Please log in to DACORIS to access the application details and complete your review:
+        {review_url}
+
+        Thank you for your contribution to the ethics review process.
+        """
+
+        html_content = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #8b5cf6;">Ethics Review Assignment</h2>
+              <p>{greeting}</p>
+              <p><strong>{inviter_name}</strong> has assigned you to review the following ethics application:</p>
+              
+              <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #8b5cf6; border-radius: 5px;">
+                <h3 style="margin: 0; color: #8b5cf6;">{application_title}</h3>
+              </div>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="{review_url}" 
+                   style="display: inline-block; padding: 15px 30px; background-color: #8b5cf6; color: white; 
+                          text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  Access Application & Start Review
+                </a>
+              </div>
+              
+              <p style="color: #666; font-size: 14px;">Thank you for your contribution to the ethics review process.</p>
+              
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+              <p style="color: #999; font-size: 12px;">This is an automated message from DACORIS. Please do not reply to this email.</p>
+            </div>
+          </body>
+        </html>
+        """
+
+        part1 = MIMEText(text_content, "plain")
+        part2 = MIMEText(html_content, "html")
+        message.attach(part1)
+        message.attach(part2)
+
+        try:
+            await aiosmtplib.send(
+                message,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user,
+                password=smtp_password,
+                start_tls=True,
+            )
+            print(f"Ethics review assignment email sent to {email}")
+            return True
+        except Exception as e:
+            print(f"Failed to send ethics review assignment email to {email}: {e}")
             return False

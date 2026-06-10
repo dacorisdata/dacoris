@@ -69,13 +69,15 @@ export default function WorkflowsPage() {
     fetchUser().then(u => {
       if (!u) router.push('/login');
       else loadWorkflows();
+    }).catch(() => {
+      setLoading(false);
     });
   }, []);
 
   const loadWorkflows = async () => {
     try {
-      const data = await api.get('/workflows');
-      setWorkflows(Array.isArray(data) ? data : []);
+      const res = await api.get('/workflows');
+      setWorkflows(Array.isArray(res.data) ? res.data : []);
     } catch (error) {
       console.error('Failed to load workflows:', error);
       setWorkflows([]);
@@ -274,7 +276,7 @@ export default function WorkflowsPage() {
       {/* Workflows List */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {filtered.map(workflow => {
-          const typeInfo = workflowTypeInfo(workflow.type);
+          const typeInfo = workflowTypeInfo(workflow.type) || { label: workflow.type, color: '#64748b' };
           return (
             <Card
               key={workflow.id}

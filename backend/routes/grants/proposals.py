@@ -12,11 +12,13 @@ from database import get_db
 from models import (Proposal, ProposalSection, ProposalSectionVersion, ProposalDocument,
                     ProposalDocumentRequirement, ProposalCollaborator, ProposalStatus, GrantOpportunity, User, UserStatus,
                     ProposalStageHistory, ProposalStageAssignment, STAGE_INTENDED_DAYS, Award, BudgetLine,
-                    PrimaryAccountType)
+                    PrimaryAccountType, ResearchRole, user_roles, ReviewerAssignment, ReviewType,
+                    ReviewerAssignmentStatus)
 from auth import require_roles, ResearchRole, get_current_user
 from services.workflow import can_transition_proposal
 from services.notifications import create_notification
 from services.file_upload import save_upload
+from services.reviewer_onboarding import get_or_create_reviewer_user
 
 router = APIRouter(prefix="/api/grants/proposals", tags=["proposals"])
 
@@ -1497,10 +1499,14 @@ async def get_stage_history(
 # ─── Stage Reviewer Assignment ──────────────────────────────────
 
 class AssignReviewerBody(BaseModel):
-    reviewer_id: str
-    stage_step: int
+    reviewer_id: Optional[str] = None  # Optional if creating new reviewer
+    stage_steps: list[int]  # Multiple stages can be assigned
     stage_name: Optional[str] = None
     notes: Optional[str] = None
+    # For new reviewers
+    new_reviewer_email: Optional[str] = None
+    new_reviewer_name: Optional[str] = None
+    new_reviewer_expertise: Optional[list[str]] = None  # Areas of expertise
 
 
 @router.post("/{proposal_id}/stage-reviewers")
@@ -1510,60 +1516,131 @@ async def assign_stage_reviewer(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Assign a reviewer to a specific review stage of a proposal."""
+    """Assign a reviewer to multiple review stages of a proposal. Can create new reviewers."""
     is_admin = current_user.is_institution_admin or current_user.is_global_admin
     if not is_admin:
         roles_res = await db.execute(text("SELECT role::text FROM user_roles WHERE user_id = :uid"), {"uid": current_user.id})
-        user_roles = [r[0] for r in roles_res.fetchall()]
-        if not any(r in {"GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN"} for r in user_roles):
+        staff_role_names = [r[0] for r in roles_res.fetchall()]
+        if not any(r in {"GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN"} for r in staff_role_names):
             raise HTTPException(403, "Only grant staff or institution admins can assign reviewers")
 
     proposal = await db.get(Proposal, proposal_id)
     if not proposal:
         raise HTTPException(404, "Proposal not found")
 
-    reviewer = await db.get(User, body.reviewer_id)
-    if not reviewer:
-        raise HTTPException(404, "Reviewer not found")
-
-    # Check if this reviewer is already assigned to this stage
-    existing = await db.execute(
-        select(ProposalStageAssignment).where(
-            ProposalStageAssignment.proposal_id == proposal_id,
-            ProposalStageAssignment.stage_step == body.stage_step,
-            ProposalStageAssignment.reviewer_id == body.reviewer_id,
-            ProposalStageAssignment.status == "active",
-        )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(400, "This reviewer is already assigned to this stage")
-
-    stage_name = body.stage_name or f"Stage {body.stage_step}"
-    assignment = ProposalStageAssignment(
-        proposal_id=proposal_id,
-        stage_step=body.stage_step,
-        stage_name=stage_name,
-        reviewer_id=body.reviewer_id,
-        assigned_by_id=current_user.id,
-        notes=body.notes,
-        status="active",
-    )
-    db.add(assignment)
+    # Determine reviewer - either existing or create new
+    reviewer = None
+    is_new_reviewer = False
+    needs_signup = False
+    signup_token = None
     
-    # Create notification (will be committed together with assignment)
-    await create_notification(
-        db, body.reviewer_id,
-        title=f"Review assignment: {stage_name}",
-        message=f'You have been assigned to review "{proposal.title}" at the {stage_name} stage.',
-        entity_type="proposal", entity_id=proposal_id,
+    if body.reviewer_id:
+        # Use existing reviewer
+        reviewer = await db.get(User, body.reviewer_id)
+        if not reviewer:
+            raise HTTPException(404, "Reviewer not found")
+        needs_signup = not reviewer.password_hash
+    elif body.new_reviewer_email:
+        reviewer, needs_signup, signup_token = await get_or_create_reviewer_user(
+            db,
+            email=body.new_reviewer_email,
+            name=body.new_reviewer_name,
+            institution_id=current_user.primary_institution_id,
+            invited_by_id=current_user.id,
+            role=ResearchRole.EXTERNAL_REVIEWER,
+            expertise=body.new_reviewer_expertise,
+        )
+        is_new_reviewer = needs_signup
+    else:
+        raise HTTPException(400, "Either reviewer_id or new_reviewer_email must be provided")
+
+    if needs_signup and not signup_token:
+        import secrets
+        signup_token = secrets.token_urlsafe(32)
+
+    # Create assignments for all specified stages
+    assignments = []
+    stage_names = []
+    
+    for stage_step in body.stage_steps:
+        # Check if this reviewer is already assigned to this stage
+        existing = await db.execute(
+            select(ProposalStageAssignment).where(
+                ProposalStageAssignment.proposal_id == proposal_id,
+                ProposalStageAssignment.stage_step == stage_step,
+                ProposalStageAssignment.reviewer_id == reviewer.id,
+                ProposalStageAssignment.status == "active",
+            )
+        )
+        if existing.scalar_one_or_none():
+            continue  # Skip if already assigned
+        
+        stage_name = body.stage_name or f"Stage {stage_step}"
+        stage_names.append(stage_name)
+        
+        assignment = ProposalStageAssignment(
+            proposal_id=proposal_id,
+            stage_step=stage_step,
+            stage_name=stage_name,
+            reviewer_id=reviewer.id,
+            assigned_by_id=current_user.id,
+            notes=body.notes,
+            status="active",
+        )
+        db.add(assignment)
+        assignments.append(assignment)
+    
+    if not assignments:
+        raise HTTPException(400, "Reviewer is already assigned to all specified stages")
+
+    stages_text = ", ".join(stage_names) if len(stage_names) > 1 else stage_names[0]
+
+    portal_assignment = ReviewerAssignment(
+        institution_id=current_user.primary_institution_id,
+        reviewer_id=reviewer.id,
+        invited_email=reviewer.email,
+        invited_name=reviewer.name,
+        review_type=ReviewType.PROPOSAL,
+        entity_id=proposal_id,
+        entity_title=proposal.title,
+        assigned_by_id=current_user.id,
+        status=ReviewerAssignmentStatus.PENDING_SIGNUP if needs_signup else ReviewerAssignmentStatus.ASSIGNED,
+        signup_token=signup_token if needs_signup else None,
+        notes=body.notes or stages_text,
     )
+    db.add(portal_assignment)
+    
+    # In-app notification (skip until account is activated)
+    if not needs_signup:
+        await create_notification(
+            db, reviewer.id,
+            title=f"Review assignment: {stages_text}",
+            message=f'You have been assigned to review "{proposal.title}" at the following stage(s): {stages_text}.',
+            entity_type="proposal", entity_id=proposal_id,
+        )
     
     await db.commit()
-    await db.refresh(assignment)
+    await db.refresh(portal_assignment)
+    
+    # Send emails after commit
+    from services.email_service import EmailService
+    
+    await EmailService.send_reviewer_assignment_email(
+        email=reviewer.email,
+        reviewer_name=reviewer.name,
+        proposal_title=proposal.title,
+        stages=stage_names,
+        inviter_name=current_user.name,
+        proposal_id=proposal_id,
+        register_token=portal_assignment.signup_token if needs_signup else None,
+    )
 
     return {
-        "id": assignment.id, "stage_step": body.stage_step, "stage_name": stage_name,
-        "reviewer_id": body.reviewer_id, "reviewer_name": reviewer.name,
+        "reviewer_id": reviewer.id,
+        "reviewer_name": reviewer.name,
+        "reviewer_email": reviewer.email,
+        "is_new_reviewer": is_new_reviewer,
+        "assignments": [{"stage_step": a.stage_step, "stage_name": a.stage_name} for a in assignments],
     }
 
 

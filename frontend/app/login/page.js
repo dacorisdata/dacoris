@@ -492,6 +492,13 @@ function LoginPageContent() {
                   </MuiLink>
                 </Typography>
               </Box>
+
+              {/* Copyright Footer */}
+              <Box sx={{ textAlign: 'center', pt: 4, mt: 2 }}>
+                <Typography sx={{ fontSize: '0.875rem', color: 'text.secondary', lineHeight: 1.6 }}>
+                  © {new Date().getFullYear()} DACORIS. All rights reserved.
+                </Typography>
+              </Box>
             </Box>
           </Box>
         </Box>
