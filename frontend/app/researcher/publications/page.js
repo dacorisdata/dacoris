@@ -43,6 +43,28 @@ const MOCK_ZOTERO = [
   { id: 9, title: 'Sustainable agriculture practices for smallholder farmers', authors: 'Mwangi, J.', journal: 'Agriculture & Food Security', year: 2023, doi: '10.1186/s40066-023-00412-1', source: 'Zotero' },
 ];
 
+// Helper to parse a single Crossref API item into our standard pub shape
+const parseCrossrefItem = (item) => ({
+  id: `crossref_${item.DOI}`,
+  title: (Array.isArray(item.title) ? item.title[0] : item.title) || 'No title',
+  authors: item.author
+    ? item.author.slice(0, 3)
+        .map(a => [a.family, a.given ? a.given.charAt(0) + '.' : ''].filter(Boolean).join(' '))
+        .join(', ') + (item.author.length > 3 ? ', et al.' : '')
+    : 'Unknown',
+  journal: (Array.isArray(item['container-title']) ? item['container-title'][0] : item['container-title']) || 'Unknown',
+  year: (
+    item.published?.['date-parts']?.[0]?.[0] ||
+    item['published-print']?.['date-parts']?.[0]?.[0] ||
+    item['published-online']?.['date-parts']?.[0]?.[0] ||
+    'N/A'
+  ).toString(),
+  doi: item.DOI || '',
+  source: 'Crossref',
+  abstract: item.abstract ? item.abstract.replace(/<[^>]+>/g, '').trim() : '',
+  type: item.type || '',
+});
+
 export default function PublicationsPage() {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
@@ -212,11 +234,58 @@ export default function PublicationsPage() {
             setHasMoreResults(false);
           }
         }
+      } else if (searchSource === 'Crossref') {
+        const isDOI = /^10\.\d{4,}/.test(searchQuery.trim());
+        const currentOffset = isLoadMore ? searchResults.length : 0;
+        const rows = 20;
+
+        if (isDOI) {
+          // Direct DOI lookup
+          const doiRes = await fetch(
+            `https://api.crossref.org/works/${encodeURIComponent(searchQuery.trim())}`
+          );
+          if (!doiRes.ok) throw new Error('DOI not found in Crossref');
+          const doiData = await doiRes.json();
+          const result = parseCrossrefItem(doiData.message);
+
+          setSearchResults([result]);
+          setTotalResultsCount(1);
+          setHasMoreResults(false);
+          if (!isLoadMore) setResultsModalOpen(true);
+        } else {
+          // Build search URL
+          let url = `https://api.crossref.org/works?rows=${rows}&offset=${currentOffset}`;
+          if (searchQuery.trim()) url += `&query=${encodeURIComponent(searchQuery.trim())}`;
+          if (advancedFields.author) url += `&query.author=${encodeURIComponent(advancedFields.author)}`;
+          if (advancedFields.journal) url += `&query.container-title=${encodeURIComponent(advancedFields.journal)}`;
+
+          const filterParts = [];
+          if (advancedFields.yearFrom) filterParts.push(`from-pub-date:${advancedFields.yearFrom}`);
+          if (advancedFields.yearTo) filterParts.push(`until-pub-date:${advancedFields.yearTo}`);
+          if (advancedFields.openAccess) filterParts.push('is-oa:true');
+          if (filterParts.length > 0) url += `&filter=${filterParts.join(',')}`;
+
+          const crossrefRes = await fetch(url);
+          const crossrefData = await crossrefRes.json();
+
+          const totalCount = crossrefData.message?.['total-results'] || 0;
+          const items = crossrefData.message?.items || [];
+          const results = items.map(parseCrossrefItem);
+
+          if (isLoadMore) {
+            setSearchResults(prev => [...prev, ...results]);
+          } else {
+            setSearchResults(results);
+          }
+
+          setTotalResultsCount(totalCount);
+          setHasMoreResults(currentOffset + results.length < totalCount);
+          if (results.length > 0 && !isLoadMore) setResultsModalOpen(true);
+        }
       } else {
-        // Fallback to mock data for other sources
+        // Fallback to mock data for other sources (OpenAlex etc.)
         let results = [];
-        if (searchSource === 'Crossref') results = MOCK_CROSSREF;
-        else if (searchSource === 'OpenAlex') results = MOCK_OPENALEX;
+        if (searchSource === 'OpenAlex') results = MOCK_OPENALEX;
         setSearchResults(results);
         if (results.length > 0) {
           setResultsModalOpen(true);
@@ -225,10 +294,9 @@ export default function PublicationsPage() {
     } catch (error) {
       console.error('Search error:', error);
       if (!isLoadMore) {
-        // Fallback to mock data on error
+        // Fallback to mock data on error (Crossref uses live API, no mock fallback)
         let results = [];
         if (searchSource === 'PubMed') results = MOCK_PUBMED;
-        else if (searchSource === 'Crossref') results = MOCK_CROSSREF;
         else if (searchSource === 'OpenAlex') results = MOCK_OPENALEX;
         setSearchResults(results);
         setTotalResultsCount(results.length);
@@ -329,11 +397,45 @@ export default function PublicationsPage() {
           setTotalResultsCount(0);
           setHasMoreResults(false);
         }
+      } else if (searchSource === 'Crossref') {
+        // Build Crossref refined search URL
+        let url = `https://api.crossref.org/works?rows=20&offset=0`;
+
+        // Combine base query with filter keyword
+        const baseQuery = [searchQuery.trim(), resultsFilter.keyword].filter(Boolean).join(' ');
+        if (baseQuery) url += `&query=${encodeURIComponent(baseQuery)}`;
+
+        // Author: combine advanced field + results filter
+        const authorQuery = [advancedFields.author, resultsFilter.author].filter(Boolean).join(' ');
+        if (authorQuery) url += `&query.author=${encodeURIComponent(authorQuery)}`;
+
+        // Title filter
+        if (resultsFilter.title) url += `&query.title=${encodeURIComponent(resultsFilter.title)}`;
+
+        if (advancedFields.journal) url += `&query.container-title=${encodeURIComponent(advancedFields.journal)}`;
+
+        const filterParts = [];
+        if (advancedFields.yearFrom) filterParts.push(`from-pub-date:${advancedFields.yearFrom}`);
+        if (advancedFields.yearTo) filterParts.push(`until-pub-date:${advancedFields.yearTo}`);
+        if (resultsFilter.year) filterParts.push(`from-pub-date:${resultsFilter.year},until-pub-date:${resultsFilter.year}`);
+        if (advancedFields.openAccess) filterParts.push('is-oa:true');
+        if (filterParts.length > 0) url += `&filter=${filterParts.join(',')}`;
+
+        const crossrefRes = await fetch(url);
+        const crossrefData = await crossrefRes.json();
+
+        const totalCount = crossrefData.message?.['total-results'] || 0;
+        const items = crossrefData.message?.items || [];
+        const results = items.map(parseCrossrefItem);
+
+        setSearchResults(results);
+        setTotalResultsCount(totalCount);
+        setHasMoreResults(results.length < totalCount);
       }
     } catch (error) {
       console.error('Filter error:', error);
     }
-    
+
     setApplyingFilter(false);
   };
 
