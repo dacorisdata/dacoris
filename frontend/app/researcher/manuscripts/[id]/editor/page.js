@@ -1750,6 +1750,7 @@ export default function ManuscriptEditorPage() {
           editor={editor}
           open={outlineOpen}
           onToggle={handleToggleOutline}
+          accent={ACCENT}
         />
 
         {/* Main Editor Area */}
