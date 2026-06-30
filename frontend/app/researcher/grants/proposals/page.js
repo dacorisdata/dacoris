@@ -722,7 +722,9 @@ function MyProposalsContent() {
               defaultRole="Co-Investigator"
               accent={ACCENT}
               listLabel="Team List"
-              description="Add proposal team members via ORCID or institution search. Email is required for notifications."
+              opportunityId={selectedOpp?.id}
+              proposalTitle={newTitle}
+              description="Review suggested collaborators for this opportunity, search ORCID, or enter details manually."
               roleLabel="Default Role for New Team Members"
               formatRole={(r) => r}
             />

@@ -43,6 +43,10 @@ export const grantsAPI = {
   addBudgetLines: (awardId, lines) => 
     api.post(`/grants/awards/${awardId}/budget`, lines),
   getBudget: (awardId) => api.get(`/grants/awards/${awardId}/budget`),
+
+  // AI Grant Matcher
+  matchOpportunities: ({ limit = 10, includeUpcoming = true } = {}) =>
+    api.get('/grants/match', { params: { limit, include_upcoming: includeUpcoming } }),
 };
 
 // Research Module APIs

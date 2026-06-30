@@ -17,16 +17,16 @@ import {
   TableHead,
   TableRow,
   Button,
-  Link,
 } from '@mui/material';
 import {
-  Science as ScienceIcon,
   Assignment as AssignmentIcon,
   Gavel as EthicsIcon,
   AccountBalance as AwardIcon,
   OpenInNew as OpenIcon,
   Refresh as RefreshIcon,
-  ArrowForward as ArrowForwardIcon,
+  RocketLaunch as RocketIcon,
+  Handshake as HandshakeIcon,
+  Verified as VerifiedIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -162,6 +162,7 @@ export default function ResearcherOverview() {
   const [proposals, setProposals] = useState([]);
   const [ethicsApps, setEthicsApps] = useState([]);
   const [awards, setAwards] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   useEffect(() => {
     init();
@@ -204,6 +205,7 @@ export default function ResearcherOverview() {
       setProposals(proposalsRes.data || []);
       setEthicsApps(ethicsRes.data || []);
       setAwards(awardsRes.data || []);
+      setLastUpdated(new Date());
     } catch {
       setError('Failed to load dashboard data.');
     } finally {
@@ -278,12 +280,33 @@ export default function ResearcherOverview() {
     ].filter(d => d.count > 0);
   }, [proposals, ethicsApps]);
 
-  const stats = useMemo(() => ({
-    activeProjects: activeProjects.length,
-    activeAwards: awards.filter(a => normalize(a.status) === 'active').length,
-    openSubmissions: submissions.length,
-    ethicsApproved: ethicsApps.filter(a => TERMINAL_ETHICS.has(normalize(a.status)) && normalize(a.status) !== 'rejected').length,
-  }), [activeProjects, awards, submissions, ethicsApps]);
+  const stats = useMemo(() => {
+    const proposedProjects = projects.filter(p => normalize(p.status) === 'proposed').length;
+    const activeAwardsList = awards.filter(a => normalize(a.status) === 'active');
+    const totalAwardValue = activeAwardsList.reduce((s, a) => s + (a.total_amount || 0), 0);
+    const awardCurrency = activeAwardsList[0]?.currency || 'USD';
+
+    const grantDraft = proposals.filter(p => !TERMINAL_PROPOSAL.has(normalize(p.status)) && normalize(p.status) === 'draft').length;
+    const grantInReview = proposals.filter(p => !TERMINAL_PROPOSAL.has(normalize(p.status)) && normalize(p.status) !== 'draft').length;
+    const ethicsDraft = ethicsApps.filter(a => !TERMINAL_ETHICS.has(normalize(a.status)) && normalize(a.status) === 'draft').length;
+    const ethicsInReview = ethicsApps.filter(a => !TERMINAL_ETHICS.has(normalize(a.status)) && normalize(a.status) !== 'draft').length;
+
+    const ethicsApproved = ethicsApps.filter(a => ['approved', 'final_approval'].includes(normalize(a.status))).length;
+    const ethicsPending = ethicsApps.filter(a => !TERMINAL_ETHICS.has(normalize(a.status))).length;
+
+    return {
+      activeProjects: activeProjects.length,
+      proposedProjects,
+      activeAwards: activeAwardsList.length,
+      totalAwardValue,
+      awardCurrency,
+      openSubmissions: submissions.length,
+      draftSubmissions: grantDraft + ethicsDraft,
+      inReviewSubmissions: grantInReview + ethicsInReview,
+      ethicsApproved,
+      ethicsPending,
+    };
+  }, [activeProjects, awards, submissions, proposals, ethicsApps, projects]);
 
   const projectColorMap = Object.fromEntries(
     Object.entries(PROJECT_STATUS_META).map(([k, v]) => [k, v.color]),
@@ -317,41 +340,79 @@ export default function ResearcherOverview() {
     </Box>
   );
 
-  const StatCard = ({ icon: Icon, iconColor, iconBg, label, value, sub, onClick }) => (
-    <Card
-      sx={{
-        flex: '1 1 180px',
-        cursor: onClick ? 'pointer' : 'default',
-        '&:hover': onClick ? { borderColor: iconColor } : {},
-      }}
+  const MetricCard = ({ icon: Icon, iconColor, iconBg, label, value, valueWord, valueWordColor, footer, progress, onClick }) => (
+    <Box
       onClick={onClick}
+      sx={{
+        flex: '1 1 200px',
+        bgcolor: 'background.paper',
+        borderRadius: 2.5,
+        px: 2,
+        py: 1.5,
+        border: `1px solid ${theme.palette.divider}`,
+        boxShadow: dark ? 'none' : '0 1px 3px rgba(15,23,42,0.04), 0 4px 12px rgba(15,23,42,0.04)',
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease',
+        '&:hover': onClick ? {
+          borderColor: `${iconColor}55`,
+          boxShadow: dark ? 'none' : `0 6px 18px ${iconColor}18`,
+          transform: 'translateY(-1px)',
+        } : {},
+      }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 0.75 }}>
         <Box sx={{
-          width: 44,
-          height: 44,
-          borderRadius: 2,
-          bgcolor: iconBg,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
+          width: 32, height: 32, borderRadius: 2,
+          bgcolor: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         }}>
-          <Icon sx={{ color: iconColor, fontSize: 22 }} />
+          <Icon sx={{ color: iconColor, fontSize: 18 }} />
         </Box>
-        <Box>
-          <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            {label}
-          </Typography>
-          <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, lineHeight: 1.2 }}>
-            {value}
-          </Typography>
-          {sub && (
-            <Typography sx={{ color: 'text.disabled', fontSize: 12, mt: 0.25 }}>{sub}</Typography>
-          )}
-        </Box>
+        <Typography sx={{ color: 'text.secondary', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, flex: 1, lineHeight: 1.2 }}>
+          {label}
+        </Typography>
+        {onClick && <OpenIcon sx={{ fontSize: 14, color: 'text.disabled', opacity: 0.5 }} />}
       </Box>
-    </Card>
+
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, mb: progress || footer ? 0.75 : 0 }}>
+        <Typography component="span" sx={{ color: 'text.primary', fontSize: 26, fontWeight: 800, lineHeight: 1, letterSpacing: -0.5 }}>
+          {value}
+        </Typography>
+        {valueWord && (
+          <Typography component="span" sx={{ color: valueWordColor, fontSize: 15, fontWeight: 600, lineHeight: 1 }}>
+            {valueWord}
+          </Typography>
+        )}
+      </Box>
+
+      {progress && (
+        <Box sx={{ display: 'flex', height: 4, borderRadius: 2, overflow: 'hidden', mb: 0.75, bgcolor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}>
+          {progress.map((seg, i) => (
+            <Box key={i} sx={{ width: `${seg.pct}%`, bgcolor: seg.color, minWidth: seg.pct > 0 ? 4 : 0 }} />
+          ))}
+        </Box>
+      )}
+
+      {footer}
+    </Box>
+  );
+
+  const Dot = ({ color }) => (
+    <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: color, display: 'inline-block', flexShrink: 0 }} />
+  );
+
+  const FooterRow = ({ items }) => (
+    <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+      {items.map((item, i) => (
+        <Box key={i} sx={{ display: 'flex', alignItems: 'center' }}>
+          {i > 0 && <Typography sx={{ fontSize: 11, color: 'text.disabled', mx: 0.5 }}>·</Typography>}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            {item.dot && <Dot color={item.dot} />}
+            {item.icon}
+            <Typography sx={{ fontSize: 11.5, color: 'text.secondary', fontWeight: 500 }}>{item.text}</Typography>
+          </Box>
+        </Box>
+      ))}
+    </Box>
   );
 
   const headCell = { fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'text.secondary', whiteSpace: 'nowrap' };
@@ -367,88 +428,129 @@ export default function ResearcherOverview() {
   const firstName = user?.name?.split(' ')[0] || 'Researcher';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const institutionName = user?.institution_name || user?.institution?.name || 'Your Institution';
+
+  const submissionTotal = stats.openSubmissions || 1;
+  const draftPct = Math.round((stats.draftSubmissions / submissionTotal) * 100);
+  const reviewPct = 100 - draftPct;
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
+    <Box sx={{ px: { xs: 1.5, md: 2 }, py: { xs: 2, md: 2.5 }, width: '100%' }}>
       {error && (
         <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
 
+      {/* ── Header ─────────────────────────────────────────── */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3.5, gap: 2, flexWrap: 'wrap' }}>
         <Box>
-          <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, mb: 0.5 }}>
+          <Typography sx={{ color: ACCENT, fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', mb: 1 }}>
+            Dashboard · {todayLabel} · {institutionName}
+          </Typography>
+          <Typography sx={{ color: '#0f172a', fontSize: { xs: 28, md: 32 }, fontWeight: 800, letterSpacing: -0.5, lineHeight: 1.15, mb: 0.75, ...(dark && { color: 'text.primary' }) }}>
             {greeting}, {firstName}
           </Typography>
-          <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>
+          <Typography sx={{ color: 'text.secondary', fontSize: 14.5, maxWidth: 520 }}>
             Live snapshot of your projects, submissions, and funding activity.
           </Typography>
-          <Link
-            component="button"
-            underline="hover"
-            onClick={() => router.push('/researcher/profile')}
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+          {lastUpdated && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981' }} />
+              <Typography sx={{ fontSize: 13, color: 'text.secondary', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                Updated just now
+              </Typography>
+            </Box>
+          )}
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
+            onClick={loadDashboard}
             sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 0.5,
-              mt: 1,
-              fontSize: 13,
-              fontWeight: 600,
-              color: ACCENT,
-              cursor: 'pointer',
+              textTransform: 'none', borderRadius: 2, fontWeight: 600, px: 2,
+              borderColor: theme.palette.divider, color: 'text.primary',
+              '&:hover': { borderColor: ACCENT, bgcolor: `${ACCENT}08` },
             }}
           >
-            View profile
-            <ArrowForwardIcon sx={{ fontSize: 14 }} />
-          </Link>
+            Refresh
+          </Button>
         </Box>
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
-          onClick={loadDashboard}
-          sx={{ textTransform: 'none', borderRadius: 2 }}
-        >
-          Refresh
-        </Button>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <StatCard
-          icon={ScienceIcon}
-          iconColor="#10b981"
-          iconBg="rgba(16,185,129,0.1)"
+      {/* ── Metric cards ───────────────────────────────────── */}
+      <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
+        <MetricCard
+          icon={RocketIcon}
+          iconColor="#1ca7a1"
+          iconBg="rgba(28,167,161,0.12)"
           label="Active Projects"
           value={stats.activeProjects}
-          sub={stats.activeProjects === 1 ? '1 running project' : `${stats.activeProjects} running projects`}
+          valueWord="running"
+          valueWordColor="#10b981"
           onClick={() => router.push('/researcher/projects')}
+          footer={
+            <FooterRow items={[
+              { dot: '#10b981', text: `${stats.activeProjects} running` },
+              { dot: '#f59e0b', text: `${stats.proposedProjects} proposed` },
+            ]} />
+          }
         />
-        <StatCard
+        <MetricCard
           icon={AwardIcon}
-          iconColor="#8b5cf6"
-          iconBg="rgba(139,92,246,0.1)"
+          iconColor="#d97706"
+          iconBg="rgba(217,119,6,0.12)"
           label="Active Awards"
           value={stats.activeAwards}
-          sub="Funded grants in progress"
+          valueWord="funded"
+          valueWordColor="#d97706"
           onClick={() => router.push('/researcher/grants/awards')}
+          footer={
+            <FooterRow items={[{
+              icon: <HandshakeIcon sx={{ fontSize: 15, color: '#d97706' }} />,
+              text: stats.totalAwardValue > 0
+                ? `${stats.awardCurrency} ${stats.totalAwardValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} secured`
+                : 'No funding secured yet',
+            }]} />
+          }
         />
-        <StatCard
+        <MetricCard
           icon={AssignmentIcon}
-          iconColor={ACCENT}
-          iconBg="rgba(28,167,161,0.1)"
+          iconColor="#6366f1"
+          iconBg="rgba(99,102,241,0.12)"
           label="Open Submissions"
           value={stats.openSubmissions}
-          sub="Proposals & ethics pending"
+          valueWord="open"
+          valueWordColor="#4338ca"
+          progress={stats.openSubmissions > 0 ? [
+            { pct: draftPct, color: '#6366f1' },
+            { pct: reviewPct, color: ACCENT },
+          ] : [{ pct: 100, color: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]}
+          footer={
+            <FooterRow items={[
+              { text: `${stats.draftSubmissions} draft` },
+              { text: `${stats.inReviewSubmissions} in review` },
+            ]} />
+          }
         />
-        <StatCard
-          icon={EthicsIcon}
-          iconColor="#0ea5e9"
-          iconBg="rgba(14,165,233,0.1)"
+        <MetricCard
+          icon={VerifiedIcon}
+          iconColor="#10b981"
+          iconBg="rgba(16,185,129,0.12)"
           label="Ethics Cleared"
           value={stats.ethicsApproved}
-          sub="Approved applications"
+          valueWord="approved"
+          valueWordColor="#10b981"
           onClick={() => router.push('/researcher/ethics')}
+          footer={
+            <FooterRow items={[
+              { dot: '#10b981', text: `${stats.ethicsApproved} approved` },
+              { dot: stats.ethicsPending > 0 ? '#f59e0b' : '#cbd5e1', text: `${stats.ethicsPending} pending` },
+            ]} />
+          }
         />
       </Box>
 

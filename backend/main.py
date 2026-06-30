@@ -23,6 +23,7 @@ from routes.grants.opportunities import router as opportunities_router
 from routes.grants.proposals import router as proposals_router
 from routes.grants.reviews import router as reviews_router
 from routes.grants.awards import router as awards_router
+from routes.grants.matcher import router as grant_matcher_router
 from routes.research.projects import router as research_projects_router
 from routes.research.ethics import router as research_ethics_router
 from routes.research.outputs import router as research_outputs_router
@@ -86,6 +87,7 @@ app.include_router(opportunities_router)
 app.include_router(proposals_router)
 app.include_router(reviews_router)
 app.include_router(awards_router)
+app.include_router(grant_matcher_router)
 app.include_router(research_projects_router)
 app.include_router(research_ethics_router)
 app.include_router(research_outputs_router)

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from datetime import timedelta, datetime
 import httpx
 import os
+import re
 
 from database import get_db
 from models import User, AccountType, UserStatus
@@ -26,18 +27,81 @@ def _normalize_orcid_id(orcid_id: str) -> str:
     return (orcid_id or "").strip().replace("https://orcid.org/", "").replace("http://orcid.org/", "")
 
 
-async def _enrich_with_registered_users(db: AsyncSession, results: list) -> list:
+ORCID_ID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dXx]$")
+
+
+def _is_valid_orcid_id(orcid_id: str) -> bool:
+    return bool(ORCID_ID_PATTERN.match(_normalize_orcid_id(orcid_id)))
+
+
+def _orcid_api_base() -> str:
+    return "https://pub.sandbox.orcid.org" if ORCID_SANDBOX_MODE else "https://pub.orcid.org"
+
+
+async def _fetch_orcid_public_profile(orcid_id: str) -> dict | None:
+    """Fetch name, email, and affiliation from the ORCID public registry."""
+    normalized = _normalize_orcid_id(orcid_id)
+    if not _is_valid_orcid_id(normalized):
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            profile_response = await client.get(
+                f"{_orcid_api_base()}/v3.0/{normalized}/person",
+                headers={"Accept": "application/json"},
+            )
+            if profile_response.status_code != 200:
+                return None
+
+            profile_data = profile_response.json()
+            name_obj = profile_data.get("name", {})
+            given_names = name_obj.get("given-names", {}).get("value", "")
+            family_name_val = name_obj.get("family-name", {}).get("value", "")
+            full_name = f"{given_names} {family_name_val}".strip()
+
+            emails = profile_data.get("emails", {}).get("email", [])
+            email = emails[0].get("email", "") if emails else ""
+
+            affiliation = ""
+            employments = profile_data.get("employments", {}).get("affiliation-group", [])
+            if employments:
+                emp_summary = employments[0].get("summaries", [])
+                if emp_summary:
+                    org = emp_summary[0].get("employment-summary", {}).get("organization", {})
+                    affiliation = org.get("name", "")
+
+            return {
+                "orcid": normalized,
+                "name": full_name,
+                "given_name": given_names,
+                "family_name": family_name_val,
+                "email": email,
+                "affiliation": affiliation,
+                "source": "orcid",
+            }
+    except Exception as e:
+        print(f"ORCID profile fetch error for {normalized}: {e}")
+        return None
+
+
+async def _enrich_with_registered_users(
+    db: AsyncSession,
+    results: list,
+    current_user: User | None = None,
+) -> list:
     """Attach registered DACORIS user details when an ORCID iD matches a User record."""
     if not results:
         return results
 
     orcid_ids = [_normalize_orcid_id(r.get("orcid", "")) for r in results if r.get("orcid")]
     orcid_ids = [o for o in orcid_ids if o]
-    if not orcid_ids:
-        return results
 
-    user_result = await db.execute(select(User).where(User.orcid_id.in_(orcid_ids)))
-    users_by_orcid = {u.orcid_id: u for u in user_result.scalars().all()}
+    users_by_orcid = {}
+    if orcid_ids:
+        user_result = await db.execute(select(User).where(User.orcid_id.in_(orcid_ids)))
+        users_by_orcid = {u.orcid_id: u for u in user_result.scalars().all()}
+
+    current_orcid = _normalize_orcid_id(current_user.orcid_id or "") if current_user else ""
 
     enriched = []
     for item in results:
@@ -53,6 +117,16 @@ async def _enrich_with_registered_users(db: AsyncSession, results: list) -> list
                 row["affiliation"] = user.department
         else:
             row["registered"] = bool(row.get("registered"))
+
+        is_self = False
+        if current_user:
+            if row.get("user_id") == current_user.id:
+                is_self = True
+            elif current_orcid and _normalize_orcid_id(row.get("orcid", "")) == current_orcid:
+                is_self = True
+            elif row.get("email") and current_user.email and row["email"].lower() == current_user.email.lower():
+                is_self = True
+        row["is_self"] = is_self
         enriched.append(row)
     return enriched
 
@@ -262,7 +336,8 @@ async def orcid_callback(
 async def search_orcid(
     given_name: str = Query(None, description="Given name (first name)"),
     family_name: str = Query(None, description="Family name (last name)"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Search ORCID registry for researchers by name"""
     if not given_name and not family_name:
@@ -354,7 +429,7 @@ async def search_orcid(
             
             if search_response.status_code != 200:
                 print(f"ORCID search failed: {search_response.status_code}")
-                return await _enrich_with_registered_users(db, local_results)
+                return await _enrich_with_registered_users(db, local_results, current_user)
             
             search_data = search_response.json()
             results = search_data.get("result", [])
@@ -417,11 +492,11 @@ async def search_orcid(
             
             # Combine local and ORCID results, prioritizing local
             all_results = local_results + orcid_results
-            return await _enrich_with_registered_users(db, all_results[:10])
+            return await _enrich_with_registered_users(db, all_results[:10], current_user)
             
     except Exception as e:
         print(f"ORCID API search error: {e}")
-        return await _enrich_with_registered_users(db, local_results)
+        return await _enrich_with_registered_users(db, local_results, current_user)
 
 
 @router.get("/lookup")
@@ -430,21 +505,29 @@ async def lookup_orcid_user(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Look up a registered DACORIS user by ORCID iD for invite auto-fill."""
+    """Look up a researcher by ORCID iD — registered DACORIS user or ORCID public profile."""
     normalized = _normalize_orcid_id(orcid_id)
     if not normalized:
         raise HTTPException(400, "ORCID iD is required")
 
     result = await db.execute(select(User).where(User.orcid_id == normalized))
     user = result.scalar_one_or_none()
-    if not user:
-        return {"registered": False, "orcid": normalized}
+    if user:
+        name_parts = (user.name or "").strip().split()
+        return {
+            "registered": True,
+            "orcid": user.orcid_id,
+            "user_id": user.id,
+            "name": user.name,
+            "given_name": " ".join(name_parts[:-1]) if len(name_parts) > 1 else (name_parts[0] if name_parts else ""),
+            "family_name": name_parts[-1] if len(name_parts) > 1 else "",
+            "email": user.email,
+            "affiliation": user.department or "",
+            "source": "dacoris",
+        }
 
-    return {
-        "registered": True,
-        "orcid": user.orcid_id,
-        "user_id": user.id,
-        "name": user.name,
-        "email": user.email,
-        "affiliation": user.department or "",
-    }
+    public_profile = await _fetch_orcid_public_profile(normalized)
+    if public_profile:
+        return {"registered": False, **public_profile}
+
+    return {"registered": False, "orcid": normalized, "name": "", "given_name": "", "family_name": ""}

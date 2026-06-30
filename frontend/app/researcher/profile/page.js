@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import axios from 'axios';
 import { Box, Typography, TextField, Button, CircularProgress, Alert, Chip, Divider, useTheme, IconButton } from '@mui/material';
-import { Edit as EditIcon, Save as SaveIcon, Cancel as CancelIcon, Person as PersonIcon, Email as EmailIcon, Business as BusinessIcon, Badge as BadgeIcon, Phone as PhoneIcon, Science as ScienceIcon, CheckCircle as CheckCircleIcon, Add as AddIcon, Close as CloseIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Save as SaveIcon, Cancel as CancelIcon, Person as PersonIcon, Email as EmailIcon, Business as BusinessIcon, Badge as BadgeIcon, Phone as PhoneIcon, Science as ScienceIcon, CheckCircle as CheckCircleIcon, Add as AddIcon, Close as CloseIcon, FolderOpen as FolderOpenIcon, TaskAlt as TaskAltIcon, Description as DescriptionIcon, Gavel as GavelIcon, EmojiEvents as EmojiEventsIcon } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import { researcherAPI } from '../../../lib/api';
+
+const API = process.env.NEXT_PUBLIC_API_URL || '/api';
+const normalize = s => (s || '').toLowerCase();
 
 const Card = ({ title, subtitle, accent = '#1ca7a1', children, theme, dark }) => (
   <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, p: 3, border: `1px solid ${theme.palette.divider}`, boxShadow: dark ? 'none' : '0 2px 8px rgba(0,0,0,0.06)', mb: 3 }}>
@@ -33,6 +37,20 @@ const Row = ({ icon: Icon, label, value, editNode, editing, theme, dark }) => (
   </Box>
 );
 
+const StatTile = ({ icon: Icon, label, value, color, theme, dark, loading }) => (
+  <Box sx={{ flex: '1 1 150px', minWidth: 150, p: 2.25, borderRadius: 2.5, border: `1px solid ${theme.palette.divider}`, bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)', display: 'flex', alignItems: 'center', gap: 1.75 }}>
+    <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: `${color}1a`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <Icon sx={{ fontSize: 22, color }} />
+    </Box>
+    <Box sx={{ minWidth: 0 }}>
+      {loading
+        ? <CircularProgress size={18} sx={{ color, my: 0.3 }} />
+        : <Typography sx={{ color: 'text.primary', fontSize: 24, fontWeight: 700, lineHeight: 1.1 }}>{value}</Typography>}
+      <Typography sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 600, mt: 0.3 }}>{label}</Typography>
+    </Box>
+  </Box>
+);
+
 export default function ResearcherProfile() {
   const router = useRouter();
   const { fetchUser } = useAuth();
@@ -47,6 +65,11 @@ export default function ResearcherProfile() {
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState({});
   const [keywordInput, setKeywordInput] = useState('');
+  const [metricsLoading, setMetricsLoading] = useState(true);
+  const [projects, setProjects] = useState([]);
+  const [proposals, setProposals] = useState([]);
+  const [ethicsApps, setEthicsApps] = useState([]);
+  const [awards, setAwards] = useState([]);
 
   useEffect(() => { checkAuth(); }, []);
 
@@ -58,7 +81,42 @@ export default function ResearcherProfile() {
     setUser(userData);
     initForm(userData);
     setLoading(false);
+    loadMetrics();
   };
+
+  const loadMetrics = async () => {
+    setMetricsLoading(true);
+    try {
+      const headers = { Authorization: `Bearer ${localStorage.getItem('token')}` };
+      const [projectsRes, proposalsRes, ethicsRes, awardsRes] = await Promise.all([
+        axios.get(`${API}/research/projects`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/grants/proposals`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/research/ethics/my`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/grants/awards`, { headers }).catch(() => ({ data: [] })),
+      ]);
+      setProjects(projectsRes.data || []);
+      setProposals(proposalsRes.data || []);
+      setEthicsApps(ethicsRes.data || []);
+      setAwards(awardsRes.data || []);
+    } catch {
+      // metrics are non-critical; leave defaults
+    } finally {
+      setMetricsLoading(false);
+    }
+  };
+
+  const metrics = useMemo(() => {
+    const activeProjects = projects.filter(p => normalize(p.status) === 'active').length;
+    const completedProjects = projects.filter(p => normalize(p.status) === 'completed').length;
+    return {
+      activeProjects,
+      completedProjects,
+      totalProjects: projects.length,
+      proposals: proposals.length,
+      ethicsApps: ethicsApps.length,
+      awards: awards.length,
+    };
+  }, [projects, proposals, ethicsApps, awards]);
 
   const initForm = (u) => {
     let keywords = [];
@@ -141,6 +199,18 @@ export default function ResearcherProfile() {
           </Box>
         </Box>
       </Box>
+
+      {/* Research Activity & Metrics */}
+      <Card title="Research Activity" subtitle="A snapshot of your projects and research output" theme={theme} dark={dark}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+          <StatTile icon={ScienceIcon} label="Active Projects" value={metrics.activeProjects} color="#10b981" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={TaskAltIcon} label="Completed Projects" value={metrics.completedProjects} color="#0ea5e9" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={FolderOpenIcon} label="Total Projects" value={metrics.totalProjects} color="#1ca7a1" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={DescriptionIcon} label="Grant Proposals" value={metrics.proposals} color="#f59e0b" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={GavelIcon} label="Ethics Applications" value={metrics.ethicsApps} color="#8b5cf6" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={EmojiEventsIcon} label="Grant Awards" value={metrics.awards} color="#a67c00" theme={theme} dark={dark} loading={metricsLoading} />
+        </Box>
+      </Card>
 
       {/* Personal Info */}
       <Card title="Personal Information" subtitle="Your basic profile details" theme={theme} dark={dark}>

@@ -453,7 +453,14 @@ export default function ManuscriptsPage() {
               defaultRole="author"
               accent={ACCENT}
               listLabel="Authors List"
-              description="Add co-authors via ORCID or institution search. Email is required for notifications."
+              manuscriptTitle={formData.title}
+              manuscriptDescription={formData.shortDescription}
+              manuscriptKeywords={formData.keywords}
+              manuscriptDepartment={formData.department}
+              suggestionsLabel="Suggested Co-Authors"
+              suggestionsHint="Researchers whose specialty and past works align with this manuscript. Click a name to review their profile before inviting."
+              inviteFromProfileLabel="Add as Co-Author"
+              description="Review suggested co-authors, search ORCID, or enter details manually."
               roleLabel="Default Role for New Authors"
               formatRole={(r) => ({
                 author: 'Author',

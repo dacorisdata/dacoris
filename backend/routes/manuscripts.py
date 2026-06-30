@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from sqlalchemy.orm import selectinload
@@ -17,6 +17,7 @@ from services.citation_service import (
     generate_bibliography,
     generate_citation_key
 )
+from services.collaborator_matcher import suggest_coauthors, coauthor_profile_snapshot
 
 router = APIRouter(prefix="/api/manuscripts", tags=["manuscripts"])
 
@@ -209,6 +210,85 @@ async def create_manuscript(
                 )
 
     return new_manuscript
+
+
+@router.get("/co-authors/suggest")
+async def suggest_manuscript_coauthors(
+    title: Optional[str] = Query(None, description="Manuscript title"),
+    description: Optional[str] = Query(None, description="Short description / abstract"),
+    keywords: Optional[str] = Query(None, description="Keywords (comma-separated or JSON array)"),
+    department: Optional[str] = Query(None, description="Department or field"),
+    exclude_user_ids: Optional[str] = Query(None, description="Comma-separated user IDs to exclude"),
+    limit: int = Query(default=6, ge=1, le=15),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggest institution co-authors based on manuscript topic, specialty, and past works."""
+    excluded = [x.strip() for x in (exclude_user_ids or "").split(",") if x.strip()]
+    result = await suggest_coauthors(
+        current_user=current_user,
+        db=db,
+        title=title,
+        description=description,
+        keywords=keywords,
+        department=department,
+        exclude_user_ids=excluded,
+        limit=limit,
+    )
+    return {
+        "suggestions": [
+            {
+                "user_id": s.user_id,
+                "name": s.name,
+                "email": s.email,
+                "department": s.department,
+                "job_title": s.job_title,
+                "orcid": s.orcid,
+                "expertise_keywords": s.expertise_keywords,
+                "skills": s.skills,
+                "research_areas": s.research_areas,
+                "score": s.score,
+                "reasons": s.reasons,
+                "match_explanation": s.match_explanation,
+            }
+            for s in result["suggestions"]
+        ],
+        "total_candidates": result["total_candidates"],
+        "ai_enhanced": result["ai_enhanced"],
+        "context_summary": result["context_summary"],
+    }
+
+
+@router.get("/co-authors/{user_id}/profile-snapshot")
+async def get_coauthor_profile_snapshot(
+    user_id: str,
+    title: Optional[str] = Query(None),
+    description: Optional[str] = Query(None),
+    keywords: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Profile snapshot for reviewing a suggested co-author before inviting."""
+    if not current_user.primary_institution_id:
+        raise HTTPException(400, "User must be associated with an institution")
+
+    snapshot = await coauthor_profile_snapshot(
+        user_id=user_id,
+        db=db,
+        title=title,
+        description=description,
+        keywords=keywords,
+        department=department,
+    )
+    if not snapshot:
+        raise HTTPException(404, "Researcher not found")
+
+    target = await db.get(User, user_id)
+    if target.primary_institution_id != current_user.primary_institution_id:
+        raise HTTPException(403, "Researcher is not in your institution")
+
+    return snapshot
 
 
 @router.get("", response_model=List[ManuscriptResponse])

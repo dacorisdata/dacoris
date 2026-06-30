@@ -19,6 +19,7 @@ from services.workflow import can_transition_proposal
 from services.notifications import create_notification
 from services.file_upload import save_upload
 from services.reviewer_onboarding import get_or_create_reviewer_user
+from services.collaborator_matcher import suggest_collaborators, researcher_profile_snapshot
 
 router = APIRouter(prefix="/api/grants/proposals", tags=["proposals"])
 
@@ -1710,6 +1711,77 @@ async def list_available_reviewers(
         }]
     
     return reviewers
+
+
+@router.get("/collaborators/suggest")
+async def suggest_proposal_collaborators(
+    opportunity_id: Optional[str] = Query(None, description="Grant opportunity ID for context"),
+    proposal_title: Optional[str] = Query(None, description="Working proposal title for context"),
+    exclude_user_ids: Optional[str] = Query(None, description="Comma-separated user IDs to exclude"),
+    limit: int = Query(default=6, ge=1, le=15),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggest institution researchers who could strengthen a proposal team."""
+    excluded = [x.strip() for x in (exclude_user_ids or "").split(",") if x.strip()]
+    result = await suggest_collaborators(
+        current_user=current_user,
+        db=db,
+        opportunity_id=opportunity_id,
+        proposal_title=proposal_title,
+        exclude_user_ids=excluded,
+        limit=limit,
+    )
+    return {
+        "suggestions": [
+            {
+                "user_id": s.user_id,
+                "name": s.name,
+                "email": s.email,
+                "department": s.department,
+                "job_title": s.job_title,
+                "orcid": s.orcid,
+                "expertise_keywords": s.expertise_keywords,
+                "skills": s.skills,
+                "research_areas": s.research_areas,
+                "score": s.score,
+                "reasons": s.reasons,
+                "match_explanation": s.match_explanation,
+            }
+            for s in result["suggestions"]
+        ],
+        "total_candidates": result["total_candidates"],
+        "ai_enhanced": result["ai_enhanced"],
+        "context_summary": result["context_summary"],
+    }
+
+
+@router.get("/collaborators/{user_id}/profile-snapshot")
+async def get_collaborator_profile_snapshot(
+    user_id: str,
+    opportunity_id: Optional[str] = Query(None),
+    proposal_title: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Profile snapshot for reviewing a suggested collaborator before inviting."""
+    if not current_user.primary_institution_id:
+        raise HTTPException(400, "User must be associated with an institution")
+
+    snapshot = await researcher_profile_snapshot(
+        user_id=user_id,
+        db=db,
+        opportunity_id=opportunity_id,
+        proposal_title=proposal_title,
+    )
+    if not snapshot:
+        raise HTTPException(404, "Researcher not found")
+
+    target = await db.get(User, user_id)
+    if target.primary_institution_id != current_user.primary_institution_id:
+        raise HTTPException(403, "Researcher is not in your institution")
+
+    return snapshot
 
 
 @router.get("/collaborators/search")
