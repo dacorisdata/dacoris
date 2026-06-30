@@ -347,6 +347,7 @@ async def create_proposal(
 
 @router.get("", response_model=List[ProposalOut])
 async def list_proposals(
+    opportunity_id: Optional[str] = Query(None, description="Filter by grant opportunity"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([
         ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
@@ -379,6 +380,9 @@ async def list_proposals(
                 )
             )
         )
+
+    if opportunity_id:
+        query = query.where(Proposal.opportunity_id == opportunity_id)
     
     query = query.options(
         selectinload(Proposal.opportunity),

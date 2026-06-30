@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Box, Typography, Button, CircularProgress, Alert, Chip,
@@ -34,6 +34,8 @@ export default function GrantOpportunitiesPage() {
   const [filtered, setFiltered] = useState([]);
   const [search, setSearch]     = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [fundingAreas, setFundingAreas] = useState([]);
   const [error, setError]       = useState('');
   const [success, setSuccess]   = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -56,7 +58,7 @@ export default function GrantOpportunitiesPage() {
   const [sortOrder, setSortOrder] = useState('asc');
 
   useEffect(() => { checkAuth(); }, []);
-  useEffect(() => { applyFilter(); }, [opps, search, statusFilter, sortBy, sortOrder]);
+  useEffect(() => { applyFilter(); }, [opps, search, statusFilter, categoryFilter, sortBy, sortOrder]);
   useEffect(() => { setPage(0); }, [filtered]);
 
   const checkAuth = async () => {
@@ -70,19 +72,37 @@ export default function GrantOpportunitiesPage() {
 
   const loadOpps = async () => {
     try {
-      // Fetch opportunities from database
-      const res = await api.get('/grants/opportunities');
-      // Add curated flag (default false for Excel imports)
-      const oppsWithCuration = (res.data || []).map(o => ({ ...o, is_curated: o.is_curated || false }));
+      const [oppsRes, areasRes] = await Promise.all([
+        api.get('/grants/opportunities'),
+        api.get('/grants/opportunities/funding-by-area').catch(() => ({ data: [] })),
+      ]);
+      const oppsWithCuration = (oppsRes.data || []).map(o => ({ ...o, is_curated: o.is_curated || false }));
       setOpps(oppsWithCuration);
+      setFundingAreas(areasRes.data || []);
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to load opportunities');
     }
   };
 
+  const getOppCategories = (opp) => {
+    if (opp.categories?.length) return opp.categories;
+    if (opp.category) return opp.category.split(',').map(n => ({ name: n.trim() })).filter(c => c.name);
+    return [];
+  };
+
+  const categoryOptions = useMemo(() => {
+    const names = new Set();
+    opps.forEach(o => getOppCategories(o).forEach(c => names.add(c.name)));
+    fundingAreas.forEach(a => names.add(a.category_name));
+    return Array.from(names).sort();
+  }, [opps, fundingAreas]);
+
   const applyFilter = () => {
     let data = [...opps];
     if (statusFilter !== 'all') data = data.filter(o => o.status === statusFilter);
+    if (categoryFilter !== 'all') {
+      data = data.filter(o => getOppCategories(o).some(c => c.name === categoryFilter));
+    }
     if (search) data = data.filter(o => o.title?.toLowerCase().includes(search.toLowerCase()) || o.sponsor?.toLowerCase().includes(search.toLowerCase()));
     
     // Apply sorting
@@ -275,6 +295,14 @@ export default function GrantOpportunitiesPage() {
     return `${o.currency} ${fmt(o.amount_min || o.amount_max)}`;
   };
 
+  const fmtFundingRange = (min, max, currencies = []) => {
+    if (!min && !max) return '—';
+    const fmt = (n) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}K` : n;
+    const curr = currencies.length === 1 ? `${currencies[0]} ` : '';
+    if (min && max) return `${curr}${fmt(min)} – ${fmt(max)}`;
+    return `${curr}${fmt(min || max)}`;
+  };
+
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><CircularProgress /></Box>;
 
   return (
@@ -311,7 +339,50 @@ export default function GrantOpportunitiesPage() {
             <MenuItem value="archived">Archived</MenuItem>
           </Select>
         </FormControl>
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <InputLabel>Funding Area</InputLabel>
+          <Select value={categoryFilter} label="Funding Area" onChange={e => setCategoryFilter(e.target.value)} sx={{ borderRadius: 2 }}>
+            <MenuItem value="all">All Areas</MenuItem>
+            {categoryOptions.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+          </Select>
+        </FormControl>
       </Box>
+
+      {/* Funding by Research Area */}
+      {fundingAreas.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary', mb: 1.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Funding by Research Area
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            {fundingAreas.map(area => (
+              <Paper key={area.category_id || area.category_name} elevation={0}
+                onClick={() => setCategoryFilter(area.category_name === categoryFilter ? 'all' : area.category_name)}
+                sx={{
+                  flex: '1 1 200px', maxWidth: 280, p: 2, borderRadius: 3, cursor: 'pointer',
+                  border: `1px solid ${categoryFilter === area.category_name ? area.color : theme.palette.divider}`,
+                  bgcolor: categoryFilter === area.category_name ? `${area.color}10` : 'background.paper',
+                  transition: 'border-color 0.15s, background-color 0.15s',
+                  '&:hover': { borderColor: area.color, bgcolor: `${area.color}08` },
+                }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: area.color, flexShrink: 0 }} />
+                  <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'text.primary' }}>{area.category_name}</Typography>
+                </Box>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 0.5 }}>
+                  {area.opportunity_count} opportunit{area.opportunity_count === 1 ? 'y' : 'ies'} · {area.open_count} open
+                </Typography>
+                <Typography sx={{ fontSize: 13, fontWeight: 600, color: ACCENT, mb: 0.5 }}>
+                  {fmtFundingRange(area.total_funding_min, area.total_funding_max, area.currencies)}
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>
+                  {area.application_count} application{area.application_count === 1 ? '' : 's'}
+                </Typography>
+              </Paper>
+            ))}
+          </Box>
+        </Box>
+      )}
 
       {/* Curation Actions */}
       {selected.length > 0 && (
@@ -359,6 +430,7 @@ export default function GrantOpportunitiesPage() {
                 />
               </TableCell>
               <TableCell>Title</TableCell>
+              <TableCell>Funding Area</TableCell>
               <TableCell>Sponsor</TableCell>
               <TableCell>Funding Range</TableCell>
               <TableCell 
@@ -387,7 +459,7 @@ export default function GrantOpportunitiesPage() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={8}>
                   <Box sx={{ textAlign: 'center', py: 6 }}>
                     <AssignmentIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                     <Typography sx={{ color: 'text.secondary', fontWeight: 600 }}>No opportunities found</Typography>
@@ -412,10 +484,19 @@ export default function GrantOpportunitiesPage() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Box sx={{ flex: 1 }}>
                         <Typography sx={{ fontWeight: 600, fontSize: 14, color: 'text.primary' }}>{opp.title}</Typography>
-                        {opp.category && <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>{opp.category}</Typography>}
                       </Box>
                       {opp.is_curated && (
                         <PublishedIcon sx={{ fontSize: 16, color: ACCENT }} titleAccess="Published to researchers" />
+                      )}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {getOppCategories(opp).length > 0 ? getOppCategories(opp).map(c => (
+                        <Chip key={c.id || c.name} label={c.name} size="small"
+                          sx={{ fontSize: 10, fontWeight: 600, bgcolor: `${c.color || ACCENT}18`, color: c.color || ACCENT, height: 22 }} />
+                      )) : (
+                        <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>—</Typography>
                       )}
                     </Box>
                   </TableCell>
@@ -431,9 +512,15 @@ export default function GrantOpportunitiesPage() {
                       sx={{ bgcolor: sc.bg, color: sc.color, fontWeight: 600, fontSize: 11 }} />
                   </TableCell>
                   <TableCell align="right">
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); router.push(`/admin-staff/grants/opportunities/${opp.id}`); }} sx={{ color: ACCENT }}>
-                      <ViewIcon fontSize="small" />
-                    </IconButton>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
+                      {opp.application_count > 0 && (
+                        <Chip label={`${opp.application_count} app${opp.application_count === 1 ? '' : 's'}`} size="small"
+                          sx={{ fontSize: 10, fontWeight: 600, bgcolor: 'rgba(59,130,246,0.12)', color: '#3b82f6', height: 22, mr: 0.5 }} />
+                      )}
+                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); router.push(`/admin-staff/grants/opportunities/${opp.id}`); }} sx={{ color: ACCENT }}>
+                        <ViewIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
                   </TableCell>
                 </TableRow>
               );

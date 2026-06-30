@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Button, Paper, TextField, CircularProgress, Alert,
   Divider, IconButton, Chip, useTheme, MenuItem, Select, FormControl,
@@ -19,6 +19,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 const inp = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
+const EMPTY_MANUSCRIPT_KEYWORDS = [];
 
 const normalizeOrcidId = (value) =>
   (value || '').trim().replace(/^https?:\/\/orcid\.org\//i, '');
@@ -209,7 +210,7 @@ export function TeamInvitePanel({
   proposalTitle = '',
   manuscriptTitle = '',
   manuscriptDescription = '',
-  manuscriptKeywords = [],
+  manuscriptKeywords = EMPTY_MANUSCRIPT_KEYWORDS,
   manuscriptDepartment = '',
   suggestionsLabel = 'Suggested Collaborators',
   suggestionsHint = 'Researchers at your institution whose expertise may strengthen this work. Click a name to review their profile.',
@@ -350,25 +351,30 @@ export function TeamInvitePanel({
     };
   };
 
+  const excludeUserIds = useMemo(
+    () => invitees.filter(i => i.user_id).map(i => i.user_id).join(','),
+    [invitees],
+  );
+  const manuscriptKeywordsKey = useMemo(
+    () => (Array.isArray(manuscriptKeywords) ? manuscriptKeywords.join(',') : (manuscriptKeywords || '')),
+    [manuscriptKeywords],
+  );
+
   const loadSuggestions = useCallback(async () => {
     if (!showSuggestions) return;
     setLoadingSuggestions(true);
     try {
-      const excludeIds = invitees.filter(i => i.user_id).map(i => i.user_id).join(',');
       const headers = authHeaders();
       let res;
 
       if (suggestionMode === 'manuscript') {
-        const kw = Array.isArray(manuscriptKeywords)
-          ? manuscriptKeywords.join(',')
-          : (manuscriptKeywords || '');
         res = await axios.get(`${API}/manuscripts/co-authors/suggest`, {
           params: {
             title: manuscriptTitle?.trim() || undefined,
             description: manuscriptDescription?.trim() || undefined,
-            keywords: kw || undefined,
+            keywords: manuscriptKeywordsKey || undefined,
             department: manuscriptDepartment?.trim() || undefined,
-            exclude_user_ids: excludeIds || undefined,
+            exclude_user_ids: excludeUserIds || undefined,
             limit: 6,
           },
           headers,
@@ -378,7 +384,7 @@ export function TeamInvitePanel({
           params: {
             opportunity_id: opportunityId || undefined,
             proposal_title: proposalTitle?.trim() || undefined,
-            exclude_user_ids: excludeIds || undefined,
+            exclude_user_ids: excludeUserIds || undefined,
             limit: 6,
           },
           headers,
@@ -399,9 +405,9 @@ export function TeamInvitePanel({
     proposalTitle,
     manuscriptTitle,
     manuscriptDescription,
-    manuscriptKeywords,
+    manuscriptKeywordsKey,
     manuscriptDepartment,
-    invitees,
+    excludeUserIds,
   ]);
 
   useEffect(() => {

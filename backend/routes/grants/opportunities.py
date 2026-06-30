@@ -1,15 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime, date
 import pandas as pd
 import io
 import httpx
 
 from database import get_db
-from models import GrantOpportunity, User
+from models import GrantOpportunity, User, Proposal, OpportunityCategory, OpportunityCategories, InstitutionCategory
 from auth import require_roles, ResearchRole, get_current_user
 from services.opportunity_import import OpportunityImportService
 
@@ -31,6 +31,13 @@ class OpportunityCreate(BaseModel):
     deadline: Optional[datetime] = None
 
 
+class CategoryBrief(BaseModel):
+    id: Optional[str] = None
+    name: str
+    slug: Optional[str] = None
+    color: Optional[str] = "#3B82F6"
+
+
 class OpportunityOut(BaseModel):
     id: str
     title: str
@@ -47,9 +54,177 @@ class OpportunityOut(BaseModel):
     status: str
     is_curated: bool
     created_at: datetime
+    categories: List[CategoryBrief] = []
+    application_count: int = 0
 
     class Config:
         from_attributes = True
+
+
+class OpportunityDetailOut(OpportunityOut):
+    eligibility: Optional[str] = None
+    criteria: Optional[str] = None
+    application_url: Optional[str] = None
+    contact_email: Optional[str] = None
+    source_system: Optional[str] = None
+
+
+class FundingAreaSummary(BaseModel):
+    category_id: Optional[str] = None
+    category_name: str
+    color: str = "#3B82F6"
+    opportunity_count: int = 0
+    open_count: int = 0
+    application_count: int = 0
+    total_funding_min: float = 0
+    total_funding_max: float = 0
+    currencies: List[str] = []
+
+
+class OpportunityApplicationOut(BaseModel):
+    id: str
+    title: str
+    status: str
+    submitted_at: Optional[datetime] = None
+    created_at: datetime
+    lead_pi_name: Optional[str] = None
+    lead_pi_email: Optional[str] = None
+
+
+def _legacy_category_briefs(category: Optional[str]) -> List[CategoryBrief]:
+    if not category:
+        return []
+    return [
+        CategoryBrief(name=part.strip())
+        for part in category.split(",")
+        if part.strip()
+    ]
+
+
+def _resolve_opportunity_categories(
+    opp: GrantOpportunity,
+    assigned: List[OpportunityCategory],
+) -> List[CategoryBrief]:
+    if assigned:
+        return [
+            CategoryBrief(id=c.id, name=c.name, slug=c.slug, color=c.color or "#3B82F6")
+            for c in assigned
+        ]
+    return _legacy_category_briefs(opp.category)
+
+
+async def _fetch_opportunity_categories(
+    db: AsyncSession,
+    opportunity_ids: List[str],
+) -> Dict[str, List[OpportunityCategory]]:
+    if not opportunity_ids:
+        return {}
+
+    result = await db.execute(
+        select(OpportunityCategories.opportunity_id, OpportunityCategory)
+        .join(OpportunityCategory, OpportunityCategories.category_id == OpportunityCategory.id)
+        .where(OpportunityCategories.opportunity_id.in_(opportunity_ids))
+    )
+    mapping: Dict[str, List[OpportunityCategory]] = {oid: [] for oid in opportunity_ids}
+    for opp_id, category in result.all():
+        mapping.setdefault(opp_id, []).append(category)
+    return mapping
+
+
+async def _fetch_application_counts(
+    db: AsyncSession,
+    opportunity_ids: List[str],
+    institution_id: Optional[str] = None,
+) -> Dict[str, int]:
+    if not opportunity_ids:
+        return {}
+
+    query = (
+        select(Proposal.opportunity_id, func.count(Proposal.id))
+        .where(Proposal.opportunity_id.in_(opportunity_ids))
+        .group_by(Proposal.opportunity_id)
+    )
+    if institution_id:
+        query = query.where(Proposal.institution_id == institution_id)
+
+    result = await db.execute(query)
+    return {opp_id: count for opp_id, count in result.all()}
+
+
+async def _query_visible_opportunities(
+    db: AsyncSession,
+    current_user: User,
+    status: Optional[str] = None,
+    curated_only: bool = False,
+) -> List[GrantOpportunity]:
+    """Return opportunities visible to the current user."""
+    is_global_or_inst_admin = current_user.is_global_admin or current_user.is_institution_admin
+
+    if is_global_or_inst_admin:
+        query = select(GrantOpportunity)
+    else:
+        if not current_user.primary_institution_id:
+            return []
+
+        inst_categories_result = await db.execute(
+            select(InstitutionCategory.category_id).where(
+                InstitutionCategory.institution_id == current_user.primary_institution_id
+            )
+        )
+        institution_category_ids = [row[0] for row in inst_categories_result.fetchall()]
+        if not institution_category_ids:
+            return []
+
+        query = (
+            select(GrantOpportunity)
+            .join(OpportunityCategories, GrantOpportunity.id == OpportunityCategories.opportunity_id)
+            .where(OpportunityCategories.category_id.in_(institution_category_ids))
+            .distinct()
+        )
+
+    if status:
+        query = query.where(GrantOpportunity.status == status)
+    if curated_only:
+        query = query.where(GrantOpportunity.is_curated == True)
+
+    result = await db.execute(query.order_by(GrantOpportunity.deadline))
+    return list(result.scalars().all())
+
+
+def _serialize_opportunity(
+    opp: GrantOpportunity,
+    categories: List[CategoryBrief],
+    application_count: int = 0,
+    include_details: bool = False,
+) -> dict:
+    payload = {
+        "id": opp.id,
+        "title": opp.title,
+        "sponsor": opp.sponsor,
+        "description": opp.description,
+        "category": opp.category,
+        "geography": opp.geography,
+        "applicant_type": opp.applicant_type,
+        "funding_type": opp.funding_type,
+        "amount_min": opp.amount_min,
+        "amount_max": opp.amount_max,
+        "currency": opp.currency,
+        "deadline": opp.deadline,
+        "status": opp.status,
+        "is_curated": opp.is_curated,
+        "created_at": opp.created_at,
+        "categories": categories,
+        "application_count": application_count,
+    }
+    if include_details:
+        payload.update({
+            "eligibility": opp.eligibility,
+            "criteria": opp.criteria,
+            "application_url": opp.application_url,
+            "contact_email": opp.contact_email,
+            "source_system": opp.source_system,
+        })
+    return payload
 
 
 @router.get("", response_model=List[OpportunityOut])
@@ -64,57 +239,24 @@ async def list_opportunities(
     - Global/Institution admins see all opportunities
     - Admin-staff and researchers see only opportunities matching their institution's categories
     """
-    from models import OpportunityCategory, InstitutionCategory, OpportunityCategories
-    
-    # Only Global Admins and Institution Admins see ALL opportunities
-    # Everyone else (including admin-staff and researchers) see filtered by institution categories
-    is_global_or_inst_admin = current_user.is_global_admin or current_user.is_institution_admin
-    
-    if is_global_or_inst_admin:
-        # Global/Institution admins see all opportunities
-        query = select(GrantOpportunity)
-        
-        if status:
-            query = query.where(GrantOpportunity.status == status)
-        
-        if curated_only:
-            query = query.where(GrantOpportunity.is_curated == True)
-        
-        result = await db.execute(query.order_by(GrantOpportunity.deadline))
-        return result.scalars().all()
-    
-    # Admin-staff and researchers see only opportunities matching their institution's categories
-    if not current_user.primary_institution_id:
+    opportunities = await _query_visible_opportunities(db, current_user, status, curated_only)
+    if not opportunities:
         return []
-    
-    # Get institution's category IDs
-    inst_categories_result = await db.execute(
-        select(InstitutionCategory.category_id).where(
-            InstitutionCategory.institution_id == current_user.primary_institution_id
+
+    opp_ids = [o.id for o in opportunities]
+    category_map = await _fetch_opportunity_categories(db, opp_ids)
+    app_counts = await _fetch_application_counts(
+        db, opp_ids, institution_id=current_user.primary_institution_id
+    )
+
+    return [
+        _serialize_opportunity(
+            opp,
+            _resolve_opportunity_categories(opp, category_map.get(opp.id, [])),
+            app_counts.get(opp.id, 0),
         )
-    )
-    institution_category_ids = [row[0] for row in inst_categories_result.fetchall()]
-    
-    if not institution_category_ids:
-        # Institution has no categories assigned, return empty list
-        return []
-    
-    # Get opportunities that match institution's categories
-    query = (
-        select(GrantOpportunity)
-        .join(OpportunityCategories, GrantOpportunity.id == OpportunityCategories.opportunity_id)
-        .where(OpportunityCategories.category_id.in_(institution_category_ids))
-        .distinct()
-    )
-    
-    if status:
-        query = query.where(GrantOpportunity.status == status)
-    
-    if curated_only:
-        query = query.where(GrantOpportunity.is_curated == True)
-    
-    result = await db.execute(query.order_by(GrantOpportunity.deadline))
-    return result.scalars().all()
+        for opp in opportunities
+    ]
 
 
 @router.post("", response_model=OpportunityOut, status_code=201)
@@ -126,7 +268,6 @@ async def create_opportunity(
     ]))
 ):
     opp = GrantOpportunity(
-        institution_id=current_user.primary_institution_id,
         created_by_id=current_user.id,
         **data.model_dump()
     )
@@ -190,25 +331,118 @@ async def get_opportunities_from_excel(
         )
 
 
-@router.get("/{opp_id}", response_model=OpportunityOut)
+@router.get("/funding-by-area", response_model=List[FundingAreaSummary])
+async def get_funding_by_area(
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregate funding information by research funding area for reporting."""
+    opportunities = await _query_visible_opportunities(db, current_user, status=status)
+    if not opportunities:
+        return []
+
+    opp_ids = [o.id for o in opportunities]
+    category_map = await _fetch_opportunity_categories(db, opp_ids)
+    app_counts = await _fetch_application_counts(
+        db, opp_ids, institution_id=current_user.primary_institution_id
+    )
+
+    summaries: Dict[str, FundingAreaSummary] = {}
+
+    for opp in opportunities:
+        categories = _resolve_opportunity_categories(opp, category_map.get(opp.id, []))
+        if not categories:
+            categories = [CategoryBrief(name="Uncategorized")]
+
+        for cat in categories:
+            key = cat.id or cat.name
+            if key not in summaries:
+                summaries[key] = FundingAreaSummary(
+                    category_id=cat.id,
+                    category_name=cat.name,
+                    color=cat.color or "#3B82F6",
+                )
+
+            summary = summaries[key]
+            summary.opportunity_count += 1
+            if opp.status == "open":
+                summary.open_count += 1
+            summary.application_count += app_counts.get(opp.id, 0)
+            if opp.amount_min:
+                summary.total_funding_min += opp.amount_min
+            if opp.amount_max:
+                summary.total_funding_max += opp.amount_max
+            elif opp.amount_min:
+                summary.total_funding_max += opp.amount_min
+            if opp.currency and opp.currency not in summary.currencies:
+                summary.currencies.append(opp.currency)
+
+    return sorted(summaries.values(), key=lambda s: s.opportunity_count, reverse=True)
+
+
+@router.get("/{opp_id}", response_model=OpportunityDetailOut)
 async def get_opportunity(
     opp_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles([
-        ResearchRole.GRANT_OFFICER, ResearchRole.PRINCIPAL_INVESTIGATOR,
-        ResearchRole.INSTITUTIONAL_LEAD, ResearchRole.SYSTEM_ADMIN
-    ]))
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(GrantOpportunity).where(
-            GrantOpportunity.id == opp_id,
-            GrantOpportunity.institution_id == current_user.primary_institution_id
-        )
+        select(GrantOpportunity).where(GrantOpportunity.id == opp_id)
     )
     opp = result.scalar_one_or_none()
     if not opp:
         raise HTTPException(404, "Opportunity not found")
-    return opp
+
+    category_map = await _fetch_opportunity_categories(db, [opp_id])
+    app_counts = await _fetch_application_counts(
+        db, [opp_id], institution_id=current_user.primary_institution_id
+    )
+
+    return _serialize_opportunity(
+        opp,
+        _resolve_opportunity_categories(opp, category_map.get(opp_id, [])),
+        app_counts.get(opp_id, 0),
+        include_details=True,
+    )
+
+
+@router.get("/{opp_id}/applications", response_model=List[OpportunityApplicationOut])
+async def get_opportunity_applications(
+    opp_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List institutional applications (proposals) for a grant opportunity."""
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(select(GrantOpportunity).where(GrantOpportunity.id == opp_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(404, "Opportunity not found")
+
+    query = (
+        select(Proposal)
+        .options(selectinload(Proposal.lead_pi))
+        .where(Proposal.opportunity_id == opp_id)
+    )
+    if current_user.primary_institution_id:
+        query = query.where(Proposal.institution_id == current_user.primary_institution_id)
+
+    proposals_result = await db.execute(query.order_by(Proposal.created_at.desc()))
+    proposals = proposals_result.scalars().all()
+
+    return [
+        {
+            "id": p.id,
+            "title": p.title,
+            "status": p.status.value if hasattr(p.status, "value") else str(p.status),
+            "submitted_at": p.submitted_at,
+            "created_at": p.created_at,
+            "lead_pi_name": p.lead_pi.name if p.lead_pi else None,
+            "lead_pi_email": p.lead_pi.email if p.lead_pi else None,
+        }
+        for p in proposals
+    ]
 
 
 @router.patch("/{opp_id}/status")
@@ -220,7 +454,6 @@ async def update_opportunity_status(
 ):
     result = await db.execute(select(GrantOpportunity).where(
         GrantOpportunity.id == opp_id,
-        GrantOpportunity.institution_id == current_user.primary_institution_id
     ))
     opp = result.scalar_one_or_none()
     if not opp:
@@ -238,10 +471,7 @@ async def delete_opportunity(
 ):
     """Delete a grant opportunity"""
     result = await db.execute(
-        select(GrantOpportunity).where(
-            GrantOpportunity.id == opp_id,
-            GrantOpportunity.institution_id == current_user.primary_institution_id
-        )
+        select(GrantOpportunity).where(GrantOpportunity.id == opp_id)
     )
     opp = result.scalar_one_or_none()
     if not opp:
@@ -369,7 +599,6 @@ async def import_from_external_api(
                     existing = await db.execute(
                         select(GrantOpportunity).where(
                             GrantOpportunity.title == title,
-                            GrantOpportunity.institution_id == current_user.primary_institution_id
                         )
                     )
                     if existing.scalar_one_or_none():
@@ -396,7 +625,6 @@ async def import_from_external_api(
                     db_opp = GrantOpportunity(
                         **opp_data,
                         created_by_id=current_user.id,
-                        institution_id=current_user.primary_institution_id
                     )
                     db.add(db_opp)
                     imported_count += 1
