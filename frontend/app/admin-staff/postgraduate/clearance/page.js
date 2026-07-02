@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Box,
   CircularProgress,
@@ -31,8 +32,10 @@ function GateCell({ cleared }) {
 }
 
 export default function PgClearancePage() {
+  const router = useRouter();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
+  const accent = theme.palette.primary.main;
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -63,7 +66,7 @@ export default function PgClearancePage() {
 
   const filterFn = (row, value, key) => {
     if (key === 'search') {
-      return `${row.student_id} ${row.status} ${row.blockers || ''}`.toLowerCase().includes(value);
+      return `${row.full_name || ''} ${row.student_id} ${row.lead_supervisor || ''} ${row.status} ${row.blockers || ''}`.toLowerCase().includes(value);
     }
     if (key === 'status') return row.status === value;
     if (key === 'coursework') return value === 'cleared' ? row.coursework_cleared : !row.coursework_cleared;
@@ -95,7 +98,7 @@ export default function PgClearancePage() {
       <PgAdminTableToolbar
         search={search}
         onSearchChange={(value) => { setSearch(value); setPage(0); }}
-        searchPlaceholder="Search student ID or blockers…"
+        searchPlaceholder="Search name, ID, supervisor or blockers…"
         filters={filters}
         onFilterChange={setFilter}
         filterFields={[
@@ -139,6 +142,8 @@ export default function PgClearancePage() {
           <TableHead>
             <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}>
               <TableCell sx={{ fontWeight: 700 }}>Student ID</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Student Name</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Supervisor</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Coursework</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Finance</TableCell>
@@ -149,14 +154,21 @@ export default function PgClearancePage() {
           <TableBody>
             {paginated.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} sx={{ py: 5, textAlign: 'center' }}>
+                <TableCell colSpan={8} sx={{ py: 5, textAlign: 'center' }}>
                   <Typography sx={{ color: 'text.secondary' }}>No clearance records match your filters.</Typography>
                 </TableCell>
               </TableRow>
             ) : (
               paginated.map((c) => (
-                <TableRow key={c.student_id} hover>
+                <TableRow
+                  key={c.student_id}
+                  hover
+                  sx={{ cursor: 'pointer', '&:hover': { bgcolor: `${accent}08` } }}
+                  onClick={() => router.push(`/admin-staff/postgraduate/students/${c.student_id}?from=clearance`)}
+                >
                   <TableCell sx={{ fontSize: 13, fontWeight: 600 }}>{c.student_id}</TableCell>
+                  <TableCell sx={{ fontSize: 13, fontWeight: 600, color: accent }}>{c.full_name || '—'}</TableCell>
+                  <TableCell sx={{ fontSize: 13 }}>{c.lead_supervisor || '—'}</TableCell>
                   <TableCell>
                     <Chip
                       size="small"

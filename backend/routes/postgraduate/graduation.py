@@ -29,6 +29,7 @@ async def list_clearance(
         clearances.append({
             "student_id": sid,
             "full_name": student["full_name"],
+            "lead_supervisor": student.get("lead_supervisor"),
             "programme_name": student["programme_name"],
             "department": student.get("department"),
             **data["clearance"],

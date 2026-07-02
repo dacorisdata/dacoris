@@ -5,7 +5,6 @@ import {
   Box,
   CircularProgress,
   Alert,
-  Grid,
   Paper,
   Button,
   Table,
@@ -18,6 +17,7 @@ import {
 } from '@mui/material';
 import pgApi from '../../../lib/postgraduateApi';
 import PgPageShell from '../../../components/postgraduate/PgPageShell';
+import PgControlTowerDashboard from '../../../components/postgraduate/PgControlTowerDashboard';
 import {
   PgAdminTablePagination,
   PgAdminTableToolbar,
@@ -35,6 +35,7 @@ export default function PgControlTowerPage() {
   const [scanResult, setScanResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const {
     search,
@@ -48,11 +49,16 @@ export default function PgControlTowerPage() {
     clearFilters,
   } = usePgTableState();
 
-  const load = () => {
+  const load = (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
     pgApi.universityDashboard()
       .then((res) => setData(res.data))
       .catch((err) => setError(err.response?.data?.detail || 'Unable to load PG dashboard'))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
   };
 
   useEffect(() => { load(); }, []);
@@ -61,7 +67,7 @@ export default function PgControlTowerPage() {
     try {
       const res = await pgApi.runOverdueScan();
       setScanResult(res.data);
-      load();
+      load(true);
     } catch (err) {
       setError(err.response?.data?.detail || 'Scan failed');
     }
@@ -106,11 +112,11 @@ export default function PgControlTowerPage() {
 
   return (
     <PgPageShell
-      title="PG Control Tower"
-      subtitle="University-wide postgraduate overview and at-risk monitoring."
+      title="Head of Postgraduate Studies Dashboard — Control Tower"
+      subtitle="University-wide oversight with drill-down from institution to faculty, school, department, programme, cohort, supervisor and individual student."
     >
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-        <Button variant="outlined" onClick={runScan}>Run Overdue Scan</Button>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1, gap: 1 }}>
+        <Button variant="outlined" size="small" onClick={runScan}>Run Overdue Scan</Button>
       </Box>
 
       {error && !data && <Alert severity="warning" sx={{ mb: 2 }}>{error}</Alert>}
@@ -120,35 +126,15 @@ export default function PgControlTowerPage() {
         </Alert>
       )}
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Total PG students</Typography>
-            <Typography variant="h4">{data?.total_students}</Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>At risk</Typography>
-            <Typography variant="h4" color="warning.main">{atRiskStudents.length}</Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <Paper sx={{ p: 2 }}>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Open interventions</Typography>
-            <Typography variant="h4">{data?.open_interventions}</Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+      {data && (
+        <PgControlTowerDashboard
+          data={data}
+          onRefresh={() => load(true)}
+          refreshing={refreshing}
+        />
+      )}
 
-      <Typography sx={{ fontWeight: 600, mb: 1 }}>Students by Stage</Typography>
-      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-        {Object.entries(data?.by_stage || {}).map(([stage, count]) => (
-          <Typography key={stage} sx={{ fontSize: 13 }}>{stage}: {count}</Typography>
-        ))}
-      </Paper>
-
-      <Typography sx={{ fontWeight: 600, mb: 1 }}>At-Risk Students</Typography>
+      <Typography sx={{ fontWeight: 700, mt: 4, mb: 1.5, fontSize: 16 }}>At-Risk Students</Typography>
 
       <PgAdminTableToolbar
         search={search}
