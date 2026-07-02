@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
-from pydantic import BaseModel, EmailStr
+from sqlalchemy.orm import selectinload
+from pydantic import BaseModel, EmailStr, model_validator
 from typing import List, Optional
 from datetime import datetime
 import csv
@@ -19,6 +20,7 @@ from models import (
 )
 from auth import require_global_admin, get_password_hash
 from services.training_defaults import ensure_default_programs
+from services.institution_types import institution_types_as_strings, sync_institution_types, load_institution_with_types
 
 router = APIRouter(prefix="/api/global-admin", tags=["global-admin"])
 
@@ -26,6 +28,7 @@ class InstitutionCreate(BaseModel):
     name: str
     domain: str
     verified_domains: Optional[str] = None
+    institution_types: Optional[List[str]] = None
     orcid_client_id: Optional[str] = None
     orcid_client_secret: Optional[str] = None
     orcid_redirect_uri: Optional[str] = None
@@ -35,12 +38,29 @@ class InstitutionResponse(BaseModel):
     name: str
     domain: str
     verified_domains: Optional[str]
+    institution_types: List[str] = []
     is_active: bool
     primary_admin_id: Optional[str]
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def extract_institution_types(cls, data):
+        if hasattr(data, 'type_assignments'):
+            return {
+                'id': data.id,
+                'name': data.name,
+                'domain': data.domain,
+                'verified_domains': data.verified_domains,
+                'institution_types': institution_types_as_strings(data),
+                'is_active': data.is_active,
+                'primary_admin_id': data.primary_admin_id,
+                'created_at': data.created_at,
+            }
+        return data
 
 class InstitutionAdminCreate(BaseModel):
     email: EmailStr
@@ -98,7 +118,9 @@ async def list_institutions(
     current_user: User = Depends(require_global_admin)
 ):
     """List all institutions"""
-    result = await db.execute(select(Institution))
+    result = await db.execute(
+        select(Institution).options(selectinload(Institution.type_assignments))
+    )
     institutions = result.scalars().all()
     return institutions
 
@@ -132,12 +154,13 @@ async def create_institution(
     )
     
     db.add(institution)
+    await db.flush()
+    await sync_institution_types(db, institution.id, institution_data.institution_types)
     await db.commit()
-    await db.refresh(institution)
 
     await ensure_default_programs(db, institution.id, created_by_id=current_user.id)
 
-    return institution
+    return await load_institution_with_types(db, institution.id)
 
 @router.get("/institutions/{institution_id}", response_model=InstitutionResponse)
 async def get_institution(
@@ -147,7 +170,9 @@ async def get_institution(
 ):
     """Get institution details"""
     result = await db.execute(
-        select(Institution).where(Institution.id == institution_id)
+        select(Institution)
+        .options(selectinload(Institution.type_assignments))
+        .where(Institution.id == institution_id)
     )
     institution = result.scalar_one_or_none()
     
@@ -168,7 +193,9 @@ async def update_institution(
 ):
     """Update institution details"""
     result = await db.execute(
-        select(Institution).where(Institution.id == institution_id)
+        select(Institution)
+        .options(selectinload(Institution.type_assignments))
+        .where(Institution.id == institution_id)
     )
     institution = result.scalar_one_or_none()
     
@@ -184,11 +211,11 @@ async def update_institution(
     institution.orcid_client_id = institution_data.orcid_client_id
     institution.orcid_client_secret = institution_data.orcid_client_secret
     institution.orcid_redirect_uri = institution_data.orcid_redirect_uri
+    await sync_institution_types(db, institution.id, institution_data.institution_types)
     
     await db.commit()
-    await db.refresh(institution)
     
-    return institution
+    return await load_institution_with_types(db, institution.id)
 
 @router.post("/institutions/{institution_id}/toggle-status")
 async def toggle_institution_status(

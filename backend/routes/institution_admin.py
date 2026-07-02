@@ -8,6 +8,8 @@ from datetime import datetime
 from database import get_db
 from models import User, Institution, AccountType, UserStatus, ResearchRole, PrimaryAccountType, user_roles
 from auth import require_institution_admin
+from services.institution_types import institution_types_as_strings, sync_institution_types
+from sqlalchemy.orm import selectinload
 
 router = APIRouter(prefix="/api/institution-admin", tags=["institution-admin"])
 
@@ -36,10 +38,15 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 class InstitutionSettings(BaseModel):
+    name: Optional[str] = None
+    domain: Optional[str] = None
+    verified_domains: Optional[str] = None
+    institution_type: Optional[str] = None
+    institution_types: Optional[List[str]] = None
+    auto_approve: Optional[bool] = None
     orcid_client_id: Optional[str] = None
     orcid_client_secret: Optional[str] = None
     orcid_redirect_uri: Optional[str] = None
-    verified_domains: Optional[str] = None
 
 class InstitutionStats(BaseModel):
     total_users: int
@@ -501,7 +508,9 @@ async def get_institution_settings(
         )
     
     result = await db.execute(
-        select(Institution).where(Institution.id == current_user.primary_institution_id)
+        select(Institution)
+        .options(selectinload(Institution.type_assignments))
+        .where(Institution.id == current_user.primary_institution_id)
     )
     institution = result.scalar_one_or_none()
     
@@ -516,6 +525,8 @@ async def get_institution_settings(
         "name": institution.name,
         "domain": institution.domain,
         "verified_domains": institution.verified_domains,
+        "institution_types": institution_types_as_strings(institution),
+        "auto_approve": institution.auto_approve,
         "orcid_client_id": institution.orcid_client_id,
         "orcid_redirect_uri": institution.orcid_redirect_uri,
         "is_active": institution.is_active
@@ -535,7 +546,9 @@ async def update_institution_settings(
         )
     
     result = await db.execute(
-        select(Institution).where(Institution.id == current_user.primary_institution_id)
+        select(Institution)
+        .options(selectinload(Institution.type_assignments))
+        .where(Institution.id == current_user.primary_institution_id)
     )
     institution = result.scalar_one_or_none()
     
@@ -546,14 +559,28 @@ async def update_institution_settings(
         )
     
     # Update settings
+    if settings.name is not None:
+        institution.name = settings.name
+    if settings.domain is not None:
+        institution.domain = settings.domain
+    if settings.verified_domains is not None:
+        institution.verified_domains = settings.verified_domains
+    if settings.institution_types is not None:
+        await sync_institution_types(db, institution.id, settings.institution_types)
+    elif settings.institution_type is not None:
+        await sync_institution_types(
+            db,
+            institution.id,
+            [settings.institution_type] if settings.institution_type else [],
+        )
+    if settings.auto_approve is not None:
+        institution.auto_approve = settings.auto_approve
     if settings.orcid_client_id is not None:
         institution.orcid_client_id = settings.orcid_client_id
     if settings.orcid_client_secret is not None:
         institution.orcid_client_secret = settings.orcid_client_secret
     if settings.orcid_redirect_uri is not None:
         institution.orcid_redirect_uri = settings.orcid_redirect_uri
-    if settings.verified_domains is not None:
-        institution.verified_domains = settings.verified_domains
     
     await db.commit()
     

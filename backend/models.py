@@ -39,6 +39,22 @@ class PrimaryAccountType(str, enum.Enum):
     LEGAL_OFFICER = "LEGAL_OFFICER"
     PARTNERSHIP_COORDINATOR = "PARTNERSHIP_COORDINATOR"
     EXTERNAL_PARTNER = "EXTERNAL_PARTNER"
+    POSTGRADUATE_STUDENT = "POSTGRADUATE_STUDENT"
+    SUPERVISOR = "SUPERVISOR"
+    EXTERNAL_SUPERVISOR = "EXTERNAL_SUPERVISOR"
+    PG_COORDINATOR = "PG_COORDINATOR"
+    HEAD_OF_PG_STUDIES = "HEAD_OF_PG_STUDIES"
+
+class InstitutionType(str, enum.Enum):
+    UNIVERSITY = "university"
+    HOSPITAL = "hospital"
+    RESEARCH_INSTITUTE = "research_institute"
+    GOVERNMENT = "government"
+    NGO = "ngo"
+    INDUSTRY = "industry"
+    FUNDER = "funder"
+    INTERNATIONAL_ORG = "international_org"
+    OTHER = "other"
 
 class ResearchRole(str, enum.Enum):
     RESEARCHER = "researcher"
@@ -61,6 +77,11 @@ class ResearchRole(str, enum.Enum):
     LEGAL_OFFICER = "legal_officer"
     PARTNERSHIP_COORDINATOR = "partnership_coordinator"
     EXTERNAL_PARTNER = "external_partner"
+    POSTGRADUATE_STUDENT = "postgraduate_student"
+    SUPERVISOR = "supervisor"
+    EXTERNAL_SUPERVISOR = "external_supervisor"
+    PG_COORDINATOR = "pg_coordinator"
+    HEAD_OF_PG_STUDIES = "head_of_pg_studies"
 
 user_roles = Table(
     'user_roles',
@@ -78,6 +99,7 @@ class Institution(Base):
     name = Column(String, nullable=False, unique=True)
     domain = Column(String, nullable=False, unique=True)
     verified_domains = Column(Text, nullable=True)
+    auto_approve = Column(Boolean, default=False, nullable=False)
     orcid_client_id = Column(String, nullable=True)
     orcid_client_secret = Column(String, nullable=True)
     orcid_redirect_uri = Column(String, nullable=True)
@@ -89,6 +111,29 @@ class Institution(Base):
     
     users = relationship("User", back_populates="institution", foreign_keys="User.primary_institution_id")
     orcid_profiles = relationship("OrcidProfile", back_populates="institution")
+    type_assignments = relationship(
+        "InstitutionTypeAssignment",
+        back_populates="institution",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class InstitutionTypeAssignment(Base):
+    __tablename__ = "institution_type_assignments"
+    __table_args__ = (
+        UniqueConstraint('institution_id', 'institution_type', name='unique_institution_type_assignment'),
+    )
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey('institutions.id', ondelete='CASCADE'), nullable=False, index=True)
+    institution_type = Column(
+        Enum(InstitutionType, name='institutiontype', values_callable=lambda x: [e.value for e in x], create_type=False),
+        nullable=False,
+    )
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    institution = relationship("Institution", back_populates="type_assignments")
 
 class User(Base):
     __tablename__ = "users"
@@ -120,6 +165,7 @@ class User(Base):
     job_title = Column(String(200), nullable=True)
     phone = Column(String(50), nullable=True)
     expertise_keywords = Column(Text, nullable=True)
+    staff_id = Column(String(50), nullable=True, index=True)
     
     is_guest = Column(Boolean, default=False, nullable=False)
     access_expires_at = Column(DateTime(timezone=True), nullable=True)
@@ -2002,6 +2048,9 @@ class WorkflowType(str, enum.Enum):
     PROJECT_REVIEW = "project_review"
     ETHICS_REVIEW = "ethics_review"
     DMP_REVIEW = "dmp_review"
+    POSTGRADUATE_LIFECYCLE = "postgraduate_lifecycle"
+    PROPOSAL_DEFENSE = "proposal_defense"
+    THESIS_DEFENSE = "thesis_defense"
 
 
 class WorkflowStatus(str, enum.Enum):
@@ -2358,3 +2407,338 @@ class CPDRecord(Base):
 
     user = relationship("User", foreign_keys=[user_id])
     enrollment = relationship("TrainingEnrollment")
+
+
+# ─── POSTGRADUATE MODULE MODELS ──────────────────────────────────────────────
+
+class PgStageStatus(str, enum.Enum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    SUBMITTED = "submitted"
+    UNDER_SUPERVISOR_REVIEW = "under_supervisor_review"
+    RETURNED_FOR_CORRECTION = "returned_for_correction"
+    READY_FOR_DEPARTMENT_REVIEW = "ready_for_department_review"
+    DEFENSE_SCHEDULED = "defense_scheduled"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    BLOCKED = "blocked"
+    OVERDUE = "overdue"
+    ESCALATED = "escalated"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
+class PgReportType(str, enum.Enum):
+    PROGRESS_COMMENT = "progress_comment"
+    STAGE_SIGNOFF = "stage_signoff"
+    DELAY_REPORT = "delay_report"
+    COMPLETION_RECOMMENDATION = "completion_recommendation"
+
+
+class PgProposalStatus(str, enum.Enum):
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    UNDER_REVIEW = "under_review"
+    DEFENSE_SCHEDULED = "defense_scheduled"
+    APPROVED = "approved"
+    APPROVED_WITH_CORRECTIONS = "approved_with_corrections"
+    REJECTED = "rejected"
+
+
+class PgInterventionStatus(str, enum.Enum):
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    ESCALATED = "escalated"
+    CLOSED = "closed"
+
+
+class PgSupervisorAssignmentStatus(str, enum.Enum):
+    ACTIVE = "active"
+    PENDING = "pending"
+    ENDED = "ended"
+
+
+class PgClearanceStatus(str, enum.Enum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    CLEARED = "cleared"
+
+
+class PgStudentProfile(Base):
+    __tablename__ = "pg_student_profiles"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
+    research_interests = Column(Text, nullable=True)
+    orcid = Column(String(100), nullable=True)
+    research_project_id = Column(String, ForeignKey("research_projects.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+    research_project = relationship("ResearchProject", foreign_keys=[research_project_id])
+
+
+class PgStaffProfile(Base):
+    __tablename__ = "pg_staff_profiles"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    staff_id = Column(String(50), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class PgStageDefinition(Base):
+    __tablename__ = "pg_stage_definitions"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    programme_code = Column(String(50), nullable=True)
+    stage_order = Column(Integer, nullable=False)
+    stage_name = Column(String(200), nullable=False)
+    expected_days = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PgStudentStageStatus(Base):
+    __tablename__ = "pg_student_stage_status"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    stage_order = Column(Integer, nullable=False)
+    stage_name = Column(String(200), nullable=False)
+    status = Column(Enum(PgStageStatus), default=PgStageStatus.NOT_STARTED)
+    expected_completion_date = Column(Date, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    is_overdue = Column(Boolean, default=False)
+    notes = Column(Text, nullable=True)
+    updated_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class PgRequirementPack(Base):
+    __tablename__ = "pg_requirement_packs"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    programme_code = Column(String(50), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PgRequirementItem(Base):
+    __tablename__ = "pg_requirement_items"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    pack_id = Column(String, ForeignKey("pg_requirement_packs.id", ondelete="CASCADE"), nullable=False, index=True)
+    rule_type = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    min_value = Column(Float, nullable=True)
+    mandatory = Column(Boolean, default=True)
+    status = Column(String(50), default="pending")
+    waived = Column(Boolean, default=False)
+    waiver_reason = Column(Text, nullable=True)
+    waived_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    evidence = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PgSupervisorReport(Base):
+    __tablename__ = "pg_supervisor_reports"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    supervisor_user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    report_type = Column(Enum(PgReportType), nullable=False)
+    progress_rating = Column(String(50), nullable=True)
+    achievements = Column(Text, nullable=True)
+    next_milestone = Column(Text, nullable=True)
+    risks = Column(Text, nullable=True)
+    support_needed = Column(Text, nullable=True)
+    primary_delay_category = Column(String(100), nullable=True)
+    secondary_delay_category = Column(String(100), nullable=True)
+    narrative = Column(Text, nullable=True)
+    action_taken = Column(Text, nullable=True)
+    recommended_intervention = Column(Text, nullable=True)
+    revised_milestone_date = Column(Date, nullable=True)
+    risk_level = Column(String(50), nullable=True)
+    escalation_needed = Column(Boolean, default=False)
+    stage_name = Column(String(200), nullable=True)
+    student_name = Column(String(200), nullable=True)
+    programme_name = Column(String(300), nullable=True)
+    department = Column(String(200), nullable=True)
+    cohort_year = Column(Integer, nullable=True)
+    expected_completion_date = Column(Date, nullable=True)
+    days_overdue = Column(Integer, nullable=True)
+    evidence_filename = Column(String(255), nullable=True)
+    evidence_stored_filename = Column(String(255), nullable=True)
+    evidence_mime_type = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    supervisor = relationship("User", foreign_keys=[supervisor_user_id])
+
+
+class PgProgressReport(Base):
+    __tablename__ = "pg_progress_reports"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    current_stage = Column(String(200), nullable=True)
+    activities_completed = Column(Text, nullable=True)
+    challenges = Column(Text, nullable=True)
+    requested_support = Column(Text, nullable=True)
+    next_planned_activity = Column(Text, nullable=True)
+    status = Column(Enum(PgStageStatus), default=PgStageStatus.SUBMITTED)
+    supervisor_validation = Column(Text, nullable=True)
+    supervisor_rating = Column(String(50), nullable=True)
+    validated_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    validated_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+    validated_by = relationship("User", foreign_keys=[validated_by_id])
+
+
+class PgProposalRecord(Base):
+    __tablename__ = "pg_proposal_records"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    title = Column(String(500), nullable=True)
+    abstract = Column(Text, nullable=True)
+    keywords = Column(Text, nullable=True)
+    status = Column(Enum(PgProposalStatus), default=PgProposalStatus.DRAFT)
+    defense_date = Column(DateTime(timezone=True), nullable=True)
+    board_decision = Column(Text, nullable=True)
+    corrections_required = Column(Text, nullable=True)
+    research_project_id = Column(String, ForeignKey("research_projects.id"), nullable=True)
+    ethics_application_id = Column(String, ForeignKey("ethics_applications.id"), nullable=True)
+    workflow_instance_id = Column(String, ForeignKey("workflow_instances.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    research_project = relationship("ResearchProject", foreign_keys=[research_project_id])
+    ethics_application = relationship("EthicsApplication", foreign_keys=[ethics_application_id])
+
+
+class PgDefenseRecord(Base):
+    __tablename__ = "pg_defense_records"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    defense_type = Column(String(50), default="thesis")
+    defense_date = Column(DateTime(timezone=True), nullable=True)
+    examiners = Column(Text, nullable=True)
+    outcome = Column(String(100), nullable=True)
+    corrections_required = Column(Text, nullable=True)
+    corrections_due_date = Column(Date, nullable=True)
+    corrections_cleared = Column(Boolean, default=False)
+    status = Column(Enum(PgStageStatus), default=PgStageStatus.NOT_STARTED)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class PgInterventionCase(Base):
+    __tablename__ = "pg_intervention_cases"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    category = Column(String(100), nullable=False)
+    owner_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    owner_role = Column(String(100), nullable=True)
+    stage_name = Column(String(200), nullable=True)
+    required_action = Column(Text, nullable=True)
+    expected_outcome = Column(Text, nullable=True)
+    due_date = Column(Date, nullable=True)
+    escalation_level = Column(Integer, default=0)
+    status = Column(Enum(PgInterventionStatus), default=PgInterventionStatus.OPEN)
+    closure_reason = Column(Text, nullable=True)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+
+    owner = relationship("User", foreign_keys=[owner_user_id])
+
+
+class PgSupervisorAssignment(Base):
+    __tablename__ = "pg_supervisor_assignments"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, index=True)
+    lead_supervisor_id = Column(String(50), nullable=False)
+    lead_supervisor_name = Column(String(200), nullable=True)
+    lead_supervisor_email = Column(String(200), nullable=True)
+    co_supervisor_id = Column(String(50), nullable=True)
+    co_supervisor_name = Column(String(200), nullable=True)
+    co_supervisor_email = Column(String(200), nullable=True)
+    appointment_date = Column(Date, nullable=True)
+    status = Column(Enum(PgSupervisorAssignmentStatus), default=PgSupervisorAssignmentStatus.ACTIVE)
+    notes = Column(Text, nullable=True)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    end_reason = Column(Text, nullable=True)
+
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class PgGraduationClearance(Base):
+    __tablename__ = "pg_graduation_clearance"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    student_id = Column(String(50), nullable=False, unique=True, index=True)
+    status = Column(Enum(PgClearanceStatus), default=PgClearanceStatus.NOT_STARTED)
+    coursework_cleared = Column(Boolean, default=False)
+    supervisor_cleared = Column(Boolean, default=False)
+    proposal_cleared = Column(Boolean, default=False)
+    ethics_cleared = Column(Boolean, default=False)
+    data_analysis_cleared = Column(Boolean, default=False)
+    thesis_cleared = Column(Boolean, default=False)
+    defense_cleared = Column(Boolean, default=False)
+    publication_cleared = Column(Boolean, default=False)
+    finance_cleared = Column(Boolean, default=False)
+    repository_cleared = Column(Boolean, default=False)
+    blockers = Column(Text, nullable=True)
+    cleared_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class PgAuditLog(Base):
+    __tablename__ = "pg_audit_log"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    entity_type = Column(String(50), nullable=False)
+    entity_id = Column(String, nullable=False, index=True)
+    student_id = Column(String(50), nullable=True, index=True)
+    action = Column(String(100), nullable=False)
+    actor_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    actor_role = Column(String(100), nullable=True)
+    previous_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    actor = relationship("User", foreign_keys=[actor_user_id])

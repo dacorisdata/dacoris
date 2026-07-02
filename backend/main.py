@@ -47,6 +47,7 @@ from routes.workflows import router as workflows_router
 from routes.training.training import router as training_router
 from routes.training.content import router as training_content_router
 from routes.reviewer import router as reviewer_router, reviews_compat_router
+from routes.postgraduate import router as postgraduate_router
 
 load_dotenv()
 
@@ -112,6 +113,7 @@ app.include_router(training_router)
 app.include_router(training_content_router)
 app.include_router(reviewer_router)
 app.include_router(reviews_compat_router)
+app.include_router(postgraduate_router)
 
 class UserCreate(BaseModel):
     email: str

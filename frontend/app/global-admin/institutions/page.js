@@ -22,6 +22,8 @@ import {
   CircularProgress,
   Autocomplete,
   Tooltip,
+  IconButton,
+  Divider,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -29,10 +31,22 @@ import {
   Category as CategoryIcon,
   Delete as DeleteIcon,
   Star as StarIcon,
+  Edit as EditIcon,
+  Block as BlockIcon,
+  CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useTheme } from '@mui/material/styles';
 import { globalAdminAPI } from '../../../lib/api';
+import { INSTITUTION_TYPES, getInstitutionTypeLabel } from '../../../lib/institutionTypes';
+
+const emptyInstitutionForm = () => ({
+  name: '',
+  domain: '',
+  verified_domains: '',
+  institution_types: [],
+  category_ids: [],
+});
 
 export default function InstitutionsPage() {
   const router = useRouter();
@@ -47,16 +61,13 @@ export default function InstitutionsPage() {
   const [success, setSuccess] = useState('');
   
   const [institutionDialogOpen, setInstitutionDialogOpen] = useState(false);
+  const [institutionDialogMode, setInstitutionDialogMode] = useState('create');
+  const [editingInstitution, setEditingInstitution] = useState(null);
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [selectedInstitution, setSelectedInstitution] = useState(null);
   
-  const [institutionForm, setInstitutionForm] = useState({
-    name: '',
-    domain: '',
-    verified_domains: '',
-    category_ids: [],
-  });
+  const [institutionForm, setInstitutionForm] = useState(emptyInstitutionForm());
   const [adminForm, setAdminForm] = useState({
     email: '',
     name: '',
@@ -105,6 +116,58 @@ export default function InstitutionsPage() {
     }
   };
 
+  const handleOpenCreateDialog = () => {
+    setInstitutionDialogMode('create');
+    setEditingInstitution(null);
+    setInstitutionForm(emptyInstitutionForm());
+    setInstitutionDialogOpen(true);
+  };
+
+  const handleOpenEditDialog = async (institution) => {
+    setInstitutionDialogMode('edit');
+    setEditingInstitution(institution);
+
+    let categoryIds = [];
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/global-admin/institutions/${institution.id}/categories`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await response.json();
+      categoryIds = data.map((ic) => ic.category_id);
+    } catch (err) {
+      console.error('Failed to load institution categories:', err);
+    }
+
+    setInstitutionForm({
+      name: institution.name || '',
+      domain: institution.domain || '',
+      verified_domains: institution.verified_domains || '',
+      institution_types: institution.institution_types || [],
+      category_ids: categoryIds,
+    });
+    setInstitutionDialogOpen(true);
+  };
+
+  const handleCloseInstitutionDialog = () => {
+    setInstitutionDialogOpen(false);
+    setInstitutionDialogMode('create');
+    setEditingInstitution(null);
+    setInstitutionForm(emptyInstitutionForm());
+  };
+
+  const assignInstitutionCategories = async (institutionId, categoryIds) => {
+    const token = localStorage.getItem('token');
+    await fetch(`/api/global-admin/institutions/${institutionId}/categories`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ category_ids: categoryIds }),
+    });
+  };
+
   const handleCreateInstitution = async () => {
     if (institutionForm.category_ids.length === 0) {
       setError('Please select at least one category');
@@ -116,26 +179,50 @@ export default function InstitutionsPage() {
         name: institutionForm.name,
         domain: institutionForm.domain,
         verified_domains: institutionForm.verified_domains,
+        institution_types: institutionForm.institution_types,
       });
       
       const institutionId = response.data.id;
-      
-      const token = localStorage.getItem('token');
-      await fetch(`/api/global-admin/institutions/${institutionId}/categories`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ category_ids: institutionForm.category_ids })
-      });
+      await assignInstitutionCategories(institutionId, institutionForm.category_ids);
       
       setSuccess('Institution created successfully with categories assigned');
-      setInstitutionDialogOpen(false);
-      setInstitutionForm({ name: '', domain: '', verified_domains: '', category_ids: [] });
+      handleCloseInstitutionDialog();
       loadData();
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to create institution');
+    }
+  };
+
+  const handleUpdateInstitution = async () => {
+    if (!editingInstitution) return;
+    if (institutionForm.category_ids.length === 0) {
+      setError('Please select at least one category');
+      return;
+    }
+
+    try {
+      await globalAdminAPI.updateInstitution(editingInstitution.id, {
+        name: institutionForm.name,
+        domain: institutionForm.domain,
+        verified_domains: institutionForm.verified_domains,
+        institution_types: institutionForm.institution_types,
+      });
+
+      await assignInstitutionCategories(editingInstitution.id, institutionForm.category_ids);
+
+      setSuccess('Institution updated successfully');
+      handleCloseInstitutionDialog();
+      loadData();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to update institution');
+    }
+  };
+
+  const handleSaveInstitution = () => {
+    if (institutionDialogMode === 'edit') {
+      handleUpdateInstitution();
+    } else {
+      handleCreateInstitution();
     }
   };
 
@@ -378,7 +465,7 @@ export default function InstitutionsPage() {
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => setInstitutionDialogOpen(true)}
+          onClick={handleOpenCreateDialog}
           sx={{
             textTransform: 'none',
             borderRadius: 2,
@@ -412,11 +499,12 @@ export default function InstitutionsPage() {
               <TableRow sx={{ bgcolor: 'action.hover' }}>
                 <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Name</TableCell>
                 <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Domain</TableCell>
+                <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Type</TableCell>
                 <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Categories</TableCell>
                 <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Admins</TableCell>
                 <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Status</TableCell>
                 <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Created</TableCell>
-                <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider' }}>Actions</TableCell>
+                <TableCell sx={{ color: 'text.secondary', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', borderBottom: 1, borderColor: 'divider', width: 180 }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -431,6 +519,25 @@ export default function InstitutionsPage() {
                 <TableRow key={institution.id} sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
                   <TableCell sx={{ fontSize: 14, fontWeight: 600, borderBottom: 1, borderColor: 'divider' }}>{institution.name}</TableCell>
                   <TableCell sx={{ color: 'text.secondary', fontSize: 13, borderBottom: 1, borderColor: 'divider' }}>{institution.domain}</TableCell>
+                  <TableCell sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                    {(institution.institution_types || []).length > 0 ? (
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                        {institution.institution_types.map((type) => (
+                          <Chip
+                            key={type}
+                            label={getInstitutionTypeLabel(type)}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontSize: 11, fontWeight: 600 }}
+                          />
+                        ))}
+                      </Box>
+                    ) : (
+                      <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 13, fontStyle: 'italic' }}>
+                        Not set
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell sx={{ borderBottom: 1, borderColor: 'divider' }}>
                     <Tooltip 
                       title={categoryObjects.length > 0 ? 'Click to manage categories' : 'Click to assign categories'}
@@ -534,44 +641,68 @@ export default function InstitutionsPage() {
                     {new Date(institution.created_at).toLocaleDateString()}
                   </TableCell>
                   <TableCell sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      <Button
-                        size="small"
-                        startIcon={<CategoryIcon />}
-                        onClick={() => handleOpenCategoryDialog(institution)}
-                        color="success"
-                        sx={{
-                          textTransform: 'none',
-                          fontSize: 12,
-                          fontWeight: 600,
-                        }}
+                    <Box
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'stretch',
+                        border: 1,
+                        borderColor: 'divider',
+                        borderRadius: 1.5,
+                        bgcolor: 'action.hover',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <Tooltip title="Edit institution" arrow>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenEditDialog(institution)}
+                          sx={{ borderRadius: 0, px: 1.25, py: 0.75 }}
+                        >
+                          <EditIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Divider orientation="vertical" flexItem />
+                      <Tooltip title="Manage categories" arrow>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenCategoryDialog(institution)}
+                          sx={{ borderRadius: 0, px: 1.25, py: 0.75 }}
+                        >
+                          <CategoryIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Divider orientation="vertical" flexItem />
+                      <Tooltip title="Manage admins" arrow>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenAdminDialog(institution)}
+                          sx={{ borderRadius: 0, px: 1.25, py: 0.75 }}
+                        >
+                          <PersonAddIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Divider orientation="vertical" flexItem />
+                      <Tooltip
+                        title={institution.is_active ? 'Deactivate institution' : 'Activate institution'}
+                        arrow
                       >
-                        Categories
-                      </Button>
-                      <Button
-                        size="small"
-                        startIcon={<PersonAddIcon />}
-                        onClick={() => handleOpenAdminDialog(institution)}
-                        color="primary"
-                        sx={{
-                          textTransform: 'none',
-                          fontSize: 12,
-                          fontWeight: 600,
-                        }}
-                      >
-                        Add Admin
-                      </Button>
-                      <Button
-                        size="small"
-                        onClick={() => handleToggleInstitutionStatus(institution.id)}
-                        sx={{
-                          textTransform: 'none',
-                          fontSize: 12,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {institution.is_active ? 'Deactivate' : 'Activate'}
-                      </Button>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleToggleInstitutionStatus(institution.id)}
+                          sx={{
+                            borderRadius: 0,
+                            px: 1.25,
+                            py: 0.75,
+                            color: institution.is_active ? 'error.main' : 'success.main',
+                          }}
+                        >
+                          {institution.is_active ? (
+                            <BlockIcon sx={{ fontSize: 18 }} />
+                          ) : (
+                            <CheckCircleIcon sx={{ fontSize: 18 }} />
+                          )}
+                        </IconButton>
+                      </Tooltip>
                     </Box>
                   </TableCell>
                 </TableRow>
@@ -582,10 +713,10 @@ export default function InstitutionsPage() {
         </TableContainer>
       </Box>
 
-      {/* Create Institution Dialog */}
+      {/* Create / Edit Institution Dialog */}
       <Dialog
         open={institutionDialogOpen}
-        onClose={() => setInstitutionDialogOpen(false)}
+        onClose={handleCloseInstitutionDialog}
         maxWidth="sm"
         fullWidth
         PaperProps={{
@@ -597,7 +728,9 @@ export default function InstitutionsPage() {
           },
         }}
       >
-        <DialogTitle sx={{ fontSize: 18, fontWeight: 700 }}>Create New Institution</DialogTitle>
+        <DialogTitle sx={{ fontSize: 18, fontWeight: 700 }}>
+          {institutionDialogMode === 'edit' ? 'Edit Institution' : 'Create New Institution'}
+        </DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
@@ -625,6 +758,34 @@ export default function InstitutionsPage() {
             value={institutionForm.verified_domains}
             onChange={(e) => setInstitutionForm({ ...institutionForm, verified_domains: e.target.value })}
             helperText="Users with these email domains will be auto-approved"
+            sx={{ mb: 2 }}
+          />
+
+          <Autocomplete
+            multiple
+            options={INSTITUTION_TYPES}
+            getOptionLabel={(option) => option.label}
+            isOptionEqualToValue={(option, value) => option.value === value.value}
+            value={INSTITUTION_TYPES.filter((type) => institutionForm.institution_types.includes(type.value))}
+            onChange={(event, newValue) =>
+              setInstitutionForm((prev) => ({
+                ...prev,
+                institution_types: newValue.map((type) => type.value),
+              }))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Institution Types"
+                placeholder="Select one or more types..."
+                helperText="An institution can have multiple types, e.g. University and Hospital"
+              />
+            )}
+            renderTags={(value, getTagProps) =>
+              value.map((option, index) => (
+                <Chip {...getTagProps({ index })} key={option.value} label={option.label} size="small" />
+              ))
+            }
             sx={{ mb: 3 }}
           />
           
@@ -697,17 +858,17 @@ export default function InstitutionsPage() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button
-            onClick={() => setInstitutionDialogOpen(false)}
+            onClick={handleCloseInstitutionDialog}
             sx={{ textTransform: 'none', fontWeight: 600 }}
           >
             Cancel
           </Button>
           <Button
-            onClick={handleCreateInstitution}
+            onClick={handleSaveInstitution}
             variant="contained"
             sx={{ textTransform: 'none', fontWeight: 600 }}
           >
-            Create
+            {institutionDialogMode === 'edit' ? 'Save Changes' : 'Create'}
           </Button>
         </DialogActions>
       </Dialog>

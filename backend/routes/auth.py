@@ -10,10 +10,11 @@ import httpx
 import os
 
 from database import get_db
-from models import User, AccountType, UserStatus, PrimaryAccountType
+from models import User, AccountType, UserStatus, PrimaryAccountType, Institution
 from typing import Optional, List
 import sys
 sys.path.append('..')
+from services.institution_types import institution_types_as_strings
 from auth import (
     verify_password,
     get_password_hash,
@@ -60,6 +61,8 @@ class UserResponse(BaseModel):
     email_verified: bool = False
     primary_institution_id: str | None = None
     institution_name: str | None = None
+    institution_types: List[str] = []
+    staff_id: str | None = None
 
     class Config:
         from_attributes = True
@@ -243,10 +246,16 @@ async def get_current_user_info(
 ):
     # Eagerly load institution to get the name
     result = await db.execute(
-        select(User).options(selectinload(User.institution)).where(User.id == current_user.id)
+        select(User)
+        .options(selectinload(User.institution).selectinload(Institution.type_assignments))
+        .where(User.id == current_user.id)
     )
     user_with_institution = result.scalar_one()
     
+    institution_types: List[str] = []
+    if user_with_institution.institution:
+        institution_types = institution_types_as_strings(user_with_institution.institution)
+
     # Convert to dict and add institution_name
     user_dict = {
         "id": user_with_institution.id,
@@ -265,7 +274,9 @@ async def get_current_user_info(
         "orcid_id": user_with_institution.orcid_id,
         "email_verified": user_with_institution.email_verified,
         "primary_institution_id": user_with_institution.primary_institution_id,
-        "institution_name": user_with_institution.institution.name if user_with_institution.institution else None
+        "institution_name": user_with_institution.institution.name if user_with_institution.institution else None,
+        "institution_types": institution_types,
+        "staff_id": user_with_institution.staff_id,
     }
     
     return user_dict

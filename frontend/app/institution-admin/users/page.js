@@ -32,6 +32,11 @@ const PRIMARY_ACCOUNT_TYPES = [
   { value: 'EXTERNAL_REVIEWER',       label: 'External Reviewer' },
   { value: 'GUEST_COLLABORATOR',      label: 'Guest Collaborator' },
   { value: 'EXTERNAL_FUNDER',         label: 'External Funder' },
+  { value: 'POSTGRADUATE_STUDENT',    label: 'Postgraduate Student' },
+  { value: 'SUPERVISOR',              label: 'Supervisor' },
+  { value: 'EXTERNAL_SUPERVISOR',     label: 'External Supervisor' },
+  { value: 'PG_COORDINATOR',          label: 'PG Coordinator' },
+  { value: 'HEAD_OF_PG_STUDIES',      label: 'Head of PG Studies' },
 ];
 
 const ROLE_GROUPS = [

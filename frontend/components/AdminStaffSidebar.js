@@ -22,9 +22,15 @@ import {
   ExpandMore as ExpandMoreIcon, RateReview as ReviewersIcon,
   Assessment as ReportsAnalyticsIcon,
   Storage as StorageIcon,
+  School as PgIcon,
+  Groups as PgStudentsIcon,
+  Warning as InterventionIcon,
+  CheckCircle as ClearanceIcon,
+  AssignmentInd as SupervisorAssignIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
+import { isUniversityInstitution } from '../lib/institutionTypes';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { subtleScrollbarSx } from '../lib/scrollStyles';
 
@@ -62,6 +68,11 @@ const ROLE_META = {
   GUEST_COLLABORATOR:       { label: 'Guest Collaborator',     color: ACCENT },
   EXTERNAL_FUNDER:          { label: 'External Funder',        color: ACCENT },
   ADMIN_STAFF:              { label: 'Admin Staff',            color: ACCENT },
+  HEAD_OF_PG_STUDIES:       { label: 'Head of PG Studies',     color: ACCENT },
+  PG_COORDINATOR:           { label: 'PG Coordinator',         color: ACCENT },
+  SUPERVISOR:               { label: 'Supervisor',             color: ACCENT },
+  EXTERNAL_SUPERVISOR:      { label: 'External Supervisor',    color: ACCENT },
+  POSTGRADUATE_STUDENT:     { label: 'Postgraduate Student',   color: ACCENT },
   MOU_ADMIN:                { label: 'MoU Administrator',      color: ACCENT },
   LEGAL_OFFICER:            { label: 'Legal Officer',           color: ACCENT },
   PARTNERSHIP_COORDINATOR:  { label: 'Partnership Coordinator', color: ACCENT },
@@ -74,6 +85,18 @@ const NAV_SECTIONS = [
       { icon: DashIcon,    label: 'Overview',    path: '/admin-staff/overview', roles: 'all' },
       { icon: ReportsAnalyticsIcon, label: 'Reports & Analytics', path: '/admin-staff/reports', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER','FINANCE_OFFICER','ETHICS_COMMITTEE_MEMBER','DATA_STEWARD'] },
       { icon: PersonIcon,  label: 'My Profile',  path: '/admin-staff/profile',  roles: 'all' },
+    ],
+  },
+  {
+    section: 'Postgraduate Management',
+    universityOnly: true,
+    roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'],
+    items: [
+      { icon: PgIcon, label: 'PG Control Tower', path: '/admin-staff/postgraduate', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
+      { icon: PgStudentsIcon, label: 'Students & Stages', path: '/admin-staff/postgraduate/students', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
+      { icon: SupervisorAssignIcon, label: 'Supervisor Assignments', path: '/admin-staff/postgraduate/supervisor-assignments', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
+      { icon: InterventionIcon, label: 'Interventions', path: '/admin-staff/postgraduate/interventions', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
+      { icon: ClearanceIcon, label: 'Graduation Clearance', path: '/admin-staff/postgraduate/clearance', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
     ],
   },
   {
@@ -194,15 +217,16 @@ export default function AdminStaffSidebar() {
   const dark = theme.palette.mode === 'dark';
 
   const role   = user?.primary_account_type || 'ADMIN_STAFF';
-  const meta   = ROLE_META[role] || ROLE_META.ADMIN_STAFF;
+  const meta   = ROLE_META[role] || ROLE_META.ADMIN_STAFF || { label: 'Staff', color: ACCENT };
   const tokens = sidebarTokens(dark);
   const accent = tokens.accent;
 
   const visibleSections = useMemo(
     () => NAV_SECTIONS
+      .filter(s => !s.universityOnly || isUniversityInstitution(user))
       .map(s => ({ ...s, items: s.items.filter(i => isVisible(i.roles, role)) }))
       .filter(s => s.items.length > 0),
-    [role],
+    [role, user],
   );
 
   const [expanded, setExpanded] = useState({ Main: true });

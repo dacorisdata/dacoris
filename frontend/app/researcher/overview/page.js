@@ -30,6 +30,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isSupervisorAccount } from '../../../lib/institutionTypes';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#1ca7a1';
@@ -184,6 +185,10 @@ export default function ResearcherOverview() {
     }
     if (userData.is_institution_admin) {
       router.push('/institution-admin/dashboard');
+      return;
+    }
+    if (isSupervisorAccount(userData)) {
+      router.push('/researcher/postgraduate/supervisor');
       return;
     }
     setUser(userData);

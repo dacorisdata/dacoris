@@ -11,11 +11,14 @@ import {
   CircularProgress,
   Switch,
   FormControlLabel,
+  Autocomplete,
+  Chip,
   useTheme,
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import { institutionAdminAPI } from '../../../lib/api';
+import { INSTITUTION_TYPES } from '../../../lib/institutionTypes';
 
 export default function InstitutionAdminSettingsPage() {
   const router = useRouter();
@@ -30,6 +33,7 @@ export default function InstitutionAdminSettingsPage() {
     name: '',
     domain: '',
     verified_domains: '',
+    institution_types: [],
     auto_approve: false,
   });
 
@@ -63,6 +67,7 @@ export default function InstitutionAdminSettingsPage() {
         name: response.data.name || '',
         domain: response.data.domain || '',
         verified_domains: response.data.verified_domains || '',
+        institution_types: response.data.institution_types || [],
         auto_approve: response.data.auto_approve || false,
       });
       setLoading(false);
@@ -137,6 +142,34 @@ export default function InstitutionAdminSettingsPage() {
             value={settingsForm.domain}
             onChange={(e) => setSettingsForm({ ...settingsForm, domain: e.target.value })}
             helperText="e.g., university.edu"
+            sx={{ mb: 3 }}
+          />
+
+          <Autocomplete
+            multiple
+            options={INSTITUTION_TYPES}
+            getOptionLabel={(option) => option.label}
+            isOptionEqualToValue={(option, value) => option.value === value.value}
+            value={INSTITUTION_TYPES.filter((type) => settingsForm.institution_types.includes(type.value))}
+            onChange={(event, newValue) =>
+              setSettingsForm({
+                ...settingsForm,
+                institution_types: newValue.map((type) => type.value),
+              })
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Institution Types"
+                placeholder="Select one or more types..."
+                helperText="An institution can have multiple types, e.g. University and Hospital"
+              />
+            )}
+            renderTags={(value, getTagProps) =>
+              value.map((option, index) => (
+                <Chip {...getTagProps({ index })} key={option.value} label={option.label} size="small" />
+              ))
+            }
             sx={{ mb: 3 }}
           />
 

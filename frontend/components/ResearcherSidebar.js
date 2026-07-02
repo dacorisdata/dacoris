@@ -21,13 +21,25 @@ import {
   Psychology as SkillsIcon,
   Assignment as NeedsIcon,
   DynamicForm as FormsIcon,
+  School as PgIcon,
+  Timeline as JourneyIcon,
+  SupervisedUserCircle as SupervisorIcon,
   ExitToApp as LogoutIcon,
   ExpandMore as ExpandIcon,
   ExpandLess as CollapseIcon,
   ImportContacts as ImportIcon,
+  Checklist as RequirementsIcon,
+  ReportProblem as ChallengesIcon,
+  RateReview as FeedbackIcon,
+  WorkspacePremium as GraduationIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
+import {
+  isUniversityInstitution,
+  isSupervisorAccount,
+  isPgStudentAccount,
+} from '../lib/institutionTypes';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { subtleScrollbarSx } from '../lib/scrollStyles';
 
@@ -98,6 +110,32 @@ const NAV_SECTIONS = [
   },
 ];
 
+function buildPgNavSection(user) {
+  if (!isUniversityInstitution(user)) return null;
+  const supervisor = isSupervisorAccount(user);
+  const student = isPgStudentAccount(user) && !supervisor;
+  const items = [];
+  if (supervisor) {
+    items.push(
+      { icon: SupervisorIcon, label: 'Supervisor Dashboard', path: '/researcher/postgraduate/supervisor' },
+      { icon: PgIcon, label: 'My Students', path: '/researcher/postgraduate/supervisor/students' },
+      { icon: NeedsIcon, label: 'Delay Reports', path: '/researcher/postgraduate/supervisor/delay-reports/new' },
+    );
+  }
+  if (student) {
+    items.push(
+      { icon: JourneyIcon, label: 'My PG Journey', path: '/researcher/postgraduate/journey' },
+      { icon: RequirementsIcon, label: 'Requirements', path: '/researcher/postgraduate/requirements' },
+      { icon: NeedsIcon, label: 'Progress Logs', path: '/researcher/postgraduate/progress' },
+      { icon: ChallengesIcon, label: 'Report Challenges', path: '/researcher/postgraduate/challenges' },
+      { icon: FeedbackIcon, label: 'Supervision Feedback', path: '/researcher/postgraduate/feedback' },
+      { icon: GraduationIcon, label: 'Graduation Readiness', path: '/researcher/postgraduate/graduation' },
+    );
+  }
+  if (!items.length) return null;
+  return { section: 'Postgraduate', collapsible: true, items };
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ResearcherSidebar() {
   const router   = useRouter();
@@ -106,8 +144,21 @@ export default function ResearcherSidebar() {
   const theme = useMuiTheme();
   const dark = theme.palette.mode === 'dark';
 
+  const pgSection = buildPgNavSection(user);
+  const navSections = (() => {
+    if (isSupervisorAccount(user) && pgSection) {
+      const mainSection = NAV_SECTIONS.find((s) => s.section === 'Main');
+      return mainSection ? [mainSection, pgSection] : [pgSection];
+    }
+    if (!pgSection) return NAV_SECTIONS;
+    const sections = [...NAV_SECTIONS];
+    const grantsIdx = sections.findIndex((s) => s.section === 'Grants');
+    sections.splice(grantsIdx >= 0 ? grantsIdx : sections.length, 0, pgSection);
+    return sections;
+  })();
+
   // sections open by default
-  const [open, setOpen] = useState({ Research: true, Training: true });
+  const [open, setOpen] = useState({ Research: true, Training: true, Postgraduate: true });
   const toggleSection = (name) => setOpen(prev => ({ ...prev, [name]: !prev[name] }));
 
   const isActive = (path) => pathname === path || pathname.startsWith(path + '/');
@@ -287,7 +338,7 @@ export default function ResearcherSidebar() {
         flex: 1, overflowY: 'auto', py: 0.5,
         ...subtleScrollbarSx(dark),
       }}>
-        {NAV_SECTIONS.map(({ section, items, subsections, collapsible }) => {
+        {navSections.map(({ section, items, subsections, collapsible }) => {
           const hasActive = sectionHasActive({ items, subsections });
           const isOpen = !collapsible || open[section] !== false;
 
