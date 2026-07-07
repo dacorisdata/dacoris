@@ -131,9 +131,18 @@ export const authAPI = {
     }),
   
   getCurrentUser: () => api.get('/auth/me'),
-  
-  refreshToken: (refreshToken) => 
+
+  refreshToken: (refreshToken) =>
     api.post('/auth/refresh', { refresh_token: refreshToken }),
+
+  forgotPassword: (email) =>
+    api.post('/auth/forgot-password', { email }),
+
+  validateResetToken: (token) =>
+    api.get('/auth/reset-password/validate', { params: { token } }),
+
+  resetPassword: (token, newPassword) =>
+    api.post('/auth/reset-password', { token, new_password: newPassword }),
 };
 
 // ORCID endpoints

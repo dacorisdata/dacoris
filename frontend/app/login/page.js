@@ -15,6 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { orcidAPI } from '../../lib/api';
 import { COLORS } from '../../contexts/ThemeContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { getDashboardRoute } from '../../lib/authRouting';
 
 // ── Animated network canvas ──────────────────────────────────────────────────
@@ -101,6 +102,8 @@ function LoginPageContent() {
   const { login, setToken, fetchUser } = useAuth();
   const muiTheme = useMuiTheme();
   const isDark = muiTheme.palette.mode === 'dark';
+  const { t, dir } = useLanguage();
+  const isRtl = dir === 'rtl';
 
   const [form, setForm]             = useState({ email: '', password: '' });
   const [error, setError]           = useState('');
@@ -114,12 +117,12 @@ function LoginPageContent() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.email || !form.password) { setError('Please enter both email and password'); return; }
+    if (!form.email || !form.password) { setError(t('login.errorBothFields')); return; }
     setLoading(true);
     try {
       const u = await login(form.email, form.password);
       if (!u) {
-        setError('Login succeeded but no user data received');
+        setError(t('login.errorNoUserData'));
         setLoading(false);
         return;
       }
@@ -128,7 +131,7 @@ function LoginPageContent() {
       }, 100);
     } catch (err) {
       console.error('Login error:', err);
-      setError(err.response?.data?.detail || 'Invalid email or password. Please try again.');
+      setError(err.response?.data?.detail || t('login.errorInvalidCredentials'));
       setLoading(false);
     }
   };
@@ -136,18 +139,18 @@ function LoginPageContent() {
   const features = [
     {
       icon: <Science sx={{ fontSize: 20 }} />,
-      title: 'End-to-End Research Lifecycle',
-      desc: 'Grants, projects, ethics workflows & researcher profiles in one platform',
+      title: t('login.feature1Title'),
+      desc: t('login.feature1Desc'),
     },
     {
       icon: <BarChart sx={{ fontSize: 20 }} />,
-      title: 'Real-Time Intelligence',
-      desc: 'Live dashboards, financial tracking, compliance monitoring & audit trails',
+      title: t('login.feature2Title'),
+      desc: t('login.feature2Desc'),
     },
     {
       icon: <LinkIcon sx={{ fontSize: 20 }} />,
-      title: 'Seamless Integrations',
-      desc: 'Connected with ORCID, HR systems, finance platforms & external data sources',
+      title: t('login.feature3Title'),
+      desc: t('login.feature3Desc'),
     },
   ];
 
@@ -211,7 +214,7 @@ function LoginPageContent() {
             >
               <CheckCircle sx={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }} />
               <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600, color: 'rgba(255,255,255,0.9)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                Research Management Platform
+                {t('login.badge')}
               </Typography>
             </Box>
 
@@ -222,11 +225,11 @@ function LoginPageContent() {
                 letterSpacing: '-0.03em',
               }}
             >
-              Welcome Back to Your Research Hub
+              {t('login.heroTitle')}
             </Typography>
 
             <Typography sx={{ fontSize: '0.9375rem', color: 'rgba(255,255,255,0.75)', lineHeight: 1.6, mb: 2.5, maxWidth: 380 }}>
-              Manage your institution's research operations with confidence - from grant applications to final reporting.
+              {t('login.heroSubtitle')}
             </Typography>
 
             {/* Feature cards */}
@@ -310,10 +313,10 @@ function LoginPageContent() {
 
             {/* Heading */}
             <Typography variant="h3" sx={{ fontWeight: 800, mb: 1, letterSpacing: '-0.03em', fontSize: { xs: '1.75rem', sm: '2rem' } }}>
-              Sign in
+              {t('login.signIn')}
             </Typography>
             <Typography sx={{ fontSize: '0.9375rem', color: 'text.secondary', mb: 4, lineHeight: 1.6 }}>
-              Access your research management workspace
+              {t('login.signInSubtitle')}
             </Typography>
 
             {error && (
@@ -331,12 +334,12 @@ function LoginPageContent() {
               {/* Email */}
               <Box>
                 <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600, color: 'text.primary', mb: 0.75 }}>
-                  Email address
+                  {t('login.emailLabel')}
                 </Typography>
                 <TextField
                   fullWidth
                   type="email"
-                  placeholder="you@institution.ac.ke"
+                  placeholder={t('login.emailPlaceholder')}
                   required
                   autoComplete="email"
                   value={form.email}
@@ -356,23 +359,24 @@ function LoginPageContent() {
               <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
                   <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600, color: 'text.primary' }}>
-                    Password
+                    {t('login.passwordLabel')}
                   </Typography>
                   <MuiLink
-                    href="#"
+                    component={Link}
+                    href="/forgot-password"
                     sx={{
                       fontSize: '0.8125rem', fontWeight: 500, color: 'primary.main',
                       textDecoration: 'none',
                       '&:hover': { textDecoration: 'underline' },
                     }}
                   >
-                    Forgot password?
+                    {t('login.forgotPassword')}
                   </MuiLink>
                 </Box>
                 <TextField
                   fullWidth
                   type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter your password"
+                  placeholder={t('login.passwordPlaceholder')}
                   required
                   autoComplete="current-password"
                   value={form.password}
@@ -419,7 +423,7 @@ function LoginPageContent() {
                   <CircularProgress size={20} sx={{ color: 'inherit' }} />
                 ) : (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    Sign In <ArrowForward sx={{ fontSize: 17 }} />
+                    {t('login.signInButton')} <ArrowForward sx={{ fontSize: 17, transform: isRtl ? 'scaleX(-1)' : 'none' }} />
                   </Box>
                 )}
               </Button>
@@ -427,7 +431,7 @@ function LoginPageContent() {
               {/* Divider */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 0.5 }}>
                 <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
-                <Typography sx={{ fontSize: '0.75rem', color: 'text.disabled', fontWeight: 500 }}>or continue with</Typography>
+                <Typography sx={{ fontSize: '0.75rem', color: 'text.disabled', fontWeight: 500 }}>{t('login.orContinueWith')}</Typography>
                 <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
               </Box>
 
@@ -449,7 +453,7 @@ function LoginPageContent() {
                 }}
               >
                 <OrcidIcon size={22} />
-                Continue with ORCID
+                {t('login.continueWithOrcid')}
               </Button>
 
               {/* SSO callout */}
@@ -472,9 +476,9 @@ function LoginPageContent() {
                   <LinkIcon sx={{ fontSize: 15, color: 'primary.main' }} />
                 </Box>
                 <Typography sx={{ fontSize: '0.8125rem', color: 'text.secondary', lineHeight: 1.5 }}>
-                  Using institutional credentials?{' '}
+                  {t('login.ssoPrompt')}{' '}
                   <MuiLink href="#" sx={{ color: 'primary.main', fontWeight: 600, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
-                    Sign in with SSO
+                    {t('login.ssoLink')}
                   </MuiLink>
                 </Typography>
               </Box>
@@ -482,13 +486,13 @@ function LoginPageContent() {
               {/* Bottom CTA */}
               <Box sx={{ textAlign: 'center', pt: 2.5, mt: 0.5, borderTop: '1px solid', borderColor: 'divider' }}>
                 <Typography sx={{ fontSize: '0.875rem', color: 'text.secondary' }}>
-                  Don't have an account?{' '}
+                  {t('login.noAccount')}{' '}
                   <MuiLink
                     component={Link}
                     href="/register"
                     sx={{ color: 'primary.main', fontWeight: 700, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
                   >
-                    Create account →
+                    {t('login.createAccount')} {isRtl ? '←' : '→'}
                   </MuiLink>
                 </Typography>
               </Box>
@@ -496,7 +500,7 @@ function LoginPageContent() {
               {/* Copyright Footer */}
               <Box sx={{ textAlign: 'center', pt: 4, mt: 2 }}>
                 <Typography sx={{ fontSize: '0.875rem', color: 'text.secondary', lineHeight: 1.6 }}>
-                  © {new Date().getFullYear()} DACORIS. All rights reserved.
+                  {t('common.copyright', { year: new Date().getFullYear() })}
                 </Typography>
               </Box>
             </Box>

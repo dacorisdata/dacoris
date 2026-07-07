@@ -10,6 +10,7 @@ import os
 from database import get_db, init_db, engine
 from models import User, AccountType
 from routes.auth import router as auth_router
+from routes.password_reset import router as password_reset_router
 from routes.orcid import router as orcid_router
 from routes.registration import router as registration_router
 from routes.email_verification import router as email_verification_router
@@ -75,6 +76,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(password_reset_router)
 app.include_router(orcid_router)
 app.include_router(registration_router)
 app.include_router(email_verification_router)

@@ -20,6 +20,7 @@ import {
   CheckCircle, Shield,
 } from '@mui/icons-material';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useLanguage } from '@/contexts/LanguageContext';
 import TierSelector from '@/components/registration/TierSelector';
 import AdminStaffRegistration from '@/components/registration/AdminStaffRegistration';
 import ResearcherRegistration from '@/components/registration/ResearcherRegistration';
@@ -79,6 +80,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const muiTheme = useMuiTheme();
   const isDark = muiTheme.palette.mode === 'dark';
+  const { t, dir } = useLanguage();
 
   const [activeStep, setActiveStep] = useState(0);
   const [tier, setTier] = useState('');
@@ -126,24 +128,24 @@ export default function RegisterPage() {
   }, []);
 
   const getSteps = () => {
-    if (tier === 'admin_staff') return ['Select Type', 'Account Details'];
-    if (tier === 'researcher') return ['Select Type', 'ORCID Details', 'Institution Email', 'Password'];
-    return ['Select Type'];
+    if (tier === 'admin_staff') return [t('register.stepSelectType'), t('register.stepAccountDetails')];
+    if (tier === 'researcher') return [t('register.stepSelectType'), t('register.stepOrcidDetails'), t('register.stepInstitutionEmail'), t('register.stepPassword')];
+    return [t('register.stepSelectType')];
   };
 
   const validateStep = () => {
     const newErrors = {};
-    if (activeStep === 0 && !tier) newErrors.tier = 'Please select an account type';
+    if (activeStep === 0 && !tier) newErrors.tier = t('register.errorSelectTier');
 
     if (tier === 'researcher' && activeStep === 1) {
-      if (!formData.first_name?.trim()) newErrors.first_name = 'First name is required';
-      if (!formData.given_name?.trim()) newErrors.given_name = 'Given name is required';
+      if (!formData.first_name?.trim()) newErrors.first_name = t('register.errorFirstNameRequired');
+      if (!formData.given_name?.trim()) newErrors.given_name = t('register.errorGivenNameRequired');
     }
 
     if (tier === 'researcher' && activeStep === 2) {
-      if (!formData.email?.trim()) newErrors.email = 'Email is required';
-      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = 'Invalid email format';
-      if (!formData.institution) newErrors.institution = 'Institution is required';
+      if (!formData.email?.trim()) newErrors.email = t('register.errorEmailRequired');
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = t('register.errorEmailInvalid');
+      if (!formData.institution) newErrors.institution = t('register.errorInstitutionRequired');
     }
 
     const isPasswordStep = (tier === 'researcher' && activeStep === 3) ||
@@ -151,13 +153,13 @@ export default function RegisterPage() {
 
     if (isPasswordStep) {
       if (tier === 'admin_staff') {
-        if (!formData.name?.trim()) newErrors.name = 'Name is required';
-        if (!formData.email?.trim()) newErrors.email = 'Email is required';
-        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = 'Invalid email format';
+        if (!formData.name?.trim()) newErrors.name = t('register.errorNameRequired');
+        if (!formData.email?.trim()) newErrors.email = t('register.errorEmailRequired');
+        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = t('register.errorEmailInvalid');
       }
-      if (!formData.password) newErrors.password = 'Password is required';
-      else if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
-      if (formData.password !== formData.confirm_password) newErrors.confirm_password = 'Passwords do not match';
+      if (!formData.password) newErrors.password = t('register.errorPasswordRequired');
+      else if (formData.password.length < 8) newErrors.password = t('register.errorPasswordTooShort');
+      if (formData.password !== formData.confirm_password) newErrors.confirm_password = t('register.errorPasswordsNoMatch');
     }
 
     setErrors(newErrors);
@@ -203,9 +205,9 @@ export default function RegisterPage() {
       });
       const data = await response.json();
       if (response.ok) setRegistrationComplete(true);
-      else setError(data.detail || data.message || 'Registration failed. Please try again.');
+      else setError(data.detail || data.message || t('register.errorRegistrationFailed'));
     } catch (err) {
-      setError('An error occurred during registration. Please try again.');
+      setError(t('register.errorGeneric'));
     } finally {
       setLoading(false);
     }
@@ -226,10 +228,10 @@ export default function RegisterPage() {
   const isLastStep = (tier === 'admin_staff' && activeStep === 1) || (tier === 'researcher' && activeStep === 3);
 
   const orgTypes = [
-    { icon: <School sx={{ fontSize: 18 }} />, label: 'Universities & Research Institutes', desc: 'CRIS with ethics workflows and output tracking' },
-    { icon: <LocalHospital sx={{ fontSize: 18 }} />, label: 'Hospitals & Clinical Organizations', desc: 'IRB/ethics with HIPAA-aligned controls' },
-    { icon: <Public sx={{ fontSize: 18 }} />, label: 'NGOs & Development Organizations', desc: 'Grant management from proposal to closeout' },
-    { icon: <AccountBalance sx={{ fontSize: 18 }} />, label: 'Government & Statistics Bureaus', desc: 'Data integration, pipelines & analytics' },
+    { icon: <School sx={{ fontSize: 18 }} />, label: t('register.orgType1Label'), desc: t('register.orgType1Desc') },
+    { icon: <LocalHospital sx={{ fontSize: 18 }} />, label: t('register.orgType2Label'), desc: t('register.orgType2Desc') },
+    { icon: <Public sx={{ fontSize: 18 }} />, label: t('register.orgType3Label'), desc: t('register.orgType3Desc') },
+    { icon: <AccountBalance sx={{ fontSize: 18 }} />, label: t('register.orgType4Label'), desc: t('register.orgType4Desc') },
   ];
 
   return (
@@ -287,7 +289,7 @@ export default function RegisterPage() {
           >
             <CheckCircle sx={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }} />
             <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600, color: 'rgba(255,255,255,0.9)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-              Research Management Platform
+              {t('register.badge')}
             </Typography>
           </Box>
 
@@ -298,11 +300,11 @@ export default function RegisterPage() {
               letterSpacing: '-0.03em',
             }}
           >
-            Join the DACORIS Research Network
+            {t('register.heroTitle')}
           </Typography>
 
           <Typography sx={{ fontSize: '0.9375rem', color: 'rgba(255,255,255,0.75)', lineHeight: 1.6, mb: 2.5, maxWidth: 360 }}>
-            Whether you're a researcher, administrator, or institutional leader — get the tools to govern, manage, and report research with confidence.
+            {t('register.heroSubtitle')}
           </Typography>
 
           {/* Org type cards */}
@@ -385,10 +387,10 @@ export default function RegisterPage() {
 
           {/* Heading */}
           <Typography variant="h3" sx={{ fontWeight: 800, mb: 0.75, letterSpacing: '-0.03em', fontSize: { xs: '1.625rem', sm: '1.875rem' } }}>
-            Create your account
+            {t('register.createAccount')}
           </Typography>
           <Typography sx={{ fontSize: '0.9375rem', color: 'text.secondary', mb: 4, lineHeight: 1.6 }}>
-            Join your institution's research management workspace
+            {t('register.createAccountSubtitle')}
           </Typography>
 
           {/* Stepper — only show when tier is selected */}
@@ -441,7 +443,7 @@ export default function RegisterPage() {
                 startIcon={<ArrowBack />}
                 sx={{ borderRadius: '10px', px: 2.5, py: 1.25, fontWeight: 600, borderColor: 'divider', minWidth: 100 }}
               >
-                Back
+                {t('register.back')}
               </Button>
               <Button
                 variant="contained"
@@ -458,7 +460,7 @@ export default function RegisterPage() {
               >
                 {loading ? (
                   <CircularProgress size={20} sx={{ color: 'inherit' }} />
-                ) : isLastStep ? 'Complete Registration' : 'Continue'}
+                ) : isLastStep ? t('register.completeRegistration') : t('register.continueButton')}
               </Button>
             </Box>
 
@@ -475,7 +477,7 @@ export default function RegisterPage() {
               >
                 <Shield sx={{ fontSize: 16, color: 'primary.main', mt: 0.25, flexShrink: 0 }} />
                 <Typography sx={{ fontSize: '0.8125rem', color: 'text.secondary', lineHeight: 1.6 }}>
-                  By registering, you agree to DACORIS's data processing terms. Your institutional data is stored securely with role-based access controls and full audit logging.
+                  {t('register.consentNote')}
                 </Typography>
               </Box>
             )}
@@ -484,13 +486,13 @@ export default function RegisterPage() {
           {/* Bottom CTA */}
           <Box sx={{ textAlign: 'center', pt: 1 }}>
             <Typography sx={{ fontSize: '0.875rem', color: 'text.secondary' }}>
-              Already have an account?{' '}
+              {t('register.alreadyHaveAccount')}{' '}
               <MuiLink
                 component={Link}
                 href="/login"
                 sx={{ color: 'primary.main', fontWeight: 700, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
               >
-                Sign in →
+                {t('register.signIn')} {dir === 'rtl' ? '←' : '→'}
               </MuiLink>
             </Typography>
           </Box>
@@ -499,3 +501,4 @@ export default function RegisterPage() {
     </Box>
   );
 }
+

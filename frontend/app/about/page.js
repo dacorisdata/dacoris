@@ -15,59 +15,61 @@ import {
 } from '@mui/icons-material';
 import Image from 'next/image';
 import { COLORS } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const tl = COLORS.teal;
 const sl = COLORS.slate;
 
-const FEATURES = [
-  {
-    icon: HubIcon,
-    title: 'Comprehensive Integration',
-    desc: 'Connects external systems (ORCID, Web of Science, HR, Finance) with internal workflows into one seamless platform.',
-    color: tl[500],
-  },
-  {
-    icon: StorageIcon,
-    title: 'Centralized Data Hub',
-    desc: 'Single source of truth for all research information, project management, and institutional knowledge.',
-    color: COLORS.blue[600],
-  },
-  {
-    icon: WorkflowIcon,
-    title: 'Automated Workflows',
-    desc: 'Streamlines approvals, compliance monitoring, and budget management to eliminate manual bottlenecks.',
-    color: COLORS.amber[600],
-  },
-  {
-    icon: VisibilityIcon,
-    title: 'Real-time Visibility',
-    desc: 'Unified dashboards and live reporting give decision-makers an up-to-the-minute view of the research portfolio.',
-    color: COLORS.green[600],
-  },
-  {
-    icon: ComplianceIcon,
-    title: 'Ethics & Compliance',
-    desc: 'Built-in governance tracks ethics submissions, policy adherence, and audit trails across every project.',
-    color: COLORS.red[500],
-  },
-  {
-    icon: AnalyticsIcon,
-    title: 'Reporting & Analytics',
-    desc: 'Rich analytics on outputs, funding trends, and performance metrics power evidence-based strategy.',
-    color: COLORS.orange[500],
-  },
-];
-
-const STATS = [
-  { value: 'End-to-End', label: 'Research Lifecycle' },
-  { value: 'Unified', label: 'Data Platform' },
-  { value: 'Real-time', label: 'Dashboards' },
-  { value: 'Automated', label: 'Workflows' },
-];
-
 export default function AboutPage() {
   const theme = useMuiTheme();
   const dark = theme.palette.mode === 'dark';
+  const { t } = useLanguage();
+
+  const FEATURES = [
+    {
+      icon: HubIcon,
+      title: t('about.feature1Title'),
+      desc: t('about.feature1Desc'),
+      color: tl[500],
+    },
+    {
+      icon: StorageIcon,
+      title: t('about.feature2Title'),
+      desc: t('about.feature2Desc'),
+      color: COLORS.blue[600],
+    },
+    {
+      icon: WorkflowIcon,
+      title: t('about.feature3Title'),
+      desc: t('about.feature3Desc'),
+      color: COLORS.amber[600],
+    },
+    {
+      icon: VisibilityIcon,
+      title: t('about.feature4Title'),
+      desc: t('about.feature4Desc'),
+      color: COLORS.green[600],
+    },
+    {
+      icon: ComplianceIcon,
+      title: t('about.feature5Title'),
+      desc: t('about.feature5Desc'),
+      color: COLORS.red[500],
+    },
+    {
+      icon: AnalyticsIcon,
+      title: t('about.feature6Title'),
+      desc: t('about.feature6Desc'),
+      color: COLORS.orange[500],
+    },
+  ];
+
+  const STATS = [
+    { value: t('about.stat1Value'), label: t('about.stat1Label') },
+    { value: t('about.stat2Value'), label: t('about.stat2Label') },
+    { value: t('about.stat3Value'), label: t('about.stat3Label') },
+    { value: t('about.stat4Value'), label: t('about.stat4Label') },
+  ];
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
@@ -118,7 +120,7 @@ export default function AboutPage() {
               display: 'block',
             }}
           >
-            Research Management Platform
+            {t('about.heroOverline')}
           </Typography>
 
           <Typography
@@ -142,7 +144,7 @@ export default function AboutPage() {
               mb: 1,
             }}
           >
-            Data Conveyance Research Information System
+            {t('about.tagline')}
           </Typography>
 
           <Typography
@@ -155,7 +157,7 @@ export default function AboutPage() {
               mx: 'auto',
             }}
           >
-            End-to-End Research Lifecycle Workflow &middot; Research Management
+            {t('about.subtagline')} &middot; {t('about.subtaglineSecond')}
           </Typography>
 
           {/* Stats row */}
@@ -209,7 +211,7 @@ export default function AboutPage() {
               }}
             />
             <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary' }}>
-              About the Platform
+              {t('about.aboutTitle')}
             </Typography>
           </Box>
 
@@ -221,14 +223,7 @@ export default function AboutPage() {
               textAlign: 'justify',
             }}
           >
-            DACORIS is a comprehensive Current Research Information System (CRIS) that manages the entire
-            research lifecycle – from initial grant proposals and projects through to final research outputs and
-            dissemination. It serves as a central hub for an institution's research information, integrating various
-            internal workflows (e.g. approvals, reporting) and aggregating data from external and internal sources
-            into a single platform. By automating processes and linking systems, DACORIS provides visibility, clarity,
-            and efficiency for research operations. Decision-makers (management, IT, research administrators) can
-            thus obtain a unified, real-time view of research activities, compliance, and performance across the
-            institution.
+            {t('about.aboutBody')}
           </Typography>
         </Box>
       </Container>
@@ -249,18 +244,16 @@ export default function AboutPage() {
               variant="overline"
               sx={{ color: tl[500], letterSpacing: '0.12em', display: 'block', mb: 0.5 }}
             >
-              Objectives
+              {t('about.objectivesOverline')}
             </Typography>
             <Typography variant="h4" sx={{ fontWeight: 700, color: 'text.primary', mb: 2 }}>
-              Why DACORIS?
+              {t('about.whyTitle')}
             </Typography>
             <Typography
               variant="body1"
               sx={{ lineHeight: 1.85, color: 'text.secondary', textAlign: 'center', maxWidth: 720, mx: 'auto' }}
             >
-              Modern institutions face increasing pressure to meet strict funder reporting requirements,
-              uphold ethics and regulatory compliance, manage research data responsibly, reduce
-              administrative burden, and provide transparent institutional reporting.
+              {t('about.whyBody')}
             </Typography>
           </Box>
 
@@ -277,11 +270,11 @@ export default function AboutPage() {
           >
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {[
-                'Meet strict funder reporting requirements with automated, audit-ready outputs',
-                'Uphold ethics and regulatory compliance through built-in governance workflows',
-                'Manage research data responsibly with full lifecycle data stewardship',
-                'Reduce administrative burden by automating repetitive manual processes',
-                'Provide transparent institutional reporting via real-time dashboards',
+                t('about.whyItem1'),
+                t('about.whyItem2'),
+                t('about.whyItem3'),
+                t('about.whyItem4'),
+                t('about.whyItem5'),
               ].map((item, i) => (
                 <Box key={i} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
                   <CheckIcon sx={{ fontSize: 20, color: tl[500], mt: 0.2, flexShrink: 0 }} />
@@ -297,9 +290,7 @@ export default function AboutPage() {
             <Typography
               sx={{ fontSize: 14, lineHeight: 1.8, color: 'text.secondary', textAlign: 'center' }}
             >
-              DACORIS addresses these challenges by bringing all these processes into a single, coordinated
-              platform, creating a true &ldquo;single source of truth&rdquo; for research and innovation while improving
-              efficiency, accountability, and strategic oversight.
+              {t('about.whySummary')}
             </Typography>
           </Box>
         </Container>
@@ -312,10 +303,10 @@ export default function AboutPage() {
             variant="overline"
             sx={{ color: tl[500], letterSpacing: '0.12em', display: 'block', mb: 0.5 }}
           >
-            Platform
+            {t('about.platformOverline')}
           </Typography>
           <Typography variant="h4" sx={{ fontWeight: 700, color: 'text.primary' }}>
-            Core Modules
+            {t('about.coreModulesTitle')}
           </Typography>
         </Box>
 
@@ -329,29 +320,29 @@ export default function AboutPage() {
           {[
             {
               icon: GrantIcon,
-              title: 'Grant Application & Management',
-              subtitle: 'Manage the Full Grant Lifecycle in One Place',
+              title: t('about.module1Title'),
+              subtitle: t('about.module1Subtitle'),
               color: tl[500],
               gradient: `linear-gradient(135deg, ${tl[600]}, ${tl[700]})`,
             },
             {
               icon: ResearchIcon,
-              title: 'Research Management',
-              subtitle: 'Coordinate the Entire Research Lifecycle',
+              title: t('about.module2Title'),
+              subtitle: t('about.module2Subtitle'),
                color: tl[500],
               gradient: `linear-gradient(135deg, ${tl[600]}, ${tl[700]})`,
             },
             {
               icon: DataIcon,
-              title: 'Data Management',
-              subtitle: 'Capture, Curate, Govern, and Reuse Trusted Research Data',
+              title: t('about.module3Title'),
+              subtitle: t('about.module3Subtitle'),
                color: tl[500],
               gradient: `linear-gradient(135deg, ${tl[600]}, ${tl[700]})`,
             },
             {
               icon: InsightsIcon,
-              title: 'Analytics, Reporting & Visibility',
-              subtitle: 'Transform Institutional Data into Insight, Reporting, and Visibility',
+              title: t('about.module4Title'),
+              subtitle: t('about.module4Subtitle'),
                color: tl[500],
               gradient: `linear-gradient(135deg, ${tl[600]}, ${tl[700]})`,
             },
@@ -415,10 +406,10 @@ export default function AboutPage() {
             variant="overline"
             sx={{ color: tl[500], letterSpacing: '0.12em', display: 'block', mb: 0.5 }}
           >
-            System Architecture
+            {t('about.architectureOverline')}
           </Typography>
           <Typography variant="h4" sx={{ fontWeight: 700, color: 'text.primary' }}>
-            End-to-End Research Lifecycle Workflow
+            {t('about.workflowTitle')}
           </Typography>
         </Box>
 
@@ -437,7 +428,7 @@ export default function AboutPage() {
         >
           <Image
             src="/about/lifecycle.png"
-            alt="DACORIS Research Lifecycle Workflow Diagram"
+            alt={t('about.workflowImageAlt')}
             width={900}
             height={560}
             style={{
@@ -458,10 +449,10 @@ export default function AboutPage() {
             variant="overline"
             sx={{ color: tl[500], letterSpacing: '0.12em', display: 'block', mb: 0.5 }}
           >
-            Capabilities
+            {t('about.capabilitiesOverline')}
           </Typography>
           <Typography variant="h4" sx={{ fontWeight: 700, color: 'text.primary' }}>
-            Key Features
+            {t('about.keyFeaturesTitle')}
           </Typography>
         </Box>
 

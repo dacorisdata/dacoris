@@ -14,6 +14,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { Badge, CheckCircleOutline, InfoOutlined, CheckCircle, Cancel, Close } from '@mui/icons-material';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 const institutions = [
   'University of Nairobi',
@@ -52,6 +53,7 @@ export default function ResearcherRegistration({
   onOrcidAuth,
   step = 1 // 1: ORCID details, 2: Institution email, 3: Password
 }) {
+  const { t } = useLanguage();
   const [verifyingEmail, setVerifyingEmail] = React.useState(false);
   const [emailVerified, setEmailVerified] = React.useState(false);
   const [verificationMessage, setVerificationMessage] = React.useState('');
@@ -97,7 +99,7 @@ export default function ResearcherRegistration({
       }
     } catch (error) {
       console.error('Email verification error:', error);
-      setVerificationMessage('Failed to verify email domain. Please try again.');
+      setVerificationMessage(t('registerResearcher.emailVerifyFailed'));
       onChange({ ...formData, institution: '', institution_id: null });
     } finally {
       setVerifyingEmail(false);
@@ -123,7 +125,7 @@ export default function ResearcherRegistration({
       
       if (!client_id || !redirect_uri) {
         console.error('ORCID configuration incomplete:', config);
-        alert('ORCID authentication is not properly configured. Please contact support.');
+        alert(t('registerResearcher.orcidConfigError'));
         return;
       }
       
@@ -133,7 +135,7 @@ export default function ResearcherRegistration({
       window.location.href = orcidAuthUrl;
     } catch (error) {
       console.error('Error fetching ORCID config:', error);
-      alert('Failed to initialize ORCID authentication. Please try again.');
+      alert(t('registerResearcher.orcidInitError'));
     }
   };
 
@@ -150,18 +152,18 @@ export default function ResearcherRegistration({
             color: 'text.primary'
           }}
         >
-          ORCID Details
+          {t('registerResearcher.step1Title')}
         </Typography>
-        <Typography 
-          variant="body2" 
-          color="text.secondary" 
-          sx={{ 
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{
             mb: 3,
             fontSize: '0.875rem',
             lineHeight: 1.5
           }}
         >
-          Enter your ORCID information to create your researcher account.
+          {t('registerResearcher.step1Subtitle')}
         </Typography>
 
         {method === 'orcid' && !formData.orcid_id && (
@@ -181,10 +183,10 @@ export default function ResearcherRegistration({
               }}
             >
               <Typography variant="body2" sx={{ fontSize: '0.8125rem', lineHeight: 1.5 }}>
-                <strong>ORCID Authentication:</strong> Authenticate with ORCID to auto-populate your profile.
+                <strong>{t('registerResearcher.orcidInfoTitle')}</strong> {t('registerResearcher.orcidInfoText')}
               </Typography>
               <Typography variant="body2" sx={{ fontSize: '0.75rem', lineHeight: 1.4, mt: 0.5, fontStyle: 'italic', color: 'text.secondary' }}>
-                You can skip and add ORCID details later.
+                {t('registerResearcher.orcidSkipNote')}
               </Typography>
             </Alert>
             <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
@@ -196,7 +198,7 @@ export default function ResearcherRegistration({
                 fullWidth
                 sx={{ py: 1.25, fontWeight: 600 }}
               >
-                Authenticate with ORCID
+                {t('registerResearcher.authenticateWithOrcid')}
               </Button>
               <Button
                 variant="outlined"
@@ -208,7 +210,7 @@ export default function ResearcherRegistration({
                 }}
                 sx={{ py: 1.25, fontWeight: 600 }}
               >
-                Skip for now
+                {t('registerResearcher.skipForNow')}
               </Button>
             </Box>
           </Box>
@@ -231,7 +233,7 @@ export default function ResearcherRegistration({
               }}
             >
               <Typography variant="body2" sx={{ fontSize: '0.8125rem', lineHeight: 1.5 }}>
-                <strong>ORCID Authenticated:</strong> {formData.orcid_id}
+                <strong>{t('registerResearcher.orcidAuthenticatedLabel')}</strong> {formData.orcid_id}
               </Typography>
             </Alert>
             <Button
@@ -240,8 +242,8 @@ export default function ResearcherRegistration({
               size="small"
               startIcon={<Close />}
               onClick={() => {
-                onChange({ 
-                  ...formData, 
+                onChange({
+                  ...formData,
                   orcid_id: null,
                   first_name: '',
                   given_name: '',
@@ -250,7 +252,7 @@ export default function ResearcherRegistration({
               }}
               sx={{ fontWeight: 600 }}
             >
-              Cancel & Re-authenticate
+              {t('registerResearcher.cancelReauth')}
             </Button>
           </Box>
         )}
@@ -271,11 +273,11 @@ export default function ResearcherRegistration({
                   letterSpacing: '0.5px'
                 }}
               >
-                First Name *
+                {t('registerResearcher.firstNameLabel')}
               </Typography>
               <TextField
                 fullWidth
-                placeholder="John"
+                placeholder={t('registerResearcher.firstNamePlaceholder')}
                 required
                 value={formData.first_name || ''}
                 onChange={handleChange('first_name')}
@@ -302,11 +304,11 @@ export default function ResearcherRegistration({
                   letterSpacing: '0.5px'
                 }}
               >
-                Given Name (Last Name) *
+                {t('registerResearcher.givenNameLabel')}
               </Typography>
               <TextField
                 fullWidth
-                placeholder="Smith"
+                placeholder={t('registerResearcher.givenNamePlaceholder')}
                 required
                 value={formData.given_name || ''}
                 onChange={handleChange('given_name')}
@@ -335,14 +337,14 @@ export default function ResearcherRegistration({
                 letterSpacing: '0.5px'
               }}
             >
-              Affiliation (Optional)
+              {t('registerResearcher.affiliationLabel')}
             </Typography>
             <TextField
               fullWidth
-              placeholder="University of Nairobi"
+              placeholder={t('registerResearcher.affiliationPlaceholder')}
               value={formData.affiliation || ''}
               onChange={handleChange('affiliation')}
-              helperText="Your primary institutional affiliation from ORCID"
+              helperText={t('registerResearcher.affiliationHelper')}
               sx={{
                 '& .MuiOutlinedInput-root': {
                   bgcolor: 'background.paper',
@@ -366,13 +368,13 @@ export default function ResearcherRegistration({
                   letterSpacing: '0.5px'
                 }}
               >
-                ORCID ID
+                {t('registerResearcher.orcidIdLabel')}
               </Typography>
               <TextField
                 fullWidth
                 value={formData.orcid_id || ''}
                 disabled
-                helperText="Your unique ORCID identifier"
+                helperText={t('registerResearcher.orcidIdHelper')}
                 sx={{
                   '& .MuiOutlinedInput-root': {
                     bgcolor: alpha('#2e7d32', 0.05),
@@ -403,18 +405,18 @@ export default function ResearcherRegistration({
             color: 'text.primary'
           }}
         >
-          Institution Email
+          {t('registerResearcher.step2Title')}
         </Typography>
-        <Typography 
-          variant="body2" 
-          color="text.secondary" 
-          sx={{ 
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{
             mb: 4,
             fontSize: '0.9375rem',
             lineHeight: 1.6
           }}
         >
-          Enter your institutional email address. This must match a verified domain.
+          {t('registerResearcher.step2Subtitle')}
         </Typography>
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -432,18 +434,18 @@ export default function ResearcherRegistration({
                 letterSpacing: '0.5px'
               }}
             >
-              Institutional Email *
+              {t('registerResearcher.emailLabel')}
             </Typography>
             <TextField
               fullWidth
               type="email"
-              placeholder="john.smith@university.edu"
+              placeholder={t('registerResearcher.emailPlaceholder')}
               required
               value={formData.email || ''}
               onChange={handleChange('email')}
               onBlur={handleEmailBlur}
               error={!!errors.email || (verificationMessage && !emailVerified)}
-              helperText={verificationMessage || errors.email || 'Must be a valid institutional email address from a verified domain'}
+              helperText={verificationMessage || errors.email || t('registerResearcher.emailHelper')}
               InputProps={{
                 endAdornment: verifyingEmail ? (
                   <CircularProgress size={20} />
@@ -499,13 +501,13 @@ export default function ResearcherRegistration({
                   letterSpacing: '0.5px'
                 }}
               >
-                Institution *
+                {t('registerResearcher.institutionLabel')}
               </Typography>
               <TextField
                 fullWidth
                 value={formData.institution || ''}
                 disabled
-                helperText="Auto-populated based on your email domain"
+                helperText={t('registerResearcher.institutionHelper')}
                 sx={{
                   '& .MuiOutlinedInput-root': {
                     bgcolor: alpha('#2e7d32', 0.05),
@@ -537,18 +539,18 @@ export default function ResearcherRegistration({
           color: 'text.primary'
         }}
       >
-        Set Your Password
+        {t('registerResearcher.step3Title')}
       </Typography>
-      <Typography 
-        variant="body2" 
-        color="text.secondary" 
-        sx={{ 
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{
           mb: 4,
           fontSize: '0.9375rem',
           lineHeight: 1.6
         }}
       >
-        Create a secure password for your account.
+        {t('registerResearcher.step3Subtitle')}
       </Typography>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -567,12 +569,12 @@ export default function ResearcherRegistration({
                 letterSpacing: '0.5px'
               }}
             >
-              Password *
+              {t('registerResearcher.passwordLabel')}
             </Typography>
             <TextField
               fullWidth
               type="password"
-              placeholder="Min. 8 characters"
+              placeholder={t('registerResearcher.passwordPlaceholder')}
               required
               value={formData.password || ''}
               onChange={handleChange('password')}
@@ -618,12 +620,12 @@ export default function ResearcherRegistration({
                 letterSpacing: '0.5px'
               }}
             >
-              Confirm Password *
+              {t('registerResearcher.confirmPasswordLabel')}
             </Typography>
             <TextField
               fullWidth
               type="password"
-              placeholder="Re-enter password"
+              placeholder={t('registerResearcher.confirmPasswordPlaceholder')}
               required
               value={formData.confirm_password || ''}
               onChange={handleChange('confirm_password')}
@@ -681,7 +683,12 @@ export default function ResearcherRegistration({
                 color: PW_COLORS[Math.min(pwScore - 1, 3)] || 'text.secondary' 
               }}
             >
-              {['Too weak', 'Weak', 'Fair', 'Strong'][pwScore - 1] || 'Enter a password'}
+              {[
+                t('registerPasswordStrength.tooWeak'),
+                t('registerPasswordStrength.weak'),
+                t('registerPasswordStrength.fair'),
+                t('registerPasswordStrength.strong'),
+              ][pwScore - 1] || t('registerPasswordStrength.enterPassword')}
             </Typography>
           </Box>
         )}

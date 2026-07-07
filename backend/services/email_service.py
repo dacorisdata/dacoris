@@ -12,7 +12,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from models import EmailVerification, User, PrimaryAccountType, UserStatus
+from models import EmailVerification, PasswordResetToken, User, PrimaryAccountType, UserStatus
 
 
 class EmailService:
@@ -986,4 +986,161 @@ class EmailService:
             return True
         except Exception as e:
             print(f"Failed to send ethics review assignment email to {email}: {e}")
+            return False
+
+    # ── Password reset ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def generate_reset_token() -> str:
+        """Generate a long, unguessable token for password-reset links"""
+        return secrets.token_urlsafe(32)
+
+    @staticmethod
+    async def create_password_reset_token(user: User, db: AsyncSession) -> str:
+        """
+        Create a new password reset token for a user.
+
+        Args:
+            user: The user requesting a password reset
+            db: Database session
+
+        Returns:
+            str: The generated reset token
+        """
+        token = EmailService.generate_reset_token()
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+        reset_token = PasswordResetToken(
+            user_id=user.id,
+            email=user.email,
+            token=token,
+            expires_at=expires_at,
+            used=False,
+        )
+
+        db.add(reset_token)
+        await db.commit()
+        await db.refresh(reset_token)
+
+        return token
+
+    @staticmethod
+    async def get_valid_reset_token(token: str, db: AsyncSession) -> Optional[PasswordResetToken]:
+        """
+        Look up a password reset token and return it only if it is still
+        valid (exists, unused, not expired).
+
+        Args:
+            token: The reset token from the emailed link
+            db: Database session
+
+        Returns:
+            PasswordResetToken or None
+        """
+        result = await db.execute(
+            select(PasswordResetToken)
+            .where(PasswordResetToken.token == token)
+            .where(PasswordResetToken.used == False)
+        )
+        reset_token = result.scalar_one_or_none()
+
+        if not reset_token:
+            return None
+
+        if datetime.now(timezone.utc) > reset_token.expires_at:
+            return None
+
+        return reset_token
+
+    @staticmethod
+    async def send_password_reset_email(email: str, reset_token: str) -> bool:
+        """
+        Send a password reset email with a one-time link.
+
+        Args:
+            email: Recipient email address
+            reset_token: The generated reset token
+
+        Returns:
+            bool: True if email sent successfully, False otherwise
+        """
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        from_email = os.getenv("FROM_EMAIL", smtp_user)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+        if not smtp_user or not smtp_password:
+            print("ERROR: SMTP credentials not configured")
+            return False
+
+        reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+
+        message = MIMEMultipart("alternative")
+        message["Subject"] = "Reset Your DACORIS Password"
+        message["From"] = from_email
+        message["To"] = email
+
+        text_content = f"""
+        Password Reset Request
+
+        We received a request to reset the password for your DACORIS account.
+
+        Reset your password using the link below:
+        {reset_link}
+
+        This link will expire in 1 hour.
+
+        If you didn't request a password reset, you can safely ignore this email —
+        your password will remain unchanged.
+        """
+
+        html_content = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #1ca7a1;">Password Reset Request</h2>
+              <p>We received a request to reset the password for your DACORIS account.</p>
+
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="{reset_link}"
+                   style="display: inline-block; padding: 15px 30px; background-color: #1ca7a1; color: white;
+                          text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  Reset Password
+                </a>
+              </div>
+
+              <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:</p>
+              <div style="background-color: #f5f5f5; padding: 15px; margin: 15px 0; border-radius: 5px; word-break: break-all;">
+                <a href="{reset_link}" style="color: #1ca7a1; text-decoration: none;">{reset_link}</a>
+              </div>
+
+              <p style="color: #666; font-size: 14px;">This link will expire in 1 hour.</p>
+              <p style="color: #666; font-size: 14px;">If you didn't request a password reset, you can safely ignore this email — your password will remain unchanged.</p>
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+              <p style="color: #999; font-size: 12px;">This is an automated message from DACORIS. Please do not reply to this email.</p>
+            </div>
+          </body>
+        </html>
+        """
+
+        part1 = MIMEText(text_content, "plain")
+        part2 = MIMEText(html_content, "html")
+        message.attach(part1)
+        message.attach(part2)
+
+        try:
+            await aiosmtplib.send(
+                message,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user,
+                password=smtp_password,
+                start_tls=True,
+            )
+            print(f"Password reset email sent to {email}")
+            return True
+        except Exception as e:
+            print(f"Failed to send password reset email to {email}: {e}")
             return False

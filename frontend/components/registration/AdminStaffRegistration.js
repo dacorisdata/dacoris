@@ -13,15 +13,16 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { InfoOutlined, CheckCircle, Cancel } from '@mui/icons-material';
+import { useLanguage } from '../../contexts/LanguageContext';
 
-const departments = [
-  'Research Office',
-  'Grant Management',
-  'Finance Department',
-  'Data Management',
-  'Ethics Committee',
-  'Administration',
-  'Other',
+const DEPARTMENT_VALUES = [
+  { value: 'Research Office', labelKey: 'departmentResearchOffice' },
+  { value: 'Grant Management', labelKey: 'departmentGrantManagement' },
+  { value: 'Finance Department', labelKey: 'departmentFinance' },
+  { value: 'Data Management', labelKey: 'departmentDataManagement' },
+  { value: 'Ethics Committee', labelKey: 'departmentEthicsCommittee' },
+  { value: 'Administration', labelKey: 'departmentAdministration' },
+  { value: 'Other', labelKey: 'departmentOther' },
 ];
 
 function passwordStrength(pw) {
@@ -36,6 +37,7 @@ function passwordStrength(pw) {
 const PW_COLORS = ['#ef4444', '#f59e0b', '#14b8a6', '#34d399'];
 
 export default function AdminStaffRegistration({ formData, onChange, errors }) {
+  const { t } = useLanguage();
   const [verifyingEmail, setVerifyingEmail] = React.useState(false);
   const [emailVerified, setEmailVerified] = React.useState(false);
   const [verificationMessage, setVerificationMessage] = React.useState('');
@@ -69,10 +71,10 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
       if (data.valid) {
         setEmailVerified(true);
         setVerificationMessage(data.message);
-        onChange({ 
-          ...formData, 
+        onChange({
+          ...formData,
           institution: data.institution_name,
-          institution_id: data.institution_id 
+          institution_id: data.institution_id
         });
       } else {
         setEmailVerified(false);
@@ -81,7 +83,7 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
       }
     } catch (error) {
       console.error('Email verification error:', error);
-      setVerificationMessage('Failed to verify email domain. Please try again.');
+      setVerificationMessage(t('registerAdminStaff.emailVerifyFailed'));
       onChange({ ...formData, institution: '', institution_id: null });
     } finally {
       setVerifyingEmail(false);
@@ -94,26 +96,26 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
 
   return (
     <Box>
-      <Typography 
-        variant="h5" 
+      <Typography
+        variant="h5"
         fontWeight="600"
-        sx={{ 
+        sx={{
           fontSize: '1.375rem',
           mb: 4,
           color: 'text.primary'
         }}
       >
-        Administrative Staff Registration
+        {t('registerAdminStaff.title')}
       </Typography>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         {/* Full Name */}
         <Box>
-          <Typography 
-            variant="caption" 
-            sx={{ 
-              mb: 1, 
-              display: 'block', 
+          <Typography
+            variant="caption"
+            sx={{
+              mb: 1,
+              display: 'block',
               color: 'text.primary',
               fontWeight: 600,
               fontSize: '0.75rem',
@@ -121,11 +123,11 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
               letterSpacing: '0.5px'
             }}
           >
-            Full Name *
+            {t('registerAdminStaff.fullNameLabel')}
           </Typography>
           <TextField
             fullWidth
-            placeholder="Dr. Jane Doe"
+            placeholder={t('registerAdminStaff.fullNamePlaceholder')}
             required
             value={formData.name || ''}
             onChange={handleChange('name')}
@@ -141,11 +143,11 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
 
         {/* Institutional Email */}
         <Box>
-          <Typography 
-            variant="caption" 
-            sx={{ 
-              mb: 1, 
-              display: 'block', 
+          <Typography
+            variant="caption"
+            sx={{
+              mb: 1,
+              display: 'block',
               color: 'text.primary',
               fontWeight: 600,
               fontSize: '0.75rem',
@@ -153,18 +155,18 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
               letterSpacing: '0.5px'
             }}
           >
-            Institutional Email *
+            {t('registerAdminStaff.emailLabel')}
           </Typography>
           <TextField
             fullWidth
             type="email"
-            placeholder="jane.doe@university.edu"
+            placeholder={t('registerAdminStaff.emailPlaceholder')}
             required
             value={formData.email || ''}
             onChange={handleChange('email')}
             onBlur={handleEmailBlur}
             error={!!errors.email || (verificationMessage && !emailVerified)}
-            helperText={verificationMessage || errors.email || 'Must be a valid institutional email address'}
+            helperText={verificationMessage || errors.email || t('registerAdminStaff.emailHelper')}
             InputProps={{
               endAdornment: verifyingEmail ? (
                 <CircularProgress size={20} />
@@ -207,11 +209,11 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
 
         {/* Department */}
         <Box>
-          <Typography 
-            variant="caption" 
-            sx={{ 
-              mb: 1, 
-              display: 'block', 
+          <Typography
+            variant="caption"
+            sx={{
+              mb: 1,
+              display: 'block',
               color: 'text.primary',
               fontWeight: 600,
               fontSize: '0.75rem',
@@ -219,7 +221,7 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
               letterSpacing: '0.5px'
             }}
           >
-            Department
+            {t('registerAdminStaff.departmentLabel')}
           </Typography>
           <FormControl fullWidth>
             <Select
@@ -252,11 +254,11 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
               }}
             >
               <MenuItem value="" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
-                Select department
+                {t('registerAdminStaff.departmentPlaceholder')}
               </MenuItem>
-              {departments.map((dept) => (
-                <MenuItem key={dept} value={dept}>
-                  {dept}
+              {DEPARTMENT_VALUES.map((dept) => (
+                <MenuItem key={dept.value} value={dept.value}>
+                  {t(`registerAdminStaff.${dept.labelKey}`)}
                 </MenuItem>
               ))}
             </Select>
@@ -266,11 +268,11 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
         {/* Password and Confirm Password Row */}
         <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
           <Box sx={{ flex: 1 }}>
-            <Typography 
-              variant="caption" 
-              sx={{ 
-                mb: 1, 
-                display: 'block', 
+            <Typography
+              variant="caption"
+              sx={{
+                mb: 1,
+                display: 'block',
                 color: 'text.primary',
                 fontWeight: 600,
                 fontSize: '0.75rem',
@@ -278,12 +280,12 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
                 letterSpacing: '0.5px'
               }}
             >
-              Password *
+              {t('registerAdminStaff.passwordLabel')}
             </Typography>
             <TextField
               fullWidth
               type="password"
-              placeholder="Min. 8 characters"
+              placeholder={t('registerAdminStaff.passwordPlaceholder')}
               required
               value={formData.password || ''}
               onChange={handleChange('password')}
@@ -317,11 +319,11 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
           </Box>
 
           <Box sx={{ flex: 1 }}>
-            <Typography 
-              variant="caption" 
-              sx={{ 
-                mb: 1, 
-                display: 'block', 
+            <Typography
+              variant="caption"
+              sx={{
+                mb: 1,
+                display: 'block',
                 color: 'text.primary',
                 fontWeight: 600,
                 fontSize: '0.75rem',
@@ -329,12 +331,12 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
                 letterSpacing: '0.5px'
               }}
             >
-              Confirm Password *
+              {t('registerAdminStaff.confirmPasswordLabel')}
             </Typography>
             <TextField
               fullWidth
               type="password"
-              placeholder="Re-enter password"
+              placeholder={t('registerAdminStaff.confirmPasswordPlaceholder')}
               required
               value={formData.confirm_password || ''}
               onChange={handleChange('confirm_password')}
@@ -385,14 +387,19 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
                 />
               ))}
             </Box>
-            <Typography 
-              sx={{ 
+            <Typography
+              sx={{
                 fontSize: '0.8125rem',
                 fontWeight: 500,
-                color: PW_COLORS[Math.min(pwScore - 1, 3)] || 'text.secondary' 
+                color: PW_COLORS[Math.min(pwScore - 1, 3)] || 'text.secondary'
               }}
             >
-              {['Too weak', 'Weak', 'Fair', 'Strong'][pwScore - 1] || 'Enter a password'}
+              {[
+                t('registerPasswordStrength.tooWeak'),
+                t('registerPasswordStrength.weak'),
+                t('registerPasswordStrength.fair'),
+                t('registerPasswordStrength.strong'),
+              ][pwScore - 1] || t('registerPasswordStrength.enterPassword')}
             </Typography>
           </Box>
         )}

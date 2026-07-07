@@ -3,8 +3,21 @@
 import { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { createTheme, ThemeProvider as MuiThemeProvider, alpha } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import createCache from '@emotion/cache';
+import { CacheProvider } from '@emotion/react';
+import { prefixer } from 'stylis';
+import rtlPlugin from 'stylis-plugin-rtl';
+import { useLanguage } from './LanguageContext';
 
 const ThemeContext = createContext(null);
+
+// ─── Emotion caches ─────────────────────────────────────────────────────────
+// Two caches, swapped based on the active language's text direction. The RTL
+// cache runs the stylis-plugin-rtl transform so physical CSS properties
+// (margin-left/right, left/right, text-align, etc.) mirror automatically for
+// Arabic without having to hand-write logical-property overrides everywhere.
+const cacheLtr = createCache({ key: 'mui-ltr' });
+const cacheRtl = createCache({ key: 'mui-rtl', stylisPlugins: [prefixer, rtlPlugin] });
 
 // ─── Brand Color Palette ────────────────────────────────────────────────────
 export const COLORS = {
@@ -30,8 +43,9 @@ export const COLORS = {
 };
 
 // ─── Theme Builder ──────────────────────────────────────────────────────────
-function buildTheme(mode) {
+function buildTheme(mode, dir = 'ltr') {
   const dark = mode === 'dark';
+  const rtl  = dir === 'rtl';
   const sl   = COLORS.slate;
   const tl   = COLORS.teal;
 
@@ -48,6 +62,8 @@ function buildTheme(mode) {
   const txM = dark ? sl[500] : sl[400];
 
   return createTheme({
+    direction: dir,
+
     // ── Palette ──────────────────────────────────────────────────────────────
     palette: {
       mode,
@@ -68,7 +84,9 @@ function buildTheme(mode) {
 
     // ── Typography ────────────────────────────────────────────────────────────
     typography: {
-      fontFamily: '"Inter", "Roboto", "Helvetica Neue", Arial, sans-serif',
+      fontFamily: rtl
+        ? 'var(--font-noto-arabic), "Inter", "Roboto", Arial, sans-serif'
+        : '"Inter", "Roboto", "Helvetica Neue", Arial, sans-serif',
       fontWeightLight:   300,
       fontWeightRegular: 400,
       fontWeightMedium:  500,
@@ -387,6 +405,7 @@ function buildTheme(mode) {
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export function ThemeProvider({ children }) {
   const [mode, setMode] = useState('light');
+  const { dir } = useLanguage();
 
   useEffect(() => {
     try {
@@ -405,14 +424,17 @@ export function ThemeProvider({ children }) {
     try { localStorage.setItem('dacoris-theme', next); } catch {}
   };
 
-  const theme = useMemo(() => buildTheme(mode), [mode]);
+  const theme = useMemo(() => buildTheme(mode, dir), [mode, dir]);
+  const cache = dir === 'rtl' ? cacheRtl : cacheLtr;
 
   return (
     <ThemeContext.Provider value={{ mode, toggleTheme, theme, COLORS }}>
-      <MuiThemeProvider theme={theme}>
-        <CssBaseline />
-        {children}
-      </MuiThemeProvider>
+      <CacheProvider value={cache}>
+        <MuiThemeProvider theme={theme}>
+          <CssBaseline />
+          {children}
+        </MuiThemeProvider>
+      </CacheProvider>
     </ThemeContext.Provider>
   );
 }

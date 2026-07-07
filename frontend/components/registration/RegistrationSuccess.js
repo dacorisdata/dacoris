@@ -11,33 +11,35 @@ import {
 } from '@mui/material';
 import { CheckCircle, Login } from '@mui/icons-material';
 import Link from 'next/link';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function RegistrationSuccess({ tier }) {
+  const { t } = useLanguage();
   const isAdminStaff = tier === 'admin_staff';
 
   return (
     <Container maxWidth="sm" sx={{ py: 8 }}>
       <Paper elevation={3} sx={{ p: 4, textAlign: 'center' }}>
         <CheckCircle sx={{ fontSize: 80, color: 'success.main', mb: 3 }} />
-        
+
         <Typography variant="h4" gutterBottom fontWeight="bold">
-          Registration Successful!
+          {t('registerSuccess.title')}
         </Typography>
 
         {isAdminStaff ? (
           <>
             <Alert severity="info" sx={{ mb: 3, textAlign: 'left' }}>
               <Typography variant="body2">
-                A verification link has been sent to your email. Please verify your email address.
+                {t('registerSuccess.adminInfoMessage')}
               </Typography>
             </Alert>
 
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-              After verification, an administrator will review and approve your account.
+              {t('registerSuccess.adminAfterVerification')}
             </Typography>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Check your email for updates on your account status.
+              {t('registerSuccess.adminCheckEmail')}
             </Typography>
 
             <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
@@ -49,16 +51,16 @@ export default function RegistrationSuccess({ tier }) {
                 size="large"
                 startIcon={<Login />}
               >
-                Go to Login
+                {t('registerSuccess.goToLogin')}
               </Button>
-              
+
               <Button
                 component={Link}
                 href="/register"
                 variant="outlined"
                 size="large"
               >
-                Register Another Account
+                {t('registerSuccess.registerAnotherAccount')}
               </Button>
             </Box>
           </>
@@ -66,12 +68,12 @@ export default function RegistrationSuccess({ tier }) {
           <>
             <Alert severity="info" sx={{ mb: 3, textAlign: 'left' }}>
               <Typography variant="body2">
-                A verification link has been sent to your email. Please verify your email address to activate your account.
+                {t('registerSuccess.researcherInfoMessage')}
               </Typography>
             </Alert>
 
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-              Once verified, you can log in and start using the platform.
+              {t('registerSuccess.researcherAfterVerification')}
             </Typography>
 
             <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -83,9 +85,9 @@ export default function RegistrationSuccess({ tier }) {
                 size="large"
                 startIcon={<CheckCircle />}
               >
-                Verify Email Now
+                {t('registerSuccess.verifyEmailNow')}
               </Button>
-              
+
               <Button
                 component={Link}
                 href="/login"
@@ -93,7 +95,7 @@ export default function RegistrationSuccess({ tier }) {
                 size="large"
                 startIcon={<Login />}
               >
-                Go to Login
+                {t('registerSuccess.goToLogin')}
               </Button>
 
               <Button
@@ -102,7 +104,7 @@ export default function RegistrationSuccess({ tier }) {
                 variant="outlined"
                 size="large"
               >
-                Register Another
+                {t('registerSuccess.registerAnother')}
               </Button>
             </Box>
           </>
