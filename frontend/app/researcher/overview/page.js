@@ -20,7 +20,6 @@ import {
 } from '@mui/material';
 import {
   Assignment as AssignmentIcon,
-  Gavel as EthicsIcon,
   AccountBalance as AwardIcon,
   OpenInNew as OpenIcon,
   Refresh as RefreshIcon,
@@ -30,47 +29,46 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLanguage } from '../../../contexts/LanguageContext';
 import { isSupervisorAccount } from '../../../lib/institutionTypes';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#1ca7a1';
+const LOCALE_MAP = { en: 'en-GB', sw: 'sw-KE', fr: 'fr-FR', ar: 'ar' };
+const DATE_LOCALE_MAP = { en: 'en-US', sw: 'sw-KE', fr: 'fr-FR', ar: 'ar' };
 
-const PROJECT_STATUS_META = {
-  draft:     { label: 'Draft',     color: '#64748b' },
-  proposed:  { label: 'Proposed',  color: '#f59e0b' },
-  active:    { label: 'Active',    color: '#10b981' },
-  suspended: { label: 'Suspended', color: '#ef4444' },
-  completed: { label: 'Completed', color: '#0ea5e9' },
+const PROJECT_STATUS_COLORS = {
+  draft: '#64748b',
+  proposed: '#f59e0b',
+  active: '#10b981',
+  suspended: '#ef4444',
+  completed: '#0ea5e9',
 };
 
-const PROPOSAL_STATUS_META = {
-  draft:           { label: 'Draft',              color: '#f59e0b' },
-  returned:        { label: 'Revision Requested', color: '#f97316' },
-  submitted:       { label: 'Submitted',          color: ACCENT },
-  internal_review: { label: 'In Review',          color: '#3b82f6' },
-  under_review:    { label: 'In Review',          color: '#0ea5e9' },
-  awarded:         { label: 'Awarded',            color: '#10b981' },
-  declined:        { label: 'Not Awarded',        color: '#ef4444' },
+const PROPOSAL_STATUS_COLORS = {
+  draft: '#f59e0b',
+  returned: '#f97316',
+  submitted: ACCENT,
+  internal_review: '#3b82f6',
+  under_review: '#0ea5e9',
+  awarded: '#10b981',
+  declined: '#ef4444',
 };
 
-const ETHICS_STATUS_META = {
-  draft:          { label: 'Draft',         color: '#64748b' },
-  submitted:      { label: 'Submitted',     color: '#f59e0b' },
-  assigned:       { label: 'Assigned',      color: '#0ea5e9' },
-  screened:       { label: 'Screened',      color: '#f59e0b' },
-  under_review:   { label: 'Under Review',  color: '#0ea5e9' },
-  decision:       { label: 'Decision',      color: '#f97316' },
-  approved:       { label: 'Approved',      color: '#10b981' },
-  final_approval: { label: 'Approved',      color: '#10b981' },
-  rejected:       { label: 'Rejected',      color: '#ef4444' },
+const ETHICS_STATUS_COLORS = {
+  draft: '#64748b',
+  submitted: '#f59e0b',
+  assigned: '#0ea5e9',
+  screened: '#f59e0b',
+  under_review: '#0ea5e9',
+  decision: '#f97316',
+  approved: '#10b981',
+  final_approval: '#10b981',
+  rejected: '#ef4444',
 };
 
 const TERMINAL_PROPOSAL = new Set(['awarded', 'declined']);
 const TERMINAL_ETHICS = new Set(['approved', 'final_approval', 'rejected']);
-
-const fmtDate = d => d
-  ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  : '—';
 
 const fmtMoney = (amt, cur = 'KES') => {
   if (amt == null || amt === '') return '—';
@@ -108,11 +106,11 @@ function StatusChip({ label, color }) {
   );
 }
 
-function BarChart({ data, colorMap, labelMap, dark }) {
+function BarChart({ data, colorMap, labelMap, dark, emptyLabel }) {
   if (!data.length) {
     return (
       <Typography sx={{ color: 'text.disabled', fontSize: 13, textAlign: 'center', py: 4 }}>
-        No data yet
+        {emptyLabel}
       </Typography>
     );
   }
@@ -153,6 +151,7 @@ function BarChart({ data, colorMap, labelMap, dark }) {
 export default function ResearcherOverview() {
   const router = useRouter();
   const { fetchUser } = useAuth();
+  const { t, locale } = useLanguage();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
 
@@ -164,6 +163,31 @@ export default function ResearcherOverview() {
   const [ethicsApps, setEthicsApps] = useState([]);
   const [awards, setAwards] = useState([]);
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  const fmtDate = (d) => d
+    ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : '—';
+
+  const statusLabel = (group, status) => {
+    const key = `researcher.overview.${group}.${status}`;
+    const translated = t(key);
+    return translated !== key ? translated : t('researcher.overview.unknown');
+  };
+
+  const projectLabelMap = useMemo(
+    () => Object.fromEntries(Object.keys(PROJECT_STATUS_COLORS).map(k => [k, statusLabel('projectStatus', k)])),
+    [t],
+  );
+
+  const submissionLabelMap = useMemo(
+    () => ({
+      grant_draft: t('researcher.overview.submissionChart.grant_draft'),
+      grant_review: t('researcher.overview.submissionChart.grant_review'),
+      ethics_draft: t('researcher.overview.submissionChart.ethics_draft'),
+      ethics_review: t('researcher.overview.submissionChart.ethics_review'),
+    }),
+    [t],
+  );
 
   useEffect(() => {
     init();
@@ -212,7 +236,7 @@ export default function ResearcherOverview() {
       setAwards(awardsRes.data || []);
       setLastUpdated(new Date());
     } catch {
-      setError('Failed to load dashboard data.');
+      setError(t('researcher.overview.errorLoad'));
     } finally {
       setLoading(false);
     }
@@ -230,16 +254,15 @@ export default function ResearcherOverview() {
       .filter(p => !TERMINAL_PROPOSAL.has(normalize(p.status)))
       .forEach(p => {
         const status = normalize(p.status);
-        const meta = PROPOSAL_STATUS_META[status] || { label: p.status || 'Unknown', color: '#64748b' };
         items.push({
           id: p.id,
           kind: 'grant',
-          kindLabel: 'Grant Proposal',
+          kindLabel: t('researcher.overview.kind.grantProposal'),
           title: p.title,
-          ref: p.opportunity?.title || 'Proposal',
+          ref: p.opportunity?.title || t('researcher.overview.kind.proposal'),
           status,
-          statusLabel: meta.label,
-          statusColor: meta.color,
+          statusLabel: statusLabel('proposalStatus', status),
+          statusColor: PROPOSAL_STATUS_COLORS[status] || '#64748b',
           date: p.submitted_at || p.created_at,
           path: `/researcher/grants/proposals/${p.id}`,
         });
@@ -249,23 +272,22 @@ export default function ResearcherOverview() {
       .filter(a => !TERMINAL_ETHICS.has(normalize(a.status)))
       .forEach(a => {
         const status = normalize(a.status);
-        const meta = ETHICS_STATUS_META[status] || { label: a.status || 'Unknown', color: '#64748b' };
         items.push({
           id: a.id,
           kind: 'ethics',
-          kindLabel: 'Ethics Application',
-          title: a.title || a.project_title || 'Ethics application',
+          kindLabel: t('researcher.overview.kind.ethicsApplication'),
+          title: a.title || a.project_title || t('researcher.overview.kind.ethicsApplicationFallback'),
           ref: a.ref,
           status,
-          statusLabel: meta.label,
-          statusColor: meta.color,
+          statusLabel: statusLabel('ethicsStatus', status),
+          statusColor: ETHICS_STATUS_COLORS[status] || '#64748b',
           date: a.submitted_at || a.created_at,
           path: `/researcher/ethics/${a.id}`,
         });
       });
 
     return items.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-  }, [proposals, ethicsApps]);
+  }, [proposals, ethicsApps, t]);
 
   const projectChartData = useMemo(
     () => countBy(projects, p => normalize(p.status)),
@@ -313,23 +335,11 @@ export default function ResearcherOverview() {
     };
   }, [activeProjects, awards, submissions, proposals, ethicsApps, projects]);
 
-  const projectColorMap = Object.fromEntries(
-    Object.entries(PROJECT_STATUS_META).map(([k, v]) => [k, v.color]),
-  );
-  const projectLabelMap = Object.fromEntries(
-    Object.entries(PROJECT_STATUS_META).map(([k, v]) => [k, v.label]),
-  );
   const submissionColorMap = {
     grant_draft: '#f59e0b',
     grant_review: ACCENT,
     ethics_draft: '#64748b',
     ethics_review: '#0ea5e9',
-  };
-  const submissionLabelMap = {
-    grant_draft: 'Grant — Draft',
-    grant_review: 'Grant — In Review',
-    ethics_draft: 'Ethics — Draft',
-    ethics_review: 'Ethics — In Review',
   };
 
   const Card = ({ children, sx = {} }) => (
@@ -430,15 +440,25 @@ export default function ResearcherOverview() {
     );
   }
 
-  const firstName = user?.name?.split(' ')[0] || 'Researcher';
+  const firstName = user?.name?.split(' ')[0] || t('researcher.overview.fallbackName');
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  const institutionName = user?.institution_name || user?.institution?.name || 'Your Institution';
+  const greeting = hour < 12
+    ? t('researcher.overview.greetingMorning')
+    : hour < 17
+      ? t('researcher.overview.greetingAfternoon')
+      : t('researcher.overview.greetingEvening');
+  const todayLabel = new Date().toLocaleDateString(DATE_LOCALE_MAP[locale] || 'en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const institutionName = user?.institution_name || user?.institution?.name || t('researcher.overview.fallbackInstitution');
 
   const submissionTotal = stats.openSubmissions || 1;
   const draftPct = Math.round((stats.draftSubmissions / submissionTotal) * 100);
   const reviewPct = 100 - draftPct;
+
+  const securedAmount = stats.totalAwardValue > 0
+    ? t('researcher.overview.metrics.secured', {
+      amount: `${stats.awardCurrency} ${stats.totalAwardValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+    })
+    : t('researcher.overview.metrics.noFundingYet');
 
   return (
     <Box sx={{ px: { xs: 1.5, md: 2 }, py: { xs: 2, md: 2.5 }, width: '100%' }}>
@@ -448,17 +468,16 @@ export default function ResearcherOverview() {
         </Alert>
       )}
 
-      {/* ── Header ─────────────────────────────────────────── */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3.5, gap: 2, flexWrap: 'wrap' }}>
         <Box>
           <Typography sx={{ color: ACCENT, fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', mb: 1 }}>
-            Dashboard · {todayLabel} · {institutionName}
+            {t('researcher.overview.headerBadge', { date: todayLabel, institution: institutionName })}
           </Typography>
           <Typography sx={{ color: '#0f172a', fontSize: { xs: 28, md: 32 }, fontWeight: 800, letterSpacing: -0.5, lineHeight: 1.15, mb: 0.75, ...(dark && { color: 'text.primary' }) }}>
             {greeting}, {firstName}
           </Typography>
           <Typography sx={{ color: 'text.secondary', fontSize: 14.5, maxWidth: 520 }}>
-            Live snapshot of your projects, submissions, and funding activity.
+            {t('researcher.overview.subtitle')}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
@@ -466,7 +485,7 @@ export default function ResearcherOverview() {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
               <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981' }} />
               <Typography sx={{ fontSize: 13, color: 'text.secondary', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                Updated just now
+                {t('researcher.overview.updatedJustNow')}
               </Typography>
             </Box>
           )}
@@ -481,26 +500,25 @@ export default function ResearcherOverview() {
               '&:hover': { borderColor: ACCENT, bgcolor: `${ACCENT}08` },
             }}
           >
-            Refresh
+            {t('researcher.overview.refresh')}
           </Button>
         </Box>
       </Box>
 
-      {/* ── Metric cards ───────────────────────────────────── */}
       <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
         <MetricCard
           icon={RocketIcon}
           iconColor="#1ca7a1"
           iconBg="rgba(28,167,161,0.12)"
-          label="Active Projects"
+          label={t('researcher.overview.metrics.activeProjects')}
           value={stats.activeProjects}
-          valueWord="running"
+          valueWord={t('researcher.overview.metrics.running')}
           valueWordColor="#10b981"
           onClick={() => router.push('/researcher/projects')}
           footer={
             <FooterRow items={[
-              { dot: '#10b981', text: `${stats.activeProjects} running` },
-              { dot: '#f59e0b', text: `${stats.proposedProjects} proposed` },
+              { dot: '#10b981', text: t('researcher.overview.metrics.runningCount', { count: stats.activeProjects }) },
+              { dot: '#f59e0b', text: t('researcher.overview.metrics.proposedCount', { count: stats.proposedProjects }) },
             ]} />
           }
         />
@@ -508,17 +526,15 @@ export default function ResearcherOverview() {
           icon={AwardIcon}
           iconColor="#d97706"
           iconBg="rgba(217,119,6,0.12)"
-          label="Active Awards"
+          label={t('researcher.overview.metrics.activeAwards')}
           value={stats.activeAwards}
-          valueWord="funded"
+          valueWord={t('researcher.overview.metrics.funded')}
           valueWordColor="#d97706"
           onClick={() => router.push('/researcher/grants/awards')}
           footer={
             <FooterRow items={[{
               icon: <HandshakeIcon sx={{ fontSize: 15, color: '#d97706' }} />,
-              text: stats.totalAwardValue > 0
-                ? `${stats.awardCurrency} ${stats.totalAwardValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} secured`
-                : 'No funding secured yet',
+              text: securedAmount,
             }]} />
           }
         />
@@ -526,9 +542,9 @@ export default function ResearcherOverview() {
           icon={AssignmentIcon}
           iconColor="#6366f1"
           iconBg="rgba(99,102,241,0.12)"
-          label="Open Submissions"
+          label={t('researcher.overview.metrics.openSubmissions')}
           value={stats.openSubmissions}
-          valueWord="open"
+          valueWord={t('researcher.overview.metrics.open')}
           valueWordColor="#4338ca"
           progress={stats.openSubmissions > 0 ? [
             { pct: draftPct, color: '#6366f1' },
@@ -536,8 +552,8 @@ export default function ResearcherOverview() {
           ] : [{ pct: 100, color: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]}
           footer={
             <FooterRow items={[
-              { text: `${stats.draftSubmissions} draft` },
-              { text: `${stats.inReviewSubmissions} in review` },
+              { text: t('researcher.overview.metrics.draftCount', { count: stats.draftSubmissions }) },
+              { text: t('researcher.overview.metrics.inReviewCount', { count: stats.inReviewSubmissions }) },
             ]} />
           }
         />
@@ -545,15 +561,15 @@ export default function ResearcherOverview() {
           icon={VerifiedIcon}
           iconColor="#10b981"
           iconBg="rgba(16,185,129,0.12)"
-          label="Ethics Cleared"
+          label={t('researcher.overview.metrics.ethicsCleared')}
           value={stats.ethicsApproved}
-          valueWord="approved"
+          valueWord={t('researcher.overview.metrics.approved')}
           valueWordColor="#10b981"
           onClick={() => router.push('/researcher/ethics')}
           footer={
             <FooterRow items={[
-              { dot: '#10b981', text: `${stats.ethicsApproved} approved` },
-              { dot: stats.ethicsPending > 0 ? '#f59e0b' : '#cbd5e1', text: `${stats.ethicsPending} pending` },
+              { dot: '#10b981', text: t('researcher.overview.metrics.approvedCount', { count: stats.ethicsApproved }) },
+              { dot: stats.ethicsPending > 0 ? '#f59e0b' : '#cbd5e1', text: t('researcher.overview.metrics.pendingCount', { count: stats.ethicsPending }) },
             ]} />
           }
         />
@@ -562,30 +578,32 @@ export default function ResearcherOverview() {
       <Box sx={{ display: 'flex', gap: 2.5, mb: 3, flexWrap: 'wrap' }}>
         <Card sx={{ flex: '1 1 280px' }}>
           <Typography sx={{ color: ACCENT, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
-            Portfolio
+            {t('researcher.overview.portfolio')}
           </Typography>
           <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600, mb: 2 }}>
-            Projects by Status
+            {t('researcher.overview.projectsByStatus')}
           </Typography>
           <BarChart
             data={projectChartData}
-            colorMap={projectColorMap}
+            colorMap={PROJECT_STATUS_COLORS}
             labelMap={projectLabelMap}
             dark={dark}
+            emptyLabel={t('researcher.overview.noDataYet')}
           />
         </Card>
         <Card sx={{ flex: '1 1 280px' }}>
           <Typography sx={{ color: '#f97316', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
-            Pipeline
+            {t('researcher.overview.pipeline')}
           </Typography>
           <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600, mb: 2 }}>
-            Submissions Overview
+            {t('researcher.overview.submissionsOverview')}
           </Typography>
           <BarChart
             data={submissionChartData}
             colorMap={submissionColorMap}
             labelMap={submissionLabelMap}
             dark={dark}
+            emptyLabel={t('researcher.overview.noDataYet')}
           />
         </Card>
       </Box>
@@ -594,10 +612,10 @@ export default function ResearcherOverview() {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
           <Box>
             <Typography sx={{ color: '#10b981', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
-              Running
+              {t('researcher.overview.running')}
             </Typography>
             <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600 }}>
-              Active Projects
+              {t('researcher.overview.activeProjectsTitle')}
             </Typography>
           </Box>
           <Button
@@ -606,13 +624,13 @@ export default function ResearcherOverview() {
             onClick={() => router.push('/researcher/projects')}
             sx={{ textTransform: 'none', color: ACCENT }}
           >
-            All projects
+            {t('researcher.overview.allProjects')}
           </Button>
         </Box>
 
         {activeProjects.length === 0 ? (
           <Typography sx={{ color: 'text.secondary', fontSize: 13, py: 3, textAlign: 'center' }}>
-            No active projects yet. Convert an award or complete project setup to get started.
+            {t('researcher.overview.noActiveProjects')}
           </Typography>
         ) : (
           <Paper elevation={0} variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
@@ -620,13 +638,13 @@ export default function ResearcherOverview() {
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
-                    <TableCell sx={headCell}>Project</TableCell>
-                    <TableCell sx={headCell}>Funder</TableCell>
-                    <TableCell sx={headCell} align="right">Award</TableCell>
-                    <TableCell sx={headCell}>Period</TableCell>
-                    <TableCell sx={headCell}>Ethics</TableCell>
-                    <TableCell sx={headCell}>Progress</TableCell>
-                    <TableCell sx={headCell} align="right">Action</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.project')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.funder')}</TableCell>
+                    <TableCell sx={headCell} align="right">{t('researcher.overview.table.award')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.period')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.ethics')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.progress')}</TableCell>
+                    <TableCell sx={headCell} align="right">{t('researcher.overview.table.action')}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -634,7 +652,8 @@ export default function ResearcherOverview() {
                     const total = p.milestone_count || 0;
                     const done = p.done_milestone_count || 0;
                     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-                    const ethicsColor = ETHICS_STATUS_META[normalize(p.ethics_status)]?.color || '#64748b';
+                    const ethicsStatus = normalize(p.ethics_status);
+                    const ethicsColor = ETHICS_STATUS_COLORS[ethicsStatus] || '#64748b';
                     return (
                       <TableRow
                         key={p.id}
@@ -655,12 +674,17 @@ export default function ResearcherOverview() {
                         </TableCell>
                         <TableCell>
                           {p.ethics_status
-                            ? <StatusChip label={ETHICS_STATUS_META[normalize(p.ethics_status)]?.label || p.ethics_status} color={ethicsColor} />
+                            ? (
+                              <StatusChip
+                                label={statusLabel('ethicsStatus', ethicsStatus)}
+                                color={ethicsColor}
+                              />
+                            )
                             : <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>—</Typography>}
                         </TableCell>
                         <TableCell sx={{ minWidth: 120 }}>
                           <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>
-                            {done}/{total} milestones · {pct}%
+                            {t('researcher.overview.table.milestones', { done, total, pct })}
                           </Typography>
                           <Box sx={{
                             height: 6,
@@ -688,10 +712,10 @@ export default function ResearcherOverview() {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
           <Box>
             <Typography sx={{ color: '#f59e0b', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
-              In Progress
+              {t('researcher.overview.inProgress')}
             </Typography>
             <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600 }}>
-              Submissions
+              {t('researcher.overview.submissionsTitle')}
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
@@ -700,21 +724,21 @@ export default function ResearcherOverview() {
               onClick={() => router.push('/researcher/grants/proposals')}
               sx={{ textTransform: 'none', color: ACCENT }}
             >
-              Proposals
+              {t('researcher.overview.proposals')}
             </Button>
             <Button
               size="small"
               onClick={() => router.push('/researcher/ethics')}
               sx={{ textTransform: 'none', color: ACCENT }}
             >
-              Ethics
+              {t('researcher.overview.ethics')}
             </Button>
           </Box>
         </Box>
 
         {submissions.length === 0 ? (
           <Typography sx={{ color: 'text.secondary', fontSize: 13, py: 3, textAlign: 'center' }}>
-            No open submissions. Draft a grant proposal or submit an ethics application to see it here.
+            {t('researcher.overview.noOpenSubmissions')}
           </Typography>
         ) : (
           <Paper elevation={0} variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
@@ -722,12 +746,12 @@ export default function ResearcherOverview() {
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
-                    <TableCell sx={headCell}>Type</TableCell>
-                    <TableCell sx={headCell}>Title</TableCell>
-                    <TableCell sx={headCell}>Reference</TableCell>
-                    <TableCell sx={headCell}>Status</TableCell>
-                    <TableCell sx={headCell}>Updated</TableCell>
-                    <TableCell sx={headCell} align="right">Action</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.type')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.title')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.reference')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.status')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.table.updated')}</TableCell>
+                    <TableCell sx={headCell} align="right">{t('researcher.overview.table.action')}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>

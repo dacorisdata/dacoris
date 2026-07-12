@@ -143,6 +143,9 @@ export const authAPI = {
 
   resetPassword: (token, newPassword) =>
     api.post('/auth/reset-password', { token, new_password: newPassword }),
+
+  switchDemoRole: (role) =>
+    api.post('/auth/demo/switch-role', { role }),
 };
 
 // ORCID endpoints

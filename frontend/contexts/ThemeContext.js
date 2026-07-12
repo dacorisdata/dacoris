@@ -16,7 +16,7 @@ const ThemeContext = createContext(null);
 // cache runs the stylis-plugin-rtl transform so physical CSS properties
 // (margin-left/right, left/right, text-align, etc.) mirror automatically for
 // Arabic without having to hand-write logical-property overrides everywhere.
-const cacheLtr = createCache({ key: 'mui-ltr' });
+export const cacheLtr = createCache({ key: 'mui-ltr' });
 const cacheRtl = createCache({ key: 'mui-rtl', stylisPlugins: [prefixer, rtlPlugin] });
 
 // ─── Brand Color Palette ────────────────────────────────────────────────────

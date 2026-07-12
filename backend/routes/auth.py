@@ -38,6 +38,42 @@ ORCID_AUTHORIZE_URL = "https://sandbox.orcid.org/oauth/authorize" if ORCID_SANDB
 ORCID_TOKEN_URL = "https://sandbox.orcid.org/oauth/token" if ORCID_SANDBOX_MODE else "https://orcid.org/oauth/token"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
+DEMO_ACCOUNT_EMAIL = "demo@dacoris.com"
+DEMO_ROLE_MAP = {
+    "RESEARCHER": (PrimaryAccountType.RESEARCHER, "Researcher"),
+    "RESEARCH_MANAGER": (PrimaryAccountType.GRANT_MANAGER, "Research Manager"),
+    "SUPERVISOR": (PrimaryAccountType.SUPERVISOR, "Supervisor"),
+    "REVIEWER": (PrimaryAccountType.EXTERNAL_REVIEWER, "Reviewer"),
+}
+
+
+def _build_user_response(user_with_institution: User) -> dict:
+    institution_types: List[str] = []
+    if user_with_institution.institution:
+        institution_types = institution_types_as_strings(user_with_institution.institution)
+
+    return {
+        "id": user_with_institution.id,
+        "email": user_with_institution.email,
+        "name": user_with_institution.name,
+        "is_global_admin": user_with_institution.is_global_admin,
+        "is_institution_admin": user_with_institution.is_institution_admin,
+        "account_type": user_with_institution.account_type.value,
+        "status": user_with_institution.status.value,
+        "institution_id": user_with_institution.primary_institution_id,
+        "primary_account_type": user_with_institution.primary_account_type.value if user_with_institution.primary_account_type else None,
+        "department": user_with_institution.department,
+        "job_title": user_with_institution.job_title,
+        "phone": user_with_institution.phone,
+        "expertise_keywords": user_with_institution.expertise_keywords,
+        "orcid_id": user_with_institution.orcid_id,
+        "email_verified": user_with_institution.email_verified,
+        "primary_institution_id": user_with_institution.primary_institution_id,
+        "institution_name": user_with_institution.institution.name if user_with_institution.institution else None,
+        "institution_types": institution_types,
+        "staff_id": user_with_institution.staff_id,
+    }
+
 class UserRegister(BaseModel):
     email: EmailStr
     name: str
@@ -74,6 +110,10 @@ class ProfileUpdateRequest(BaseModel):
     job_title: Optional[str] = None
     phone: Optional[str] = None
     expertise_keywords: Optional[str] = None
+
+
+class DemoRoleSwitchRequest(BaseModel):
+    role: str
 
 class Token(BaseModel):
     access_token: str
@@ -251,35 +291,41 @@ async def get_current_user_info(
         .where(User.id == current_user.id)
     )
     user_with_institution = result.scalar_one()
-    
-    institution_types: List[str] = []
-    if user_with_institution.institution:
-        institution_types = institution_types_as_strings(user_with_institution.institution)
+    return _build_user_response(user_with_institution)
 
-    # Convert to dict and add institution_name
-    user_dict = {
-        "id": user_with_institution.id,
-        "email": user_with_institution.email,
-        "name": user_with_institution.name,
-        "is_global_admin": user_with_institution.is_global_admin,
-        "is_institution_admin": user_with_institution.is_institution_admin,
-        "account_type": user_with_institution.account_type.value,
-        "status": user_with_institution.status.value,
-        "institution_id": user_with_institution.primary_institution_id,
-        "primary_account_type": user_with_institution.primary_account_type.value if user_with_institution.primary_account_type else None,
-        "department": user_with_institution.department,
-        "job_title": user_with_institution.job_title,
-        "phone": user_with_institution.phone,
-        "expertise_keywords": user_with_institution.expertise_keywords,
-        "orcid_id": user_with_institution.orcid_id,
-        "email_verified": user_with_institution.email_verified,
-        "primary_institution_id": user_with_institution.primary_institution_id,
-        "institution_name": user_with_institution.institution.name if user_with_institution.institution else None,
-        "institution_types": institution_types,
-        "staff_id": user_with_institution.staff_id,
-    }
-    
-    return user_dict
+
+@router.post("/demo/switch-role", response_model=UserResponse)
+async def switch_demo_role(
+    payload: DemoRoleSwitchRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Switch active role for the demo account only."""
+    if current_user.email.lower() != DEMO_ACCOUNT_EMAIL:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Role switching is only available for the demo account",
+        )
+
+    role_key = payload.role.upper()
+    if role_key not in DEMO_ROLE_MAP:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role. Allowed: {', '.join(DEMO_ROLE_MAP.keys())}",
+        )
+
+    primary_type, job_title = DEMO_ROLE_MAP[role_key]
+    current_user.primary_account_type = primary_type
+    current_user.job_title = job_title
+    await db.commit()
+
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.institution).selectinload(Institution.type_assignments))
+        .where(User.id == current_user.id)
+    )
+    user_with_institution = result.scalar_one()
+    return _build_user_response(user_with_institution)
 
 
 @router.put("/me", response_model=UserResponse)

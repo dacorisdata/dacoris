@@ -354,7 +354,7 @@ export default function AdminStaffSidebar() {
 
   return (
     <Box sx={{
-      width: 236, bgcolor: 'background.paper',
+      width: 300, bgcolor: 'background.paper',
       borderRight: 1, borderColor: 'divider',
       display: 'flex', flexDirection: 'column',
       height: '100vh', position: 'sticky', top: 0,
@@ -409,7 +409,7 @@ export default function AdminStaffSidebar() {
               color: tokens.role, fontSize: 11.5, fontWeight: 600, mt: 0.15,
               lineHeight: 1.3, letterSpacing: '0.02em',
             }}>
-              {meta.label}
+              {user?.job_title || meta.label}
             </Typography>
           </Box>
         </Box>

@@ -1,9 +1,11 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { authAPI } from '../lib/api';
+import { isDemoAccount, getDemoRoleById, getDemoRoleByAccountType } from '../lib/demoRoles';
 
 const AuthContext = createContext(null);
+const DEMO_ROLE_STORAGE_KEY = 'demoActiveRole';
 
 // Token refresh interval: refresh 5 minutes before expiration
 const REFRESH_BUFFER_MS = 5 * 60 * 1000; // 5 minutes
@@ -123,12 +125,44 @@ export function AuthProvider({ children }) {
     setRefreshTokenState(newRefreshToken);
   };
 
+  const persistUser = (userData) => {
+    setUser(userData);
+    localStorage.setItem('user', JSON.stringify(userData));
+  };
+
+  const applyStoredDemoRole = useCallback(async (userData) => {
+    if (!isDemoAccount(userData)) return userData;
+
+    const storedRoleId = localStorage.getItem(DEMO_ROLE_STORAGE_KEY);
+    if (!storedRoleId) return userData;
+
+    const storedRole = getDemoRoleById(storedRoleId);
+    if (!storedRole || storedRole.primaryAccountType === userData.primary_account_type) {
+      return userData;
+    }
+
+    try {
+      const response = await authAPI.switchDemoRole(storedRoleId);
+      const updated = response.data;
+      persistUser(updated);
+      return updated;
+    } catch (error) {
+      console.error('Failed to restore demo role:', error);
+      localStorage.removeItem(DEMO_ROLE_STORAGE_KEY);
+      return userData;
+    }
+  }, []);
   const fetchUser = async () => {
     try {
       const response = await authAPI.getCurrentUser();
-      const userData = response.data;
-      setUser(userData);
-      localStorage.setItem('user', JSON.stringify(userData));
+      let userData = await applyStoredDemoRole(response.data);
+      if (userData === response.data) {
+        persistUser(userData);
+      }
+      if (isDemoAccount(userData) && !localStorage.getItem(DEMO_ROLE_STORAGE_KEY)) {
+        const activeRole = getDemoRoleByAccountType(userData.primary_account_type);
+        localStorage.setItem(DEMO_ROLE_STORAGE_KEY, activeRole.id);
+      }
       return userData;
     } catch (error) {
       logout();
@@ -170,10 +204,22 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('tokenExpiry');
     localStorage.removeItem('user');
+    localStorage.removeItem(DEMO_ROLE_STORAGE_KEY);
     setTokenState(null);
     setRefreshTokenState(null);
     setUser(null);
     tokenExpiryRef.current = null;
+  };
+
+  const switchDemoRole = async (roleId) => {
+    const role = getDemoRoleById(roleId);
+    if (!role) throw new Error('Invalid demo role');
+
+    const response = await authAPI.switchDemoRole(roleId);
+    const userData = response.data;
+    persistUser(userData);
+    localStorage.setItem(DEMO_ROLE_STORAGE_KEY, roleId);
+    return userData;
   };
 
   // Expose refresh function for manual use
@@ -192,6 +238,7 @@ export function AuthProvider({ children }) {
       fetchUser, 
       login, 
       logout,
+      switchDemoRole,
       refreshToken: refreshTokenManually,
       scheduleTokenRefresh
     }}>

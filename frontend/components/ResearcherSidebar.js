@@ -35,6 +35,7 @@ import {
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import {
   isUniversityInstitution,
   isSupervisorAccount,
@@ -45,67 +46,66 @@ import { subtleScrollbarSx } from '../lib/scrollStyles';
 
 const ACCENT = '#1ca7a1';
 
-// ─── Nav structure ────────────────────────────────────────────────────────────
 const NAV_SECTIONS = [
   {
-    section: 'Main',
+    sectionKey: 'main',
     items: [
-      { icon: DashIcon,   label: 'Dashboard',  path: '/researcher/overview' },
-      { icon: PersonIcon, label: 'My Profile', path: '/researcher/profile' },
+      { icon: DashIcon, labelKey: 'researcher.sidebar.dashboard', path: '/researcher/overview' },
+      { icon: PersonIcon, labelKey: 'researcher.sidebar.myProfile', path: '/researcher/profile' },
     ],
   },
   {
-    section: 'Grants',
+    sectionKey: 'grants',
     items: [
-      { icon: DiscoverIcon, label: 'Discover Opportunities', path: '/researcher/grants/discover' },
-      { icon: ProposalIcon, label: 'My Proposals',           path: '/researcher/grants/proposals' },
-      { icon: AwardIcon,    label: 'My Awards',              path: '/researcher/grants/awards' },
+      { icon: DiscoverIcon, labelKey: 'researcher.sidebar.discoverOpportunities', path: '/researcher/grants/discover' },
+      { icon: ProposalIcon, labelKey: 'researcher.sidebar.myProposals', path: '/researcher/grants/proposals' },
+      { icon: AwardIcon, labelKey: 'researcher.sidebar.myAwards', path: '/researcher/grants/awards' },
     ],
   },
   {
-    section: 'Research',
+    sectionKey: 'research',
     collapsible: true,
     subsections: [
       {
-        title: 'Projects',
+        titleKey: 'researcher.sidebar.subsections.projects',
         items: [
-          { icon: ProjectIcon,      label: 'My Projects',         path: '/researcher/projects' },
-          { icon: EthicsIcon,       label: 'Ethics Applications', path: '/researcher/ethics' },
-          { icon: DmpIcon,          label: 'Data Mgmt Plans',     path: '/researcher/dmp' },
+          { icon: ProjectIcon, labelKey: 'researcher.sidebar.myProjects', path: '/researcher/projects' },
+          { icon: EthicsIcon, labelKey: 'researcher.sidebar.ethicsApplications', path: '/researcher/ethics' },
+          { icon: DmpIcon, labelKey: 'researcher.sidebar.dataMgmtPlans', path: '/researcher/dmp' },
         ],
       },
       {
-        title: 'Discovery',
+        titleKey: 'researcher.sidebar.subsections.discovery',
         items: [
-          { icon: ImportIcon,        label: 'Import Publications', path: '/researcher/publications' },
-          { icon: PublicationsIcon,  label: 'My Library',          path: '/researcher/publications/library' },
+          { icon: ImportIcon, labelKey: 'researcher.sidebar.importPublications', path: '/researcher/publications' },
+          { icon: PublicationsIcon, labelKey: 'researcher.sidebar.myLibrary', path: '/researcher/publications/library' },
         ],
       },
       {
-        title: 'Writing',
+        titleKey: 'researcher.sidebar.subsections.writing',
         items: [
-          { icon: ManuscriptIcon, label: 'Manuscripts', path: '/researcher/manuscripts' },
+          { icon: ManuscriptIcon, labelKey: 'researcher.sidebar.manuscripts', path: '/researcher/manuscripts' },
         ],
       },
     ],
   },
   {
-    section: 'Data',
+    sectionKey: 'data',
     items: [
-      { icon: FormsIcon, label: 'Data Import', path: '/researcher/data/import' },
-      { icon: Storage,   label: 'Data Lakes',  path: '/researcher/data/lakes' },
+      { icon: FormsIcon, labelKey: 'researcher.sidebar.dataImport', path: '/researcher/data/import' },
+      { icon: Storage, labelKey: 'researcher.sidebar.dataLakes', path: '/researcher/data/lakes' },
     ],
   },
   {
-    section: 'Training',
+    sectionKey: 'training',
     collapsible: true,
     items: [
-      { icon: TrainingIcon, label: 'Overview',           path: '/researcher/training' },
-      { icon: CatalogIcon,  label: 'Training Catalog',   path: '/researcher/training/catalog' },
-      { icon: CoursesIcon,  label: 'My Courses',         path: '/researcher/training/my-courses' },
-      { icon: CertIcon,     label: 'Certificates & CPD', path: '/researcher/training/certificates' },
-      { icon: SkillsIcon,   label: 'Skills Inventory',   path: '/researcher/training/skills' },
-      { icon: NeedsIcon,    label: 'Training Needs',     path: '/researcher/training/needs-assessment' },
+      { icon: TrainingIcon, labelKey: 'researcher.sidebar.overview', path: '/researcher/training' },
+      { icon: CatalogIcon, labelKey: 'researcher.sidebar.trainingCatalog', path: '/researcher/training/catalog' },
+      { icon: CoursesIcon, labelKey: 'researcher.sidebar.myCourses', path: '/researcher/training/my-courses' },
+      { icon: CertIcon, labelKey: 'researcher.sidebar.certificatesCpd', path: '/researcher/training/certificates' },
+      { icon: SkillsIcon, labelKey: 'researcher.sidebar.skillsInventory', path: '/researcher/training/skills' },
+      { icon: NeedsIcon, labelKey: 'researcher.sidebar.trainingNeeds', path: '/researcher/training/needs-assessment' },
     ],
   },
 ];
@@ -117,49 +117,49 @@ function buildPgNavSection(user) {
   const items = [];
   if (supervisor) {
     items.push(
-      { icon: SupervisorIcon, label: 'Supervisor Dashboard', path: '/researcher/postgraduate/supervisor' },
-      { icon: PgIcon, label: 'My Students', path: '/researcher/postgraduate/supervisor/students' },
-      { icon: NeedsIcon, label: 'Delay Reports', path: '/researcher/postgraduate/supervisor/delay-reports/new' },
+      { icon: SupervisorIcon, labelKey: 'researcher.sidebar.supervisorDashboard', path: '/researcher/postgraduate/supervisor' },
+      { icon: PgIcon, labelKey: 'researcher.sidebar.myStudents', path: '/researcher/postgraduate/supervisor/students' },
+      { icon: NeedsIcon, labelKey: 'researcher.sidebar.delayReports', path: '/researcher/postgraduate/supervisor/delay-reports/new' },
     );
   }
   if (student) {
     items.push(
-      { icon: JourneyIcon, label: 'My PG Journey', path: '/researcher/postgraduate/journey' },
-      { icon: RequirementsIcon, label: 'Requirements', path: '/researcher/postgraduate/requirements' },
-      { icon: NeedsIcon, label: 'Progress Logs', path: '/researcher/postgraduate/progress' },
-      { icon: ChallengesIcon, label: 'Report Challenges', path: '/researcher/postgraduate/challenges' },
-      { icon: FeedbackIcon, label: 'Supervision Feedback', path: '/researcher/postgraduate/feedback' },
-      { icon: GraduationIcon, label: 'Graduation Readiness', path: '/researcher/postgraduate/graduation' },
+      { icon: JourneyIcon, labelKey: 'researcher.sidebar.myPgJourney', path: '/researcher/postgraduate/journey' },
+      { icon: RequirementsIcon, labelKey: 'researcher.sidebar.requirements', path: '/researcher/postgraduate/requirements' },
+      { icon: NeedsIcon, labelKey: 'researcher.sidebar.progressLogs', path: '/researcher/postgraduate/progress' },
+      { icon: ChallengesIcon, labelKey: 'researcher.sidebar.reportChallenges', path: '/researcher/postgraduate/challenges' },
+      { icon: FeedbackIcon, labelKey: 'researcher.sidebar.supervisionFeedback', path: '/researcher/postgraduate/feedback' },
+      { icon: GraduationIcon, labelKey: 'researcher.sidebar.graduationReadiness', path: '/researcher/postgraduate/graduation' },
     );
   }
   if (!items.length) return null;
-  return { section: 'Postgraduate', collapsible: true, items };
+  return { sectionKey: 'postgraduate', collapsible: true, items };
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export default function ResearcherSidebar() {
-  const router   = useRouter();
+  const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
   const theme = useMuiTheme();
   const dark = theme.palette.mode === 'dark';
 
   const pgSection = buildPgNavSection(user);
   const navSections = (() => {
     if (isSupervisorAccount(user) && pgSection) {
-      const mainSection = NAV_SECTIONS.find((s) => s.section === 'Main');
+      const mainSection = NAV_SECTIONS.find((s) => s.sectionKey === 'main');
       return mainSection ? [mainSection, pgSection] : [pgSection];
     }
     if (!pgSection) return NAV_SECTIONS;
     const sections = [...NAV_SECTIONS];
-    const grantsIdx = sections.findIndex((s) => s.section === 'Grants');
-    sections.splice(grantsIdx >= 0 ? grantsIdx : sections.length, 0, pgSection);
+    const grantsIdx = sections.findIndex((s) => s.sectionKey === 'grants');
+    const insertAt = grantsIdx >= 0 ? grantsIdx + 1 : sections.length;
+    sections.splice(insertAt, 0, pgSection);
     return sections;
   })();
 
-  // sections open by default
-  const [open, setOpen] = useState({ Research: true, Training: true, Postgraduate: true });
-  const toggleSection = (name) => setOpen(prev => ({ ...prev, [name]: !prev[name] }));
+  const [open, setOpen] = useState({ research: true, training: true, postgraduate: true });
+  const toggleSection = (key) => setOpen(prev => ({ ...prev, [key]: !prev[key] }));
 
   const isActive = (path) => pathname === path || pathname.startsWith(path + '/');
   const sectionHasActive = (section) => {
@@ -170,8 +170,6 @@ export default function ResearcherSidebar() {
   };
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'R';
-
-  // ── Sub-components ──────────────────────────────────────────────────────────
 
   const NavItem = ({ icon: Icon, label, path }) => {
     const active = isActive(path);
@@ -190,7 +188,6 @@ export default function ResearcherSidebar() {
               bgcolor: active ? `${ACCENT}20` : dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
               color: active ? ACCENT : 'text.primary',
             },
-            // left accent bar for active item
             '&::before': active ? {
               content: '""',
               position: 'absolute', left: -4, top: '20%', bottom: '20%',
@@ -219,9 +216,9 @@ export default function ResearcherSidebar() {
     );
   };
 
-  const SectionHeader = ({ label, collapsible, isOpen, hasActive }) => (
+  const SectionHeader = ({ sectionKey, label, collapsible, isOpen, hasActive }) => (
     <Box
-      onClick={collapsible ? () => toggleSection(label) : undefined}
+      onClick={collapsible ? () => toggleSection(sectionKey) : undefined}
       sx={{
         display: 'flex', alignItems: 'center', gap: 1,
         px: 2, pt: 2.5, pb: 0.75,
@@ -247,7 +244,7 @@ export default function ResearcherSidebar() {
       {collapsible && (
         isOpen
           ? <CollapseIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-          : <ExpandIcon   sx={{ fontSize: 14, color: 'text.disabled' }} />
+          : <ExpandIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
       )}
     </Box>
   );
@@ -264,10 +261,9 @@ export default function ResearcherSidebar() {
     </Typography>
   );
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <Box sx={{
-      width: 234,
+      width: 300,
       bgcolor: dark ? '#0f172a' : '#ffffff',
       borderRight: 1,
       borderColor: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
@@ -279,7 +275,6 @@ export default function ResearcherSidebar() {
       flexShrink: 0,
     }}>
 
-      {/* ── Header ── */}
       <Box sx={{
         px: 2, pt: 2.5, pb: 2,
         borderBottom: 1,
@@ -288,7 +283,6 @@ export default function ResearcherSidebar() {
           ? 'linear-gradient(160deg, #0f1f2e 0%, #0f172a 100%)'
           : `linear-gradient(160deg, ${ACCENT}0d 0%, transparent 100%)`,
       }}>
-        {/* Institution badge */}
         {user?.institution_name && (
           <Box sx={{
             display: 'inline-flex', alignItems: 'center',
@@ -307,7 +301,6 @@ export default function ResearcherSidebar() {
           </Box>
         )}
 
-        {/* Avatar + Name */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Box sx={{
             width: 40, height: 40, borderRadius: '10px', flexShrink: 0,
@@ -324,28 +317,29 @@ export default function ResearcherSidebar() {
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               letterSpacing: 0.1,
             }}>
-              {user?.name || 'Researcher'}
+              {user?.name || t('researcher.sidebar.fallbackName')}
             </Typography>
             <Typography sx={{ fontSize: 11, color: ACCENT, fontWeight: 500, mt: 0.1 }}>
-              {user?.job_title || 'Researcher'}
+              {user?.job_title || t('researcher.sidebar.fallbackRole')}
             </Typography>
           </Box>
         </Box>
       </Box>
 
-      {/* ── Nav ── */}
       <Box sx={{
         flex: 1, overflowY: 'auto', py: 0.5,
         ...subtleScrollbarSx(dark),
       }}>
-        {navSections.map(({ section, items, subsections, collapsible }) => {
+        {navSections.map(({ sectionKey, items, subsections, collapsible }) => {
           const hasActive = sectionHasActive({ items, subsections });
-          const isOpen = !collapsible || open[section] !== false;
+          const isOpen = !collapsible || open[sectionKey] !== false;
+          const sectionLabel = t(`researcher.sidebar.sections.${sectionKey}`);
 
           return (
-            <Box key={section} sx={{ mb: 0.5 }}>
+            <Box key={sectionKey} sx={{ mb: 0.5 }}>
               <SectionHeader
-                label={section}
+                sectionKey={sectionKey}
+                label={sectionLabel}
                 collapsible={collapsible}
                 isOpen={isOpen}
                 hasActive={hasActive}
@@ -356,15 +350,19 @@ export default function ResearcherSidebar() {
                   {subsections ? (
                     subsections.map((sub, idx) => (
                       <Box key={idx} sx={{ mb: 0.5 }}>
-                        <SubsectionLabel title={sub.title} />
+                        <SubsectionLabel title={t(sub.titleKey)} />
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                          {sub.items.map(item => <NavItem key={item.path} {...item} />)}
+                          {sub.items.map(item => (
+                            <NavItem key={item.path} icon={item.icon} label={t(item.labelKey)} path={item.path} />
+                          ))}
                         </Box>
                       </Box>
                     ))
                   ) : (
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                      {items.map(item => <NavItem key={item.path} {...item} />)}
+                      {items.map(item => (
+                        <NavItem key={item.path} icon={item.icon} label={t(item.labelKey)} path={item.path} />
+                      ))}
                     </Box>
                   )}
                 </>
@@ -374,7 +372,6 @@ export default function ResearcherSidebar() {
         })}
       </Box>
 
-      {/* ── Footer ── */}
       <Box sx={{
         px: 1.5, py: 1.25,
         borderTop: 1,
@@ -394,7 +391,7 @@ export default function ResearcherSidebar() {
           }}
         >
           <LogoutIcon sx={{ fontSize: 16 }} />
-          <Typography sx={{ fontSize: 12.5, fontWeight: 500 }}>Sign Out</Typography>
+          <Typography sx={{ fontSize: 12.5, fontWeight: 500 }}>{t('researcher.sidebar.signOut')}</Typography>
         </Box>
       </Box>
     </Box>

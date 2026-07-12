@@ -8,18 +8,20 @@ import {
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { subtleScrollbarSx } from '../lib/scrollStyles';
 
-const NAV_ITEMS = [
-  { icon: TaskIcon, label: 'New Tasks to Review', path: '/reviewer/tasks' },
-  { icon: ReviewIcon, label: 'My Reviews', path: '/reviewer/reviews' },
+const NAV_PATHS = [
+  { icon: TaskIcon, labelKey: 'reviewer.sidebar.newTasks', path: '/reviewer/tasks' },
+  { icon: ReviewIcon, labelKey: 'reviewer.sidebar.myReviews', path: '/reviewer/reviews' },
 ];
 
 export default function ReviewerSidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
   const theme = useMuiTheme();
   const dark = theme.palette.mode === 'dark';
   const accent = dark ? '#2dd4bf' : '#0d9488';
@@ -51,7 +53,7 @@ export default function ReviewerSidebar() {
 
   return (
     <Box sx={{
-      width: 230, bgcolor: 'background.paper',
+      width: 300, bgcolor: 'background.paper',
       borderRight: 1, borderColor: 'divider',
       display: 'flex', flexDirection: 'column',
       height: '100vh', position: 'sticky', top: 0,
@@ -59,7 +61,7 @@ export default function ReviewerSidebar() {
     }}>
       <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Chip
-          label="External Reviewer"
+          label={t('reviewer.sidebar.externalReviewer')}
           size="small"
           sx={{
             width: '100%', mb: 1.5,
@@ -86,7 +88,7 @@ export default function ReviewerSidebar() {
           </Box>
           <Box sx={{ minWidth: 0 }}>
             <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary', lineHeight: 1.2 }} noWrap>
-              {user?.name || 'Reviewer'}
+              {user?.name || t('reviewer.sidebar.reviewerFallback')}
             </Typography>
             <Typography sx={{ fontSize: 10.5, color: 'text.secondary' }} noWrap>
               {user?.email}
@@ -96,8 +98,8 @@ export default function ReviewerSidebar() {
       </Box>
 
       <Box sx={{ flex: 1, overflow: 'auto', py: 1, ...subtleScrollbarSx }}>
-        {NAV_ITEMS.map(item => (
-          <NavItem key={item.path} {...item} />
+        {NAV_PATHS.map(item => (
+          <NavItem key={item.path} icon={item.icon} label={t(item.labelKey)} path={item.path} />
         ))}
       </Box>
 
@@ -109,7 +111,7 @@ export default function ReviewerSidebar() {
           '&:hover': { bgcolor: 'action.hover', color: 'error.main' },
         }}>
           <LogoutIcon sx={{ fontSize: 15 }} />
-          <Typography sx={{ fontSize: 12.5, fontWeight: 500 }}>Log Out</Typography>
+          <Typography sx={{ fontSize: 12.5, fontWeight: 500 }}>{t('reviewer.sidebar.logOut')}</Typography>
         </Box>
       </Box>
     </Box>

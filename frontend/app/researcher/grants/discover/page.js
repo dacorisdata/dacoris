@@ -15,25 +15,47 @@ import {
   CheckCircle as CheckCircleIcon, Psychology as AIIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
+import { useLanguage } from '../../../../contexts/LanguageContext';
 import api from '../../../../lib/api';
 import { grantsAPI } from '../../../../lib/apiModules';
 
 const ACCENT = '#16a699';
 const PAGE_SIZE = 20;
+const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar' };
+
+const STATUS_COLORS = {
+  open: { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+  upcoming: { color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+  archived: { color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+  closed: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+};
 
 const categoryColor = c => ({
   Health: '#10b981', Environment: '#0ea5e9', Technology: ACCENT,
   Agriculture: '#f59e0b', 'Multi-disciplinary': '#f97316', STEM: ACCENT,
 }[c] || '#64748b');
 
-const statusMeta = s => ({
-  open: { label: 'Open', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-  upcoming: { label: 'Upcoming', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-  archived: { label: 'Archived', color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
-  closed: { label: 'Closed', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-}[(s || '').toLowerCase()] || { label: s || 'N/A', color: '#64748b', bg: 'rgba(100,116,139,0.12)' });
+const getStatusMeta = (status, t) => {
+  const key = (status || '').toLowerCase();
+  const colors = STATUS_COLORS[key] || { color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+  const labelKey = `researcher.grantsDiscover.status.${key}`;
+  const label = t(labelKey);
+  return {
+    label: label !== labelKey ? label : (status || t('researcher.grantsDiscover.status.na')),
+    ...colors,
+  };
+};
 
-const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+const translateCategory = (category, t) => {
+  if (!category) return category;
+  const key = `researcher.grantsDiscover.categories.${category}`;
+  const translated = t(key);
+  return translated !== key ? translated : category;
+};
+
+const fmtDate = (d, locale) => d
+  ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  : '—';
 
 const fmtMoney = o => {
   if (!o.amount_min && !o.amount_max) return '—';
@@ -42,10 +64,11 @@ const fmtMoney = o => {
   return `${o.currency || ''} ${fmt(o.amount_min || o.amount_max)}`.trim();
 };
 
-function OpportunityCard({ opp, app, saved, onSave, onApply, onCompleteDraft, theme, dark }) {
+function OpportunityCard({ opp, app, saved, onSave, onApply, onCompleteDraft, theme, dark, t, locale, isRtl }) {
   const catColor = categoryColor(opp.category);
-  const status = statusMeta(opp.status);
+  const status = getStatusMeta(opp.status, t);
   const urgent = opp.deadline && new Date(opp.deadline) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const isOpen = opp.status?.toLowerCase() === 'open';
 
   return (
     <Paper
@@ -67,15 +90,14 @@ function OpportunityCard({ opp, app, saved, onSave, onApply, onCompleteDraft, th
         },
       }}
     >
-      {/* Main info */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.75 }}>
           <Chip label={status.label} size="small" sx={{ fontSize: 10.5, fontWeight: 700, bgcolor: status.bg, color: status.color, height: 22 }} />
           {opp.category && (
-            <Chip label={opp.category} size="small" sx={{ fontSize: 10.5, fontWeight: 600, bgcolor: `${catColor}22`, color: catColor, height: 22 }} />
+            <Chip label={translateCategory(opp.category, t)} size="small" sx={{ fontSize: 10.5, fontWeight: 600, bgcolor: `${catColor}22`, color: catColor, height: 22 }} />
           )}
           {opp.is_curated && (
-            <Chip label="Published" size="small" sx={{ fontSize: 10.5, fontWeight: 600, bgcolor: `${ACCENT}18`, color: ACCENT, height: 22 }} />
+            <Chip label={t('researcher.grantsDiscover.published')} size="small" sx={{ fontSize: 10.5, fontWeight: 600, bgcolor: `${ACCENT}18`, color: ACCENT, height: 22 }} />
           )}
           {app && (
             <Chip label={app.label} size="small" sx={{ fontSize: 10.5, fontWeight: 600, bgcolor: `${app.color}22`, color: app.color, height: 22, maxWidth: 220 }} />
@@ -106,15 +128,14 @@ function OpportunityCard({ opp, app, saved, onSave, onApply, onCompleteDraft, th
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
             <CalendarIcon sx={{ fontSize: 16, color: urgent ? '#ef4444' : 'text.secondary' }} />
             <Typography sx={{ fontSize: 13, color: urgent ? '#ef4444' : 'text.secondary', fontWeight: urgent ? 600 : 400 }}>
-              Deadline: {fmtDate(opp.deadline)}
+              {t('researcher.grantsDiscover.deadline', { date: fmtDate(opp.deadline, locale) })}
             </Typography>
           </Box>
         </Box>
       </Box>
 
-      {/* Actions */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, alignSelf: { xs: 'flex-end', md: 'center' } }}>
-        <Tooltip title={saved ? 'Saved' : 'Save for later'}>
+        <Tooltip title={saved ? t('researcher.grantsDiscover.saved') : t('researcher.grantsDiscover.saveForLater')}>
           <IconButton
             size="small"
             onClick={onSave}
@@ -130,27 +151,29 @@ function OpportunityCard({ opp, app, saved, onSave, onApply, onCompleteDraft, th
             onClick={onCompleteDraft}
             sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 2, bgcolor: '#f59e0b', whiteSpace: 'nowrap', '&:hover': { bgcolor: '#d97706' } }}
           >
-            Complete Draft
+            {t('researcher.grantsDiscover.completeDraft')}
           </Button>
         ) : app && !app.isDraft ? (
           <Button variant="outlined" disabled sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 2, whiteSpace: 'nowrap' }}>
-            Applied
+            {t('researcher.grantsDiscover.applied')}
           </Button>
         ) : (
-          <Tooltip title={opp.status?.toLowerCase() !== 'open' ? `Applications only available for Open opportunities (Status: ${opp.status})` : 'Start your application'}>
+          <Tooltip title={!isOpen
+            ? t('researcher.grantsDiscover.applyTooltipClosed', { status: getStatusMeta(opp.status, t).label })
+            : t('researcher.grantsDiscover.applyTooltipOpen')}>
             <span>
               <Button
                 variant="contained"
-                endIcon={<ApplyIcon sx={{ fontSize: 16 }} />}
+                endIcon={<ApplyIcon sx={{ fontSize: 16, transform: isRtl ? 'scaleX(-1)' : 'none' }} />}
                 onClick={onApply}
-                disabled={opp.status?.toLowerCase() !== 'open'}
+                disabled={!isOpen}
                 sx={{
                   textTransform: 'none', fontWeight: 600, borderRadius: 2, bgcolor: ACCENT, whiteSpace: 'nowrap',
                   '&:hover': { bgcolor: '#14958a' },
                   '&.Mui-disabled': { bgcolor: 'rgba(100,116,139,0.12)', color: 'rgba(100,116,139,0.5)' },
                 }}
               >
-                Apply
+                {t('researcher.grantsDiscover.apply')}
               </Button>
             </span>
           </Tooltip>
@@ -163,6 +186,8 @@ function OpportunityCard({ opp, app, saved, onSave, onApply, onCompleteDraft, th
 export default function DiscoverOpportunitiesPage() {
   const router = useRouter();
   const { fetchUser } = useAuth();
+  const { t, locale, dir } = useLanguage();
+  const isRtl = dir === 'rtl';
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
 
@@ -179,7 +204,6 @@ export default function DiscoverOpportunitiesPage() {
   const [myApplications, setMyApplications] = useState({});
   const [page, setPage] = useState(1);
 
-  // AI matcher state
   const [aiMatches, setAiMatches] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
@@ -219,7 +243,7 @@ export default function DiscoverOpportunitiesPage() {
       });
       setMyApplications(appMap);
     } catch (e) {
-      setError('Failed to load opportunities from database');
+      setError(t('researcher.grantsDiscover.errorLoad'));
       console.error('Error loading opportunities:', e);
     }
   };
@@ -232,7 +256,7 @@ export default function DiscoverOpportunitiesPage() {
       const res = await grantsAPI.matchOpportunities({ limit: 3, includeUpcoming: false });
       setAiMatches(res.data);
     } catch (e) {
-      setAiError(e.response?.data?.detail || 'AI matching failed. Please try again.');
+      setAiError(e.response?.data?.detail || t('researcher.grantsDiscover.ai.failed'));
       setAiPanelOpen(false);
     } finally {
       setAiLoading(false);
@@ -243,9 +267,17 @@ export default function DiscoverOpportunitiesPage() {
     const app = myApplications[oppId];
     if (!app) return null;
     if (app.status === 'draft' || app.status === 'returned') {
-      return { label: app.status === 'returned' ? 'Returned — Complete Draft' : 'Draft — Complete Draft', color: '#f59e0b', proposalId: app.id, canApply: false, isDraft: true };
+      return {
+        label: app.status === 'returned'
+          ? t('researcher.grantsDiscover.application.returnedDraft')
+          : t('researcher.grantsDiscover.application.draft'),
+        color: '#f59e0b',
+        proposalId: app.id,
+        canApply: false,
+        isDraft: true,
+      };
     }
-    return { label: 'Applied', color: '#6366f1', proposalId: app.id, canApply: false, isDraft: false };
+    return { label: t('researcher.grantsDiscover.applied'), color: '#6366f1', proposalId: app.id, canApply: false, isDraft: false };
   };
 
   const categories = useMemo(
@@ -311,25 +343,28 @@ export default function DiscoverOpportunitiesPage() {
     return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><CircularProgress /></Box>;
   }
 
+  const showingFrom = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const showingTo = Math.min(page * PAGE_SIZE, filtered.length);
+
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1400, mx: 'auto' }}>
-      {/* Header */}
+    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1400, mx: 'auto', width: '100%' }}>
       <Box sx={{ mb: 3 }}>
-        <Typography sx={{ fontSize: 24, fontWeight: 800, color: 'text.primary', letterSpacing: -0.3 }}>Discover Opportunities</Typography>
+        <Typography sx={{ fontSize: 24, fontWeight: 800, color: 'text.primary', letterSpacing: -0.3 }}>
+          {t('researcher.grantsDiscover.title')}
+        </Typography>
         <Typography sx={{ fontSize: 14, color: 'text.secondary', mt: 0.4 }}>
-          Funding opportunities matched to your research profile and expertise
+          {t('researcher.grantsDiscover.subtitle')}
         </Typography>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {/* Summary chips + AI button */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 3 }}>
         <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-          <Chip label={`${opportunities.length} Total`} sx={{ bgcolor: `${ACCENT}18`, color: ACCENT, fontWeight: 600 }} />
-          <Chip label={`${opportunities.filter(o => o.is_curated).length} Published`} sx={{ bgcolor: 'rgba(16,185,129,0.12)', color: '#10b981', fontWeight: 600 }} />
-          <Chip label={`${opportunities.filter(o => o.status === 'open').length} Open`} sx={{ bgcolor: 'rgba(59,130,246,0.12)', color: '#3b82f6', fontWeight: 600 }} />
-          <Chip label={`${filtered.length} Matching`} sx={{ bgcolor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', color: 'text.secondary', fontWeight: 600 }} />
+          <Chip label={t('researcher.grantsDiscover.summary.total', { count: opportunities.length })} sx={{ bgcolor: `${ACCENT}18`, color: ACCENT, fontWeight: 600 }} />
+          <Chip label={t('researcher.grantsDiscover.summary.published', { count: opportunities.filter(o => o.is_curated).length })} sx={{ bgcolor: 'rgba(16,185,129,0.12)', color: '#10b981', fontWeight: 600 }} />
+          <Chip label={t('researcher.grantsDiscover.summary.open', { count: opportunities.filter(o => o.status === 'open').length })} sx={{ bgcolor: 'rgba(59,130,246,0.12)', color: '#3b82f6', fontWeight: 600 }} />
+          <Chip label={t('researcher.grantsDiscover.summary.matching', { count: filtered.length })} sx={{ bgcolor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', color: 'text.secondary', fontWeight: 600 }} />
         </Box>
         <Button
           variant="contained"
@@ -344,72 +379,72 @@ export default function DiscoverOpportunitiesPage() {
             '&.Mui-disabled': { background: 'rgba(100,116,139,0.12)', color: 'rgba(100,116,139,0.5)', boxShadow: 'none' },
           }}
         >
-          {aiLoading ? 'Analysing your profile…' : 'Find My Best Matches'}
+          {aiLoading ? t('researcher.grantsDiscover.ai.analysing') : t('researcher.grantsDiscover.ai.findMatches')}
         </Button>
       </Box>
 
       {aiError && <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setAiError('')}>{aiError}</Alert>}
 
-      {/* ── AI Matches Panel ─────────────────────────────────────────────── */}
       {aiPanelOpen && (
         <Paper
           elevation={0}
           sx={{
             mb: 3, borderRadius: 3,
-            border: `1px solid rgba(124,58,237,0.3)`,
+            border: '1px solid rgba(124,58,237,0.3)',
             background: dark
               ? 'linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(79,70,229,0.08) 100%)'
               : 'linear-gradient(135deg, rgba(124,58,237,0.05) 0%, rgba(79,70,229,0.03) 100%)',
             overflow: 'hidden',
           }}
         >
-          {/* Header */}
-          <Box sx={{ px: 3, py: 2.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `1px solid rgba(124,58,237,0.15)` }}>
+          <Box sx={{ px: 3, py: 2.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid rgba(124,58,237,0.15)' }}>
             <Box sx={{ width: 38, height: 38, borderRadius: 2, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <AIIcon sx={{ fontSize: 22, color: '#fff' }} />
             </Box>
             <Box sx={{ flex: 1 }}>
               <Typography sx={{ fontWeight: 700, fontSize: 16, color: 'text.primary' }}>
-                Top 3 AI-Matched Opportunities
+                {t('researcher.grantsDiscover.ai.topMatches')}
                 {aiMatches?.ai_enhanced && (
                   <Chip label="GPT-4o-mini" size="small" sx={{ ml: 1.5, fontSize: 10, fontWeight: 700, bgcolor: 'rgba(124,58,237,0.12)', color: '#7c3aed' }} />
                 )}
                 {aiMatches && !aiMatches.ai_enhanced && (
-                  <Chip label="Keyword match" size="small" sx={{ ml: 1.5, fontSize: 10, fontWeight: 700, bgcolor: 'rgba(100,116,139,0.1)', color: 'text.secondary' }} />
+                  <Chip label={t('researcher.grantsDiscover.ai.keywordMatch')} size="small" sx={{ ml: 1.5, fontSize: 10, fontWeight: 700, bgcolor: 'rgba(100,116,139,0.1)', color: 'text.secondary' }} />
                 )}
               </Typography>
               {aiMatches && (
                 <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.3 }}>
-                  Top 3 open opportunities from {aiMatches.total_candidates} candidates, ranked using: {aiMatches.signals_used?.join(', ') || 'your profile'}
+                  {t('researcher.grantsDiscover.ai.rankedFrom', {
+                    count: aiMatches.total_candidates,
+                    signals: aiMatches.signals_used?.join(', ') || t('researcher.grantsDiscover.ai.yourProfile'),
+                  })}
                 </Typography>
               )}
             </Box>
-            <Tooltip title="Close AI panel">
+            <Tooltip title={t('researcher.grantsDiscover.ai.closePanel')}>
               <IconButton size="small" onClick={() => setAiPanelOpen(false)} sx={{ color: 'text.secondary' }}>
                 <CloseIcon sx={{ fontSize: 20 }} />
               </IconButton>
             </Tooltip>
           </Box>
 
-          {/* Content */}
           <Box sx={{ p: 2.5 }}>
             {aiLoading ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 2 }}>
                 <CircularProgress size={24} sx={{ color: '#7c3aed' }} />
                 <Box>
-                  <Typography sx={{ fontWeight: 600, fontSize: 14 }}>Analysing your research profile…</Typography>
-                  <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>Cross-referencing expertise, publications, and ORCID data against open opportunities</Typography>
+                  <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{t('researcher.grantsDiscover.ai.analysingProfile')}</Typography>
+                  <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{t('researcher.grantsDiscover.ai.analysingDetail')}</Typography>
                 </Box>
               </Box>
             ) : aiMatches?.matches?.length === 0 ? (
-              <Typography sx={{ color: 'text.secondary', fontSize: 14, py: 1 }}>No open opportunities matched your current profile. Try enriching your expertise keywords on your profile page or adding publications.</Typography>
+              <Typography sx={{ color: 'text.secondary', fontSize: 14, py: 1 }}>{t('researcher.grantsDiscover.ai.noMatches')}</Typography>
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {aiMatches?.matches?.map((match, idx) => {
                   const pct = Math.round(Math.min(match.score * 500, 100));
                   const scoreColor = pct >= 70 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#64748b';
                   const app = getApplicationDisplay(match.opportunity_id);
-                  const statusInfo = statusMeta(match.status);
+                  const statusInfo = getStatusMeta(match.status, t);
                   return (
                     <Paper
                       key={match.opportunity_id}
@@ -422,25 +457,24 @@ export default function DiscoverOpportunitiesPage() {
                         flexDirection: { xs: 'column', md: 'row' },
                       }}
                     >
-                      {/* Score ring */}
                       <Box sx={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, minWidth: 60 }}>
                         <Box sx={{ width: 52, height: 52, borderRadius: '50%', border: `3px solid ${scoreColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                           <Typography sx={{ fontSize: 13, fontWeight: 800, color: scoreColor }}>{pct}%</Typography>
                         </Box>
-                        <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 600, textAlign: 'center' }}>Match</Typography>
+                        <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 600, textAlign: 'center' }}>{t('researcher.grantsDiscover.ai.match')}</Typography>
                         <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary' }}>#{idx + 1}</Typography>
                       </Box>
 
-                      {/* Info */}
                       <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 0.75 }}>
                           <Chip label={statusInfo.label} size="small" sx={{ fontSize: 10, fontWeight: 700, bgcolor: statusInfo.bg, color: statusInfo.color, height: 22 }} />
-                          {match.category && <Chip label={match.category} size="small" sx={{ fontSize: 10, fontWeight: 600, bgcolor: `${categoryColor(match.category)}22`, color: categoryColor(match.category), height: 22 }} />}
+                          {match.category && (
+                            <Chip label={translateCategory(match.category, t)} size="small" sx={{ fontSize: 10, fontWeight: 600, bgcolor: `${categoryColor(match.category)}22`, color: categoryColor(match.category), height: 22 }} />
+                          )}
                           {app && <Chip label={app.label} size="small" sx={{ fontSize: 10, fontWeight: 600, bgcolor: `${app.color}22`, color: app.color, height: 22 }} />}
                         </Box>
                         <Typography sx={{ fontSize: 15, fontWeight: 700, mb: 0.75, lineHeight: 1.35 }}>{match.title}</Typography>
 
-                        {/* AI explanation */}
                         {match.match_explanation && (
                           <Box sx={{ p: 1.25, borderRadius: 1.5, bgcolor: 'rgba(124,58,237,0.07)', border: '1px solid rgba(124,58,237,0.15)', mb: 1.25, display: 'flex', gap: 1 }}>
                             <SparkleIcon sx={{ fontSize: 16, color: '#7c3aed', flexShrink: 0, mt: 0.2 }} />
@@ -450,7 +484,6 @@ export default function DiscoverOpportunitiesPage() {
                           </Box>
                         )}
 
-                        {/* Keyword reasons */}
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
                           {match.reasons.map((r, i) => (
                             <Chip key={i} icon={<CheckCircleIcon sx={{ fontSize: '13px !important' }} />} label={r} size="small"
@@ -458,7 +491,6 @@ export default function DiscoverOpportunitiesPage() {
                           ))}
                         </Box>
 
-                        {/* Meta row */}
                         <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                           {match.sponsor && (
                             <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
@@ -480,28 +512,31 @@ export default function DiscoverOpportunitiesPage() {
                             <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
                               <CalendarIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
                               <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
-                                {new Date(match.deadline).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                {fmtDate(match.deadline, locale)}
                               </Typography>
                             </Box>
                           )}
                         </Box>
                       </Box>
 
-                      {/* Action */}
                       <Box sx={{ flexShrink: 0, alignSelf: { xs: 'flex-end', md: 'center' } }}>
                         {app?.isDraft ? (
                           <Button variant="contained" onClick={() => router.push(`/researcher/grants/proposals/${app.proposalId}`)}
                             sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 2, bgcolor: '#f59e0b', whiteSpace: 'nowrap', '&:hover': { bgcolor: '#d97706' } }}>
-                            Complete Draft
+                            {t('researcher.grantsDiscover.completeDraft')}
                           </Button>
                         ) : app && !app.isDraft ? (
-                          <Button variant="outlined" disabled sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 2 }}>Applied</Button>
+                          <Button variant="outlined" disabled sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 2 }}>
+                            {t('researcher.grantsDiscover.applied')}
+                          </Button>
                         ) : (
-                          <Tooltip title={match.status?.toLowerCase() !== 'open' ? `Status: ${match.status}` : ''}>
+                          <Tooltip title={match.status?.toLowerCase() !== 'open'
+                            ? t('researcher.grantsDiscover.ai.statusTooltip', { status: statusInfo.label })
+                            : ''}>
                             <span>
                               <Button
                                 variant="contained"
-                                endIcon={<ApplyIcon sx={{ fontSize: 16 }} />}
+                                endIcon={<ApplyIcon sx={{ fontSize: 16, transform: isRtl ? 'scaleX(-1)' : 'none' }} />}
                                 disabled={match.status?.toLowerCase() !== 'open'}
                                 onClick={() => {
                                   const oppData = encodeURIComponent(JSON.stringify({ id: match.opportunity_id, title: match.title, sponsor: match.sponsor, deadline: match.deadline }));
@@ -509,7 +544,7 @@ export default function DiscoverOpportunitiesPage() {
                                 }}
                                 sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 2, bgcolor: ACCENT, whiteSpace: 'nowrap', '&:hover': { bgcolor: '#14958a' }, '&.Mui-disabled': { bgcolor: 'rgba(100,116,139,0.12)', color: 'rgba(100,116,139,0.5)' } }}
                               >
-                                Apply
+                                {t('researcher.grantsDiscover.apply')}
                               </Button>
                             </span>
                           </Tooltip>
@@ -524,9 +559,7 @@ export default function DiscoverOpportunitiesPage() {
         </Paper>
       )}
 
-      {/* Main layout: filters left, cards right */}
       <Box sx={{ display: 'flex', gap: 3, alignItems: 'flex-start', flexDirection: { xs: 'column', lg: 'row' } }}>
-        {/* ── Filters sidebar ──────────────────────────────── */}
         <Paper
           elevation={0}
           sx={{
@@ -543,37 +576,42 @@ export default function DiscoverOpportunitiesPage() {
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <FilterIcon sx={{ fontSize: 20, color: ACCENT }} />
-              <Typography sx={{ fontSize: 15, fontWeight: 700 }}>Filters</Typography>
+              <Typography sx={{ fontSize: 15, fontWeight: 700 }}>{t('researcher.grantsDiscover.filters.title')}</Typography>
             </Box>
             {hasActiveFilters && (
               <Button size="small" startIcon={<ClearIcon sx={{ fontSize: 16 }} />} onClick={clearFilters}
                 sx={{ textTransform: 'none', fontSize: 12, fontWeight: 600, color: 'text.secondary' }}>
-                Clear
+                {t('researcher.grantsDiscover.filters.clear')}
               </Button>
             )}
           </Box>
 
           <TextField
-            fullWidth size="small" placeholder="Search title, sponsor…" value={search}
+            fullWidth
+            size="small"
+            placeholder={t('researcher.grantsDiscover.filters.searchPlaceholder')}
+            value={search}
             onChange={e => setSearch(e.target.value)}
             InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 18, color: 'text.disabled', mr: 1 }} /> }}
             sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
           />
 
           <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-            <InputLabel>Category</InputLabel>
-            <Select value={catFilter} onChange={e => setCatFilter(e.target.value)} label="Category" sx={{ borderRadius: 2 }}>
-              <MenuItem value="all">All Categories</MenuItem>
-              {categories.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+            <InputLabel>{t('researcher.grantsDiscover.filters.category')}</InputLabel>
+            <Select value={catFilter} onChange={e => setCatFilter(e.target.value)} label={t('researcher.grantsDiscover.filters.category')} sx={{ borderRadius: 2 }}>
+              <MenuItem value="all">{t('researcher.grantsDiscover.filters.allCategories')}</MenuItem>
+              {categories.map(c => (
+                <MenuItem key={c} value={c}>{translateCategory(c, t)}</MenuItem>
+              ))}
             </Select>
           </FormControl>
 
           <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-            <InputLabel>Status</InputLabel>
-            <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} label="Status" sx={{ borderRadius: 2 }}>
-              <MenuItem value="all">All Statuses</MenuItem>
+            <InputLabel>{t('researcher.grantsDiscover.filters.status')}</InputLabel>
+            <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} label={t('researcher.grantsDiscover.filters.status')} sx={{ borderRadius: 2 }}>
+              <MenuItem value="all">{t('researcher.grantsDiscover.filters.allStatuses')}</MenuItem>
               {statuses.map(s => (
-                <MenuItem key={s} value={s} sx={{ textTransform: 'capitalize' }}>{s}</MenuItem>
+                <MenuItem key={s} value={s}>{getStatusMeta(s, t).label}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -581,54 +619,55 @@ export default function DiscoverOpportunitiesPage() {
           <Divider sx={{ my: 2 }} />
 
           <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'text.secondary', mb: 1.5 }}>
-            Sort By
+            {t('researcher.grantsDiscover.filters.sortBy')}
           </Typography>
 
           <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-            <InputLabel>Sort field</InputLabel>
-            <Select value={sortBy} onChange={e => setSortBy(e.target.value)} label="Sort field" sx={{ borderRadius: 2 }}>
-              <MenuItem value="status">Status</MenuItem>
-              <MenuItem value="deadline">Deadline</MenuItem>
-              <MenuItem value="title">Title</MenuItem>
-              <MenuItem value="sponsor">Sponsor</MenuItem>
+            <InputLabel>{t('researcher.grantsDiscover.filters.sortField')}</InputLabel>
+            <Select value={sortBy} onChange={e => setSortBy(e.target.value)} label={t('researcher.grantsDiscover.filters.sortField')} sx={{ borderRadius: 2 }}>
+              <MenuItem value="status">{t('researcher.grantsDiscover.filters.sortStatus')}</MenuItem>
+              <MenuItem value="deadline">{t('researcher.grantsDiscover.filters.sortDeadline')}</MenuItem>
+              <MenuItem value="title">{t('researcher.grantsDiscover.filters.sortTitle')}</MenuItem>
+              <MenuItem value="sponsor">{t('researcher.grantsDiscover.filters.sortSponsor')}</MenuItem>
             </Select>
           </FormControl>
 
           <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-            <InputLabel>Order</InputLabel>
-            <Select value={sortOrder} onChange={e => setSortOrder(e.target.value)} label="Order" sx={{ borderRadius: 2 }}>
-              <MenuItem value="asc">Ascending</MenuItem>
-              <MenuItem value="desc">Descending</MenuItem>
+            <InputLabel>{t('researcher.grantsDiscover.filters.order')}</InputLabel>
+            <Select value={sortOrder} onChange={e => setSortOrder(e.target.value)} label={t('researcher.grantsDiscover.filters.order')} sx={{ borderRadius: 2 }}>
+              <MenuItem value="asc">{t('researcher.grantsDiscover.filters.ascending')}</MenuItem>
+              <MenuItem value="desc">{t('researcher.grantsDiscover.filters.descending')}</MenuItem>
             </Select>
           </FormControl>
 
           <FormControlLabel
             control={<Switch checked={curatedOnly} onChange={e => setCuratedOnly(e.target.checked)} size="small" sx={{ '& .Mui-checked': { color: ACCENT }, '& .Mui-checked + .MuiSwitch-track': { bgcolor: ACCENT } }} />}
-            label={<Typography sx={{ fontSize: 13 }}>Published only</Typography>}
+            label={<Typography sx={{ fontSize: 13 }}>{t('researcher.grantsDiscover.filters.publishedOnly')}</Typography>}
           />
         </Paper>
 
-        {/* ── Results panel ────────────────────────────────── */}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
             <Typography sx={{ fontSize: 14, color: 'text.secondary' }}>
-              Showing {filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} opportunities
+              {t('researcher.grantsDiscover.results.showing', { from: showingFrom, to: showingTo, total: filtered.length })}
             </Typography>
             {totalPages > 1 && (
-              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Page {page} of {totalPages}</Typography>
+              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+                {t('researcher.grantsDiscover.results.pageOf', { page, total: totalPages })}
+              </Typography>
             )}
           </Box>
 
           {paginated.length === 0 ? (
             <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: 3, border: `1px solid ${theme.palette.divider}` }}>
               <CategoryIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
-              <Typography sx={{ color: 'text.primary', fontWeight: 600, mb: 0.5 }}>No opportunities found</Typography>
+              <Typography sx={{ color: 'text.primary', fontWeight: 600, mb: 0.5 }}>{t('researcher.grantsDiscover.results.emptyTitle')}</Typography>
               <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 2 }}>
-                Try adjusting your filters or search criteria.
+                {t('researcher.grantsDiscover.results.emptyBody')}
               </Typography>
               {hasActiveFilters && (
                 <Button variant="outlined" onClick={clearFilters} sx={{ textTransform: 'none', borderRadius: 2 }}>
-                  Clear all filters
+                  {t('researcher.grantsDiscover.results.clearAllFilters')}
                 </Button>
               )}
             </Paper>
@@ -642,6 +681,9 @@ export default function DiscoverOpportunitiesPage() {
                   saved={saved.includes(opp.id)}
                   theme={theme}
                   dark={dark}
+                  t={t}
+                  locale={locale}
+                  isRtl={isRtl}
                   onSave={() => setSaved(s => s.includes(opp.id) ? s.filter(x => x !== opp.id) : [...s, opp.id])}
                   onApply={() => {
                     const oppData = encodeURIComponent(JSON.stringify({

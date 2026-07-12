@@ -3,19 +3,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import axios from 'axios';
-import { Box, Typography, TextField, Button, CircularProgress, Alert, Chip, Divider, useTheme, IconButton } from '@mui/material';
+import { Box, Typography, TextField, Button, CircularProgress, Alert, Chip, Divider, useTheme } from '@mui/material';
 import { Edit as EditIcon, Save as SaveIcon, Cancel as CancelIcon, Person as PersonIcon, Email as EmailIcon, Business as BusinessIcon, Badge as BadgeIcon, Phone as PhoneIcon, Science as ScienceIcon, CheckCircle as CheckCircleIcon, Add as AddIcon, Close as CloseIcon, FolderOpen as FolderOpenIcon, TaskAlt as TaskAltIcon, Description as DescriptionIcon, Gavel as GavelIcon, EmojiEvents as EmojiEventsIcon } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLanguage } from '../../../contexts/LanguageContext';
 import { researcherAPI } from '../../../lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 const normalize = s => (s || '').toLowerCase();
 
-const Card = ({ title, subtitle, accent = '#1ca7a1', children, theme, dark }) => (
+const Card = ({ overline, title, subtitle, accent = '#1ca7a1', children, theme, dark }) => (
   <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, p: 3, border: `1px solid ${theme.palette.divider}`, boxShadow: dark ? 'none' : '0 2px 8px rgba(0,0,0,0.06)', mb: 3 }}>
     {title && (
       <Box sx={{ mb: 2.5 }}>
-        <Typography sx={{ color: accent, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.3 }}>Profile</Typography>
+        <Typography sx={{ color: accent, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.3 }}>{overline}</Typography>
         <Typography sx={{ color: 'text.primary', fontSize: 17, fontWeight: 600 }}>{title}</Typography>
         {subtitle && <Typography sx={{ color: 'text.secondary', fontSize: 13, mt: 0.3 }}>{subtitle}</Typography>}
         <Divider sx={{ mt: 2 }} />
@@ -25,14 +26,14 @@ const Card = ({ title, subtitle, accent = '#1ca7a1', children, theme, dark }) =>
   </Box>
 );
 
-const Row = ({ icon: Icon, label, value, editNode, editing, theme, dark }) => (
+const Row = ({ icon: Icon, label, value, editNode, editing, theme, dark, notSetLabel }) => (
   <Box sx={{ display: 'flex', gap: 2, py: 1.5, borderBottom: `1px solid ${theme.palette.divider}`, '&:last-child': { borderBottom: 'none' } }}>
     <Box sx={{ width: 34, height: 34, borderRadius: 1.5, bgcolor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.3 }}>
       <Icon sx={{ fontSize: 17, color: 'text.secondary' }} />
     </Box>
     <Box sx={{ flex: 1 }}>
       <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>{label}</Typography>
-      {editing && editNode ? editNode : <Typography sx={{ color: value ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{value || 'Not set'}</Typography>}
+      {editing && editNode ? editNode : <Typography sx={{ color: value ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{value || notSetLabel}</Typography>}
     </Box>
   </Box>
 );
@@ -54,6 +55,7 @@ const StatTile = ({ icon: Icon, label, value, color, theme, dark, loading }) => 
 export default function ResearcherProfile() {
   const router = useRouter();
   const { fetchUser } = useAuth();
+  const { t } = useLanguage();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
 
@@ -137,10 +139,10 @@ export default function ResearcherProfile() {
       });
       setUser(res.data); initForm(res.data); await fetchUser();
       setEditing(false);
-      setSuccess('Profile updated successfully!');
+      setSuccess(t('researcher.profile.successUpdate'));
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to update profile');
+      setError(err.response?.data?.detail || t('researcher.profile.errorUpdate'));
     } finally { setSaving(false); }
   };
 
@@ -153,29 +155,29 @@ export default function ResearcherProfile() {
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><CircularProgress /></Box>;
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'R';
+  const notSet = t('researcher.profile.notSet');
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
-      {/* Header */}
+    <Box sx={{ p: { xs: 2, md: 4 }, width: '100%' }}>
       <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
         <Box>
-          <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, mb: 0.5 }}>My Profile</Typography>
-          <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>Manage your researcher profile and personal information</Typography>
+          <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, mb: 0.5 }}>{t('researcher.profile.title')}</Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>{t('researcher.profile.subtitle')}</Typography>
         </Box>
         {!editing ? (
           <Button variant="contained" startIcon={<EditIcon />} onClick={() => setEditing(true)}
             sx={{ bgcolor: '#1ca7a1', textTransform: 'none', borderRadius: 2, fontWeight: 600, '&:hover': { bgcolor: '#0e7490' } }}>
-            Edit Profile
+            {t('researcher.profile.editProfile')}
           </Button>
         ) : (
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button variant="outlined" startIcon={<CancelIcon />} onClick={() => { initForm(user); setEditing(false); }}
               sx={{ textTransform: 'none', borderRadius: 2, fontWeight: 600 }} disabled={saving}>
-              Cancel
+              {t('researcher.profile.cancel')}
             </Button>
             <Button variant="contained" startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />} onClick={handleSave} disabled={saving}
               sx={{ bgcolor: '#1ca7a1', textTransform: 'none', borderRadius: 2, fontWeight: 600, '&:hover': { bgcolor: '#0e7490' } }}>
-              Save Changes
+              {t('researcher.profile.saveChanges')}
             </Button>
           </Box>
         )}
@@ -184,67 +186,104 @@ export default function ResearcherProfile() {
       {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 3 }}>{success}</Alert>}
 
-      {/* Avatar + Name Banner */}
       <Box sx={{ bgcolor: 'background.paper', borderRadius: 3, p: 3, mb: 3, border: `1px solid ${theme.palette.divider}`, boxShadow: dark ? 'none' : '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', gap: 3 }}>
         <Box sx={{ width: 72, height: 72, borderRadius: 3, background: 'linear-gradient(135deg,#1ca7a1 0%,#0e7490 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
           {initials}
         </Box>
         <Box sx={{ flex: 1 }}>
-          <Typography sx={{ color: 'text.primary', fontSize: 20, fontWeight: 700 }}>{user?.name || 'Researcher'}</Typography>
-          <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 1 }}>{user?.job_title || 'Researcher'} {user?.department ? `· ${user.department}` : ''}</Typography>
+          <Typography sx={{ color: 'text.primary', fontSize: 20, fontWeight: 700 }}>{user?.name || t('researcher.profile.fallbackName')}</Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 1 }}>
+            {user?.job_title || t('researcher.profile.fallbackRole')}{user?.department ? ` · ${user.department}` : ''}
+          </Typography>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {user?.email_verified && <Chip icon={<CheckCircleIcon />} label="Email Verified" size="small" sx={{ bgcolor: 'rgba(16,185,129,0.1)', color: '#10b981', '& .MuiChip-icon': { color: '#10b981', fontSize: 14 } }} />}
-            {user?.orcid_id && <Chip label={`ORCID: ${user.orcid_id}`} size="small" sx={{ bgcolor: 'rgba(166,124,0,0.1)', color: '#a6a600' }} />}
-            <Chip label="Researcher" size="small" sx={{ bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1' }} />
+            {user?.email_verified && (
+              <Chip
+                icon={<CheckCircleIcon />}
+                label={t('researcher.profile.emailVerified')}
+                size="small"
+                sx={{ bgcolor: 'rgba(16,185,129,0.1)', color: '#10b981', '& .MuiChip-icon': { color: '#10b981', fontSize: 14 } }}
+              />
+            )}
+            {user?.orcid_id && (
+              <Chip
+                label={t('researcher.profile.orcid', { id: user.orcid_id })}
+                size="small"
+                sx={{ bgcolor: 'rgba(166,124,0,0.1)', color: '#a6a600' }}
+              />
+            )}
+            <Chip label={t('researcher.profile.fallbackRole')} size="small" sx={{ bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1' }} />
           </Box>
         </Box>
       </Box>
 
-      {/* Research Activity & Metrics */}
-      <Card title="Research Activity" subtitle="A snapshot of your projects and research output" theme={theme} dark={dark}>
+      <Card
+        overline={t('researcher.profile.overline')}
+        title={t('researcher.profile.sections.activity.title')}
+        subtitle={t('researcher.profile.sections.activity.subtitle')}
+        theme={theme}
+        dark={dark}
+      >
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-          <StatTile icon={ScienceIcon} label="Active Projects" value={metrics.activeProjects} color="#10b981" theme={theme} dark={dark} loading={metricsLoading} />
-          <StatTile icon={TaskAltIcon} label="Completed Projects" value={metrics.completedProjects} color="#0ea5e9" theme={theme} dark={dark} loading={metricsLoading} />
-          <StatTile icon={FolderOpenIcon} label="Total Projects" value={metrics.totalProjects} color="#1ca7a1" theme={theme} dark={dark} loading={metricsLoading} />
-          <StatTile icon={DescriptionIcon} label="Grant Proposals" value={metrics.proposals} color="#f59e0b" theme={theme} dark={dark} loading={metricsLoading} />
-          <StatTile icon={GavelIcon} label="Ethics Applications" value={metrics.ethicsApps} color="#8b5cf6" theme={theme} dark={dark} loading={metricsLoading} />
-          <StatTile icon={EmojiEventsIcon} label="Grant Awards" value={metrics.awards} color="#a67c00" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={ScienceIcon} label={t('researcher.profile.metrics.activeProjects')} value={metrics.activeProjects} color="#10b981" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={TaskAltIcon} label={t('researcher.profile.metrics.completedProjects')} value={metrics.completedProjects} color="#0ea5e9" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={FolderOpenIcon} label={t('researcher.profile.metrics.totalProjects')} value={metrics.totalProjects} color="#1ca7a1" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={DescriptionIcon} label={t('researcher.profile.metrics.grantProposals')} value={metrics.proposals} color="#f59e0b" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={GavelIcon} label={t('researcher.profile.metrics.ethicsApplications')} value={metrics.ethicsApps} color="#8b5cf6" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={EmojiEventsIcon} label={t('researcher.profile.metrics.grantAwards')} value={metrics.awards} color="#a67c00" theme={theme} dark={dark} loading={metricsLoading} />
         </Box>
       </Card>
 
-      {/* Personal Info */}
-      <Card title="Personal Information" subtitle="Your basic profile details" theme={theme} dark={dark}>
-        <Row icon={PersonIcon} label="Full Name" value={user?.name} editing={editing} theme={theme} dark={dark}
-          editNode={<TextField fullWidth size="small" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your full name" />} />
-        <Row icon={EmailIcon} label="Email Address" value={user?.email} editing={editing} theme={theme} dark={dark} />
-        <Row icon={PhoneIcon} label="Phone Number" value={user?.phone} editing={editing} theme={theme} dark={dark}
-          editNode={<TextField fullWidth size="small" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+1 234 567 8900" />} />
+      <Card
+        overline={t('researcher.profile.overline')}
+        title={t('researcher.profile.sections.personal.title')}
+        subtitle={t('researcher.profile.sections.personal.subtitle')}
+        theme={theme}
+        dark={dark}
+      >
+        <Row icon={PersonIcon} label={t('researcher.profile.fields.fullName')} value={user?.name} editing={editing} theme={theme} dark={dark} notSetLabel={notSet}
+          editNode={<TextField fullWidth size="small" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder={t('researcher.profile.placeholders.fullName')} />} />
+        <Row icon={EmailIcon} label={t('researcher.profile.fields.emailAddress')} value={user?.email} editing={editing} theme={theme} dark={dark} notSetLabel={notSet} />
+        <Row icon={PhoneIcon} label={t('researcher.profile.fields.phoneNumber')} value={user?.phone} editing={editing} theme={theme} dark={dark} notSetLabel={notSet}
+          editNode={<TextField fullWidth size="small" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder={t('researcher.profile.placeholders.phone')} />} />
       </Card>
 
-      {/* Professional Info */}
-      <Card title="Professional Details" subtitle="Your role and institutional affiliation" theme={theme} dark={dark}>
-        <Row icon={BadgeIcon} label="Job Title / Position" value={user?.job_title} editing={editing} theme={theme} dark={dark}
-          editNode={<TextField fullWidth size="small" value={form.job_title} onChange={e => setForm(f => ({ ...f, job_title: e.target.value }))} placeholder="e.g. Senior Researcher, PhD Candidate" />} />
-        <Row icon={BusinessIcon} label="Department" value={user?.department} editing={editing} theme={theme} dark={dark}
-          editNode={<TextField fullWidth size="small" value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} placeholder="e.g. Department of Biology" />} />
+      <Card
+        overline={t('researcher.profile.overline')}
+        title={t('researcher.profile.sections.professional.title')}
+        subtitle={t('researcher.profile.sections.professional.subtitle')}
+        theme={theme}
+        dark={dark}
+      >
+        <Row icon={BadgeIcon} label={t('researcher.profile.fields.jobTitle')} value={user?.job_title} editing={editing} theme={theme} dark={dark} notSetLabel={notSet}
+          editNode={<TextField fullWidth size="small" value={form.job_title} onChange={e => setForm(f => ({ ...f, job_title: e.target.value }))} placeholder={t('researcher.profile.placeholders.jobTitle')} />} />
+        <Row icon={BusinessIcon} label={t('researcher.profile.fields.department')} value={user?.department} editing={editing} theme={theme} dark={dark} notSetLabel={notSet}
+          editNode={<TextField fullWidth size="small" value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} placeholder={t('researcher.profile.placeholders.department')} />} />
         {user?.orcid_id && (
-          <Row icon={ScienceIcon} label="ORCID iD" value={user.orcid_id} editing={editing} theme={theme} dark={dark} />
+          <Row icon={ScienceIcon} label={t('researcher.profile.fields.orcidId')} value={user.orcid_id} editing={editing} theme={theme} dark={dark} notSetLabel={notSet} />
         )}
       </Card>
 
-      {/* Expertise Keywords */}
-      <Card title="Research Expertise" subtitle="Keywords describing your areas of research" theme={theme} dark={dark}>
+      <Card
+        overline={t('researcher.profile.overline')}
+        title={t('researcher.profile.sections.expertise.title')}
+        subtitle={t('researcher.profile.sections.expertise.subtitle')}
+        theme={theme}
+        dark={dark}
+      >
         {editing ? (
           <Box>
             <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
               <TextField
-                size="small" fullWidth placeholder="Add a keyword (e.g. Machine Learning)" value={keywordInput}
+                size="small"
+                fullWidth
+                placeholder={t('researcher.profile.placeholders.keyword')}
+                value={keywordInput}
                 onChange={e => setKeywordInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addKeyword())}
               />
               <Button variant="contained" onClick={addKeyword} startIcon={<AddIcon />}
                 sx={{ bgcolor: '#1ca7a1', textTransform: 'none', borderRadius: 2, flexShrink: 0, '&:hover': { bgcolor: '#0e7490' } }}>
-                Add
+                {t('researcher.profile.add')}
               </Button>
             </Box>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -253,7 +292,9 @@ export default function ResearcherProfile() {
                   deleteIcon={<CloseIcon />}
                   sx={{ bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1', '& .MuiChip-deleteIcon': { color: '#1ca7a1' } }} />
               ))}
-              {form.keywords.length === 0 && <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>No keywords added yet</Typography>}
+              {form.keywords.length === 0 && (
+                <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>{t('researcher.profile.noKeywordsYet')}</Typography>
+              )}
             </Box>
           </Box>
         ) : (
@@ -265,7 +306,7 @@ export default function ResearcherProfile() {
               }
               return kws.length > 0
                 ? kws.map(kw => <Chip key={kw} label={kw} size="small" sx={{ bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1' }} />)
-                : <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>No expertise keywords added. Click Edit Profile to add some.</Typography>;
+                : <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>{t('researcher.profile.noExpertiseKeywords')}</Typography>;
             })()}
           </Box>
         )}

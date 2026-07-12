@@ -19,6 +19,9 @@ function interpolate(str, params) {
 
 export function LanguageProvider({ children }) {
   const [locale, setLocaleState] = useState(DEFAULT_LOCALE);
+  // Tracks whether the user has explicitly chosen a language (via the switcher,
+  // or a previously saved choice) as opposed to just seeing the default locale.
+  const [hasSelectedLocale, setHasSelectedLocale] = useState(false);
 
   // Restore the saved language preference on mount.
   useEffect(() => {
@@ -26,6 +29,7 @@ export function LanguageProvider({ children }) {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved && LOCALES[saved]) {
         setLocaleState(saved);
+        setHasSelectedLocale(true);
       }
     } catch {}
   }, []);
@@ -41,6 +45,7 @@ export function LanguageProvider({ children }) {
   const setLocale = useCallback((code) => {
     if (!LOCALES[code]) return;
     setLocaleState(code);
+    setHasSelectedLocale(true);
     try { localStorage.setItem(STORAGE_KEY, code); } catch {}
   }, []);
 
@@ -59,7 +64,8 @@ export function LanguageProvider({ children }) {
     t,
     dir,
     locales: LOCALE_LIST,
-  }), [locale, setLocale, t, dir]);
+    hasSelectedLocale,
+  }), [locale, setLocale, t, dir, hasSelectedLocale]);
 
   return (
     <LanguageContext.Provider value={value}>

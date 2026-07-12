@@ -59,7 +59,7 @@ export default function DashboardSidebar() {
   return (
     <Box
       sx={{
-        width: 220,
+        width: 300,
         bgcolor: 'background.paper',
         borderRight: 1,
         borderColor: 'divider',
