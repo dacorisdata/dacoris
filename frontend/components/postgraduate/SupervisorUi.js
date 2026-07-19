@@ -14,18 +14,25 @@ import {
   RateReview as ReviewIcon,
   WarningAmber as WarningIcon,
 } from '@mui/icons-material';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export const ACCENT = '#1ca7a1';
 export const HERO_GRADIENT = 'linear-gradient(135deg, #1e3a5f 0%, #243b53 55%, #1a365d 100%)';
 
-export const PROGRESS_RISK_HELP =
-  'Progress risk reflects how likely a student is to miss milestones based on days overdue on their current stage and their overall journey status (e.g. On Track, At Risk). Low = on schedule; Medium/High = delayed and may need intervention.';
+const PL = 'researcher.pgJourney';
 
-const RISK_META = {
-  low: { label: 'Low', color: '#16a34a', bg: 'rgba(22,163,74,0.12)' },
-  medium: { label: 'Medium', color: '#d97706', bg: 'rgba(217,119,6,0.12)' },
-  high: { label: 'High', color: '#ea580c', bg: 'rgba(234,88,12,0.12)' },
-  critical: { label: 'Critical', color: '#dc2626', bg: 'rgba(220,38,38,0.12)' },
+const RISK_META_KEYS = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  critical: 'critical',
+};
+
+const RISK_COLORS = {
+  low: { color: '#16a34a', bg: 'rgba(22,163,74,0.12)' },
+  medium: { color: '#d97706', bg: 'rgba(217,119,6,0.12)' },
+  high: { color: '#ea580c', bg: 'rgba(234,88,12,0.12)' },
+  critical: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)' },
 };
 
 export function normalizeRiskLevel(value) {
@@ -39,13 +46,21 @@ export function normalizeRiskLevel(value) {
 }
 
 export function ProgressRiskChip({ riskLevel, daysOverdue, size = 'small' }) {
+  const { t } = useLanguage();
   const key = normalizeRiskLevel(riskLevel);
-  const meta = key ? RISK_META[key] : null;
-  const label = meta?.label || (riskLevel && riskLevel !== '—' ? riskLevel : 'Not assessed');
+  const colors = key ? RISK_COLORS[key] : null;
+  const label = key
+    ? t(`${PL}.risk.${RISK_META_KEYS[key]}`)
+    : (riskLevel && riskLevel !== '—' ? riskLevel : t(`${PL}.risk.notAssessed`));
+
   const tooltip = [
-    meta ? `${meta.label} progress risk` : 'Progress risk not yet assessed',
-    daysOverdue > 0 ? `${daysOverdue} day${daysOverdue === 1 ? '' : 's'} overdue on current stage` : null,
-    PROGRESS_RISK_HELP,
+    key
+      ? t(`${PL}.risk.progressRisk`, { level: t(`${PL}.risk.${RISK_META_KEYS[key]}`) })
+      : t(`${PL}.risk.notAssessedYet`),
+    daysOverdue > 0
+      ? t(daysOverdue === 1 ? `${PL}.risk.daysOverdue` : `${PL}.risk.daysOverduePlural`, { count: daysOverdue })
+      : null,
+    t(`${PL}.risk.help`),
   ]
     .filter(Boolean)
     .join(' · ');
@@ -55,16 +70,16 @@ export function ProgressRiskChip({ riskLevel, daysOverdue, size = 'small' }) {
       <Chip
         size={size}
         label={
-          daysOverdue > 0 && meta
-            ? `${label} · ${daysOverdue}d late`
+          daysOverdue > 0 && key
+            ? t(`${PL}.risk.late`, { level: label, days: daysOverdue })
             : label
         }
         sx={{
           fontWeight: 700,
-          bgcolor: meta?.bg || 'action.hover',
-          color: meta?.color || 'text.secondary',
-          border: meta ? `1px solid ${meta.color}33` : '1px solid',
-          borderColor: meta ? `${meta.color}33` : 'divider',
+          bgcolor: colors?.bg || 'action.hover',
+          color: colors?.color || 'text.secondary',
+          border: colors ? `1px solid ${colors.color}33` : '1px solid',
+          borderColor: colors ? `${colors.color}33` : 'divider',
         }}
       />
     </Tooltip>
@@ -72,11 +87,13 @@ export function ProgressRiskChip({ riskLevel, daysOverdue, size = 'small' }) {
 }
 
 export function ProgressRiskColumnHeader() {
+  const { t } = useLanguage();
+
   return (
     <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-      Progress risk
-      <Tooltip title={PROGRESS_RISK_HELP} arrow placement="top">
-        <IconButton size="small" sx={{ p: 0.25 }} aria-label="What is progress risk?">
+      {t(`${PL}.risk.header`)}
+      <Tooltip title={t(`${PL}.risk.help`)} arrow placement="top">
+        <IconButton size="small" sx={{ p: 0.25 }} aria-label={t(`${PL}.risk.ariaLabel`)}>
           <HelpIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
         </IconButton>
       </Tooltip>

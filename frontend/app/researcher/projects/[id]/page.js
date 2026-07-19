@@ -22,61 +22,80 @@ import {
   Edit as EditIcon,
   OpenInNew as OpenIcon,
   AccountBalance as AwardIcon,
-} from '@mui/icons-material';import axios from 'axios';
+} from '@mui/icons-material';
+import axios from 'axios';
 import { useAuth } from '../../../../contexts/AuthContext';
+import { useLanguage } from '../../../../contexts/LanguageContext';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#1ca7a1';
+const PD = 'researcher.projectDetail';
+const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar', sw: 'sw-KE' };
 
-const STATUS_META = {
-  draft: { label: 'Draft', color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
-  proposed: { label: 'Proposed', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-  active: { label: 'Active', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-  suspended: { label: 'Suspended', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-  completed: { label: 'Completed', color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)' },
+const STATUS_STYLE = {
+  draft: { color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+  proposed: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+  active: { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+  suspended: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+  completed: { color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)' },
 };
 
-const PROJECT_TYPE_LABELS = {
-  contract_research: 'Contract Research',
-  grant_funded: 'Grant Funded',
-  internal: 'Internal',
-  collaborative: 'Collaborative',
-  funded: 'Grant Funded',
+const DECLARATION_KEYS = [
+  'research_integrity',
+  'conflict_of_interest',
+  'data_protection',
+  'funder_compliance',
+  'institutional_approval',
+  'ethics_compliance',
+  'originality',
+];
+
+const TAB_CONFIG = [
+  { key: 'overview', icon: ProjectIcon },
+  { key: 'team', icon: TeamIcon },
+  { key: 'research', icon: DescIcon },
+  { key: 'plan', icon: MilestoneIcon },
+  { key: 'ethics', icon: EthicsIcon },
+  { key: 'dmp', icon: StorageIcon },
+  { key: 'financial', icon: MoneyIcon },
+  { key: 'declarations', icon: DeclareIcon },
+  { key: 'documents', icon: DocIcon },
+];
+
+const getStatusMeta = (status, t) => {
+  const key = (status || '').toLowerCase();
+  const style = STATUS_STYLE[key] || { color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+  const labelKey = `${PD}.status.${key}`;
+  const label = t(labelKey);
+  return { label: label !== labelKey ? label : (status || '—'), ...style };
 };
 
-const DOC_TYPE_LABELS = {
-  ethics_clearance: 'Ethics Clearance',
-  IRB_protocol: 'IRB Protocol',
-  consent_form: 'Consent Form',
-  data_management_plan: 'Data Management Plan',
-  budget: 'Budget Document',
-  other: 'Other',
+const getProjectTypeLabel = (type, t) => {
+  if (!type) return '—';
+  const key = `${PD}.projectType.${type}`;
+  const label = t(key);
+  return label !== key ? label : type;
 };
 
-const DECLARATION_LABELS = {
-  research_integrity: 'Research Integrity',
-  conflict_of_interest: 'Conflict of Interest',
-  data_protection: 'Data Protection',
-  funder_compliance: 'Funder Compliance',
-  institutional_approval: 'Institutional Approval',
-  ethics_compliance: 'Ethics Compliance',
-  originality: 'Originality Declaration',
+const getDocTypeLabel = (type, t) => {
+  if (!type) return '—';
+  const key = `${PD}.docType.${type}`;
+  const label = t(key);
+  return label !== key ? label : type;
 };
 
-const fmtDate = (d) => d
-  ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  : '—';
+const fmtDate = (d, locale) =>
+  d ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-US', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
-const fmtMoney = (amt, cur = 'KES') => {
+const fmtMoney = (amt, cur = 'KES', locale) => {
   if (amt == null || amt === '') return '—';
-  return `${cur} ${Number(amt).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  return `${cur} ${Number(amt).toLocaleString(LOCALE_MAP[locale] || 'en-US', { maximumFractionDigits: 0 })}`;
 };
 
 const stripHtml = (v) => (v || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
 
-function StatusChip({ status }) {
-  const key = status?.toLowerCase();
-  const meta = STATUS_META[key] || { label: status || '—', color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+function StatusChip({ status, t }) {
+  const meta = getStatusMeta(status, t);
   return (
     <Chip label={meta.label} size="small" sx={{ fontWeight: 700, bgcolor: meta.bg, color: meta.color }} />
   );
@@ -176,10 +195,12 @@ function SummaryStat({ label, value }) {
     </Paper>
   );
 }
+
 export default function ProjectDetailsPage() {
   const router = useRouter();
   const { id } = useParams();
   const { fetchUser } = useAuth();
+  const { t, locale } = useLanguage();
   const theme = useTheme();
 
   const [loading, setLoading] = useState(true);
@@ -209,7 +230,7 @@ export default function ProjectDetailsPage() {
       }
       setProject(p);
     } catch {
-      setError('Failed to load project.');
+      setError(t(`${PD}.errorLoad`));
     } finally {
       setLoading(false);
     }
@@ -226,9 +247,9 @@ export default function ProjectDetailsPage() {
   if (error || !project) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error" sx={{ borderRadius: 2 }}>{error || 'Project not found'}</Alert>
+        <Alert severity="error" sx={{ borderRadius: 2 }}>{error || t(`${PD}.notFound`)}</Alert>
         <Button startIcon={<BackIcon />} onClick={() => router.push('/researcher/projects')} sx={{ mt: 2 }}>
-          Back to projects
+          {t(`${PD}.backToProjects`)}
         </Button>
       </Box>
     );
@@ -243,24 +264,12 @@ export default function ProjectDetailsPage() {
   const objectives = Array.isArray(project.research_objectives) ? project.research_objectives : [];
   const declarations = project.declaration_responses || {};
   const flags = [
-    project.involves_human_subjects && 'Human subjects',
-    project.involves_animal_subjects && 'Animal subjects',
-    project.involves_sensitive_data && 'Sensitive / personal data',
-    project.is_clinical_trial && 'Clinical trial',
-    project.uses_hazardous_materials && 'Hazardous materials',
+    project.involves_human_subjects && t(`${PD}.flags.humanSubjects`),
+    project.involves_animal_subjects && t(`${PD}.flags.animalSubjects`),
+    project.involves_sensitive_data && t(`${PD}.flags.sensitiveData`),
+    project.is_clinical_trial && t(`${PD}.flags.clinicalTrial`),
+    project.uses_hazardous_materials && t(`${PD}.flags.hazardousMaterials`),
   ].filter(Boolean);
-
-  const tabs = [
-    { label: 'Overview', icon: ProjectIcon },
-    { label: 'Team', icon: TeamIcon },
-    { label: 'Research', icon: DescIcon },
-    { label: 'Plan', icon: MilestoneIcon },
-    { label: 'Ethics', icon: EthicsIcon },
-    { label: 'DMP', icon: StorageIcon },
-    { label: 'Financial', icon: MoneyIcon },
-    { label: 'Declarations', icon: DeclareIcon },
-    { label: 'Documents', icon: DocIcon },
-  ];
 
   return (
     <Box sx={{ width: '100%', px: { xs: 2, sm: 3, md: 4, xl: 5 }, py: { xs: 2, md: 3 }, pb: 6 }}>
@@ -269,7 +278,7 @@ export default function ProjectDetailsPage() {
         onClick={() => router.push('/researcher/projects')}
         sx={{ mb: 2.5, textTransform: 'none', color: 'text.secondary', fontWeight: 600 }}
       >
-        Back to My Projects
+        {t(`${PD}.backToProjects`)}
       </Button>
 
       <Paper
@@ -285,13 +294,13 @@ export default function ProjectDetailsPage() {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ flex: 1, minWidth: 280 }}>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1.25, flexWrap: 'wrap' }}>
-              <StatusChip status={project.status} />
+              <StatusChip status={project.status} t={t} />
               {project.research_area && (
                 <Chip label={project.research_area} size="small" sx={{ fontWeight: 600, bgcolor: `${ACCENT}12`, color: ACCENT }} />
               )}
             </Box>
             <Typography sx={{ fontSize: { xs: 22, md: 28 }, fontWeight: 800, lineHeight: 1.25, mb: 0.75, letterSpacing: -0.3 }}>
-              {project.title || 'Untitled project'}
+              {project.title || t(`${PD}.untitled`)}
             </Typography>
             <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: 'monospace' }}>
               {project.project_code}
@@ -304,30 +313,32 @@ export default function ProjectDetailsPage() {
               onClick={() => router.push(`/researcher/projects/${id}/setup`)}
               sx={{ textTransform: 'none', borderColor: ACCENT, color: ACCENT, fontWeight: 600 }}
             >
-              Continue setup
+              {t(`${PD}.continueSetup`)}
             </Button>
           )}
         </Box>
 
         <Grid container spacing={2} sx={{ mt: 2.5 }}>
           <Grid item xs={12} sm={6} md={3}>
-            <SummaryStat label="Type" value={PROJECT_TYPE_LABELS[project.project_type] || project.project_type || '—'} />
+            <SummaryStat label={t(`${PD}.summary.type`)} value={getProjectTypeLabel(project.project_type, t)} />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <SummaryStat label="Period" value={`${fmtDate(project.start_date)} – ${fmtDate(project.end_date)}`} />
+            <SummaryStat label={t(`${PD}.summary.period`)} value={`${fmtDate(project.start_date, locale)} – ${fmtDate(project.end_date, locale)}`} />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <SummaryStat label="Funder" value={project.funder_name || '—'} />
+            <SummaryStat label={t(`${PD}.summary.funder`)} value={project.funder_name || '—'} />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <SummaryStat label="Award amount" value={fmtMoney(project.total_amount, project.currency)} />
+            <SummaryStat label={t(`${PD}.summary.awardAmount`)} value={fmtMoney(project.total_amount, project.currency, locale)} />
           </Grid>
         </Grid>
 
         <Box sx={{ mt: 3 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
-            <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary' }}>Milestone progress</Typography>
-            <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{project.done_milestone_count}/{project.milestone_count} ({milestonePct}%)</Typography>
+            <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary' }}>{t(`${PD}.milestoneProgress`)}</Typography>
+            <Typography sx={{ fontSize: 12, fontWeight: 700 }}>
+              {t(`${PD}.milestoneCount`, { done: project.done_milestone_count, total: project.milestone_count, pct: milestonePct })}
+            </Typography>
           </Box>
           <LinearProgress
             variant="determinate"
@@ -336,9 +347,10 @@ export default function ProjectDetailsPage() {
           />
         </Box>
       </Paper>
+
       {project.status !== 'draft' && (
         <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
-          This project has been submitted and is read-only. Contact your institutional administrator if changes are required.
+          {t(`${PD}.readOnlyAlert`)}
         </Alert>
       )}
 
@@ -355,67 +367,76 @@ export default function ProjectDetailsPage() {
             '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, minHeight: 52, fontSize: 13 },
           }}
         >
-          {tabs.map((t) => (
-            <Tab key={t.label} label={t.label} icon={<t.icon sx={{ fontSize: 18 }} />} iconPosition="start" />
+          {TAB_CONFIG.map((tabItem) => (
+            <Tab
+              key={tabItem.key}
+              label={t(`${PD}.tabs.${tabItem.key}`)}
+              icon={<tabItem.icon sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
           ))}
         </Tabs>
 
-        <Box sx={{ p: { xs: 2, md: 3.5 } }}>          {tab === 0 && (
-            <SectionCard icon={ProjectIcon} title="Project Context">
+        <Box sx={{ p: { xs: 2, md: 3.5 } }}>
+          {tab === 0 && (
+            <SectionCard icon={ProjectIcon} title={t(`${PD}.sections.projectContext`)}>
               <Grid container spacing={2.5}>
-                <DetailField label="Lead institution" value={project.lead_institution} />
-                <DetailField label="Department / Faculty" value={project.department} />
-                <DetailField label="Short title" value={project.short_title} />
-                <DetailField label="Created" value={fmtDate(project.created_at)} />
+                <DetailField label={t(`${PD}.fields.leadInstitution`)} value={project.lead_institution} />
+                <DetailField label={t(`${PD}.fields.department`)} value={project.department} />
+                <DetailField label={t(`${PD}.fields.shortTitle`)} value={project.short_title} />
+                <DetailField label={t(`${PD}.fields.created`)} value={fmtDate(project.created_at, locale)} />
               </Grid>
               {flags.length > 0 && (
                 <Box sx={{ mt: 2 }}>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 1 }}>PROJECT FLAGS</Typography>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 1 }}>{t(`${PD}.flags.title`)}</Typography>
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {flags.map(f => <Chip key={f} label={f} size="small" color="warning" variant="outlined" />)}
+                    {flags.map((f) => <Chip key={f} label={f} size="small" color="warning" variant="outlined" />)}
                   </Box>
                 </Box>
               )}
               {(project.award_id || project.award_number) && (
                 <Box sx={{ mt: 3 }}>
                   <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 1.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    Linked resources
+                    {t(`${PD}.fields.linkedResources`)}
                   </Typography>
                   <ResourceLink
                     href="/researcher/grants/awards"
-                    title={project.award_number ? `Award ${project.award_number}` : 'Linked grant award'}
-                    subtitle="View award details in My Awards"
+                    title={project.award_number ? t(`${PD}.fields.awardTitle`, { number: project.award_number }) : t(`${PD}.fields.linkedAward`)}
+                    subtitle={t(`${PD}.fields.awardSubtitle`)}
                     icon={AwardIcon}
                   />
                 </Box>
-              )}            </SectionCard>
+              )}
+            </SectionCard>
           )}
 
           {tab === 1 && (
-            <SectionCard icon={TeamIcon} title="Research Team">
-              <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Principal Investigator</Typography>
+            <SectionCard icon={TeamIcon} title={t(`${PD}.sections.researchTeam`)}>
+              <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>{t(`${PD}.fields.principalInvestigator`)}</Typography>
               <Grid container spacing={2.5} sx={{ mb: 3 }}>
-                <DetailField label="Full name" value={[project.pi_academic_title, project.pi_full_name].filter(Boolean).join(' ')} />
-                <DetailField label="Email" value={project.pi_email} />
-                <DetailField label="Phone" value={project.pi_phone} />
-                <DetailField label="ORCID" value={project.pi_orcid} />
-                <DetailField label="Staff ID" value={project.pi_staff_id} />
+                <DetailField label={t(`${PD}.fields.fullName`)} value={[project.pi_academic_title, project.pi_full_name].filter(Boolean).join(' ')} />
+                <DetailField label={t(`${PD}.fields.email`)} value={project.pi_email} />
+                <DetailField label={t(`${PD}.fields.phone`)} value={project.pi_phone} />
+                <DetailField label={t(`${PD}.fields.orcid`)} value={project.pi_orcid} />
+                <DetailField label={t(`${PD}.fields.staffId`)} value={project.pi_staff_id} />
               </Grid>
               <Divider sx={{ my: 2 }} />
-              <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Team members ({project.members?.length || 0})</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>
+                {t(`${PD}.fields.teamMembers`, { count: project.members?.length || 0 })}
+              </Typography>
               {(project.members || []).length === 0 ? (
-                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No additional team members.</Typography>
+                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PD}.empty.noTeamMembers`)}</Typography>
               ) : (
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Role</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.name`)}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.role`)}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.status`)}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {(project.members || []).map(m => (
+                    {(project.members || []).map((m) => (
                       <TableRow key={m.id}>
                         <TableCell>{m.user_name || m.invited_name || m.invited_email}</TableCell>
                         <TableCell sx={{ textTransform: 'capitalize' }}>{m.role?.replace(/_/g, ' ')}</TableCell>
@@ -428,12 +449,12 @@ export default function ProjectDetailsPage() {
               {(project.teams || []).length > 0 && (
                 <>
                   <Divider sx={{ my: 2 }} />
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Teams</Typography>
-                  {(project.teams || []).map(t => (
-                    <Box key={t.id} sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                      <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{t.name}</Typography>
+                  <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>{t(`${PD}.fields.teams`)}</Typography>
+                  {(project.teams || []).map((team) => (
+                    <Box key={team.id} sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                      <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{team.name}</Typography>
                       <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-                        {(t.members || []).map(m => m.display_name).join(', ') || 'No members'}
+                        {(team.members || []).map((m) => m.display_name).join(', ') || t(`${PD}.empty.noMembers`)}
                       </Typography>
                     </Box>
                   ))}
@@ -443,32 +464,36 @@ export default function ProjectDetailsPage() {
           )}
 
           {tab === 2 && (
-            <SectionCard icon={DescIcon} title="Research Details">
-              <RichBlock label="Abstract" html={project.project_abstract} />
-              <RichBlock label="Background & rationale" html={project.background_rationale} />
-              <RichBlock label="Problem statement" html={project.problem_statement} />
-              <RichBlock label="Methodology" html={project.research_methodology} />
+            <SectionCard icon={DescIcon} title={t(`${PD}.sections.researchDetails`)}>
+              <RichBlock label={t(`${PD}.fields.abstract`)} html={project.project_abstract} />
+              <RichBlock label={t(`${PD}.fields.backgroundRationale`)} html={project.background_rationale} />
+              <RichBlock label={t(`${PD}.fields.problemStatement`)} html={project.problem_statement} />
+              <RichBlock label={t(`${PD}.fields.methodology`)} html={project.research_methodology} />
               <Grid container spacing={2.5} sx={{ mt: 1 }}>
-                <DetailField label="Research design" value={project.research_design} />
-                <DetailField label="Target population" value={project.target_population} fullWidth />
+                <DetailField label={t(`${PD}.fields.researchDesign`)} value={project.research_design} />
+                <DetailField label={t(`${PD}.fields.targetPopulation`)} value={project.target_population} fullWidth />
               </Grid>
               {keywords.length > 0 && (
                 <Box sx={{ mt: 2 }}>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 1 }}>KEYWORDS</Typography>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 1 }}>{t(`${PD}.fields.keywords`)}</Typography>
                   <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-                    {keywords.map(k => <Chip key={k} label={k} size="small" />)}
+                    {keywords.map((k) => <Chip key={k} label={k} size="small" />)}
                   </Box>
                 </Box>
               )}
               {objectives.length > 0 && (
                 <Box sx={{ mt: 3 }}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Research objectives</Typography>
+                  <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>{t(`${PD}.fields.researchObjectives`)}</Typography>
                   {objectives.map((obj, i) => (
                     <Paper key={i} variant="outlined" sx={{ p: 2, mb: 1.5, borderRadius: 2 }}>
-                      <Typography sx={{ fontWeight: 700, fontSize: 13, mb: 0.5 }}>{obj.title || `Objective ${i + 1}`}</Typography>
+                      <Typography sx={{ fontWeight: 700, fontSize: 13, mb: 0.5 }}>
+                        {obj.title || t(`${PD}.fields.objectiveFallback`, { number: i + 1 })}
+                      </Typography>
                       {stripHtml(obj.description) && <Typography sx={{ fontSize: 13, mb: 0.5 }}>{stripHtml(obj.description)}</Typography>}
                       {stripHtml(obj.outcome) && (
-                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Expected outcome: {stripHtml(obj.outcome)}</Typography>
+                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          {t(`${PD}.fields.expectedOutcome`, { outcome: stripHtml(obj.outcome) })}
+                        </Typography>
                       )}
                     </Paper>
                   ))}
@@ -479,25 +504,25 @@ export default function ProjectDetailsPage() {
 
           {tab === 3 && (
             <>
-              <SectionCard icon={MilestoneIcon} title="Milestones">
+              <SectionCard icon={MilestoneIcon} title={t(`${PD}.sections.milestones`)}>
                 {(project.milestones || []).length === 0 ? (
-                  <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No milestones defined.</Typography>
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PD}.empty.noMilestones`)}</Typography>
                 ) : (
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>Title</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Due</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Assignee</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Tasks</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.title`)}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.due`)}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.status`)}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.assignee`)}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.tasks`)}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {(project.milestones || []).map(m => (
+                      {(project.milestones || []).map((m) => (
                         <TableRow key={m.id}>
                           <TableCell sx={{ fontWeight: 600 }}>{m.title}</TableCell>
-                          <TableCell>{fmtDate(m.due_date)}</TableCell>
+                          <TableCell>{fmtDate(m.due_date, locale)}</TableCell>
                           <TableCell sx={{ textTransform: 'capitalize' }}>{m.status?.replace(/_/g, ' ')}</TableCell>
                           <TableCell>{m.assigned_to_name || '—'}</TableCell>
                           <TableCell>{m.done_count}/{m.task_count}</TableCell>
@@ -507,26 +532,26 @@ export default function ProjectDetailsPage() {
                   </Table>
                 )}
               </SectionCard>
-              <SectionCard icon={MilestoneIcon} title="Deliverables">
+              <SectionCard icon={MilestoneIcon} title={t(`${PD}.sections.deliverables`)}>
                 {(project.deliverables || []).length === 0 ? (
-                  <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No deliverables defined.</Typography>
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PD}.empty.noDeliverables`)}</Typography>
                 ) : (
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Due</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Responsible</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.deliverableName`)}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.deliverableType`)}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.due`)}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.status`)}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.responsible`)}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {(project.deliverables || []).map(d => (
+                      {(project.deliverables || []).map((d) => (
                         <TableRow key={d.id}>
                           <TableCell sx={{ fontWeight: 600 }}>{d.name}</TableCell>
                           <TableCell>{d.deliverable_type || '—'}</TableCell>
-                          <TableCell>{fmtDate(d.due_date)}</TableCell>
+                          <TableCell>{fmtDate(d.due_date, locale)}</TableCell>
                           <TableCell sx={{ textTransform: 'capitalize' }}>{d.status?.replace(/_/g, ' ')}</TableCell>
                           <TableCell>{d.responsible_label || '—'}</TableCell>
                         </TableRow>
@@ -539,29 +564,29 @@ export default function ProjectDetailsPage() {
           )}
 
           {tab === 4 && (
-            <SectionCard icon={EthicsIcon} title="Ethics & Compliance">
+            <SectionCard icon={EthicsIcon} title={t(`${PD}.sections.ethicsCompliance`)}>
               {stripHtml(project.conflict_of_interest) && (
                 <Box sx={{ mb: 2.5 }}>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>CONFLICT OF INTEREST</Typography>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>{t(`${PD}.fields.conflictOfInterest`)}</Typography>
                   <Typography sx={{ fontSize: 14 }}>{project.conflict_of_interest}</Typography>
                 </Box>
               )}
               {(project.ethics_applications || []).length === 0 ? (
-                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No ethics applications linked.</Typography>
+                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PD}.empty.noEthics`)}</Typography>
               ) : (
                 <>
                   <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2 }}>
-                    Click an application to open its full ethics record.
+                    {t(`${PD}.ethics.clickHint`)}
                   </Typography>
                   {(project.ethics_applications || []).map((e) => (
                     <ResourceLink
                       key={e.id}
                       href={`/researcher/ethics/${e.id}`}
-                      title={e.title || 'Ethics application'}
+                      title={e.title || t(`${PD}.ethics.applicationFallback`)}
                       subtitle={[
                         e.status?.replace(/_/g, ' '),
-                        e.submitted_at ? `Submitted ${fmtDate(e.submitted_at)}` : null,
-                        e.approved_until ? `Valid until ${fmtDate(e.approved_until)}` : null,
+                        e.submitted_at ? t(`${PD}.ethics.submitted`, { date: fmtDate(e.submitted_at, locale) }) : null,
+                        e.approved_until ? t(`${PD}.ethics.validUntil`, { date: fmtDate(e.approved_until, locale) }) : null,
                       ].filter(Boolean).join(' · ')}
                       icon={EthicsIcon}
                     />
@@ -573,59 +598,60 @@ export default function ProjectDetailsPage() {
                     endIcon={<OpenIcon sx={{ fontSize: 14 }} />}
                     sx={{ mt: 1, textTransform: 'none', fontWeight: 600, color: ACCENT }}
                   >
-                    View all ethics applications
+                    {t(`${PD}.ethics.viewAll`)}
                   </Button>
                 </>
-              )}            </SectionCard>
+              )}
+            </SectionCard>
           )}
 
           {tab === 5 && (
-            <SectionCard icon={StorageIcon} title="Data Management Plan">
+            <SectionCard icon={StorageIcon} title={t(`${PD}.sections.dataManagementPlan`)}>
               <Grid container spacing={2.5}>
-                <DetailField label="Entry mode" value={project.dmp_entry_mode?.replace(/_/g, ' ')} />
-                <DetailField label="Types of data" value={project.dmp_types_of_data} />
-                <DetailField label="Estimated volume" value={project.dmp_estimated_volume} />
-                <DetailField label="Data formats" value={project.dmp_data_formats} />
-                <DetailField label="Primary storage" value={project.dmp_primary_storage} />
-                <DetailField label="Retention period" value={project.dmp_retention_period} />
-                <DetailField label="Repository" value={project.dmp_repository} fullWidth />
+                <DetailField label={t(`${PD}.fields.entryMode`)} value={project.dmp_entry_mode?.replace(/_/g, ' ')} />
+                <DetailField label={t(`${PD}.fields.typesOfData`)} value={project.dmp_types_of_data} />
+                <DetailField label={t(`${PD}.fields.estimatedVolume`)} value={project.dmp_estimated_volume} />
+                <DetailField label={t(`${PD}.fields.dataFormats`)} value={project.dmp_data_formats} />
+                <DetailField label={t(`${PD}.fields.primaryStorage`)} value={project.dmp_primary_storage} />
+                <DetailField label={t(`${PD}.fields.retentionPeriod`)} value={project.dmp_retention_period} />
+                <DetailField label={t(`${PD}.fields.repository`)} value={project.dmp_repository} fullWidth />
               </Grid>
-              <RichBlock label="Backup procedure" html={project.dmp_backup_procedure} />
-              <RichBlock label="Access controls" html={project.dmp_access_controls} />
-              <RichBlock label="Sharing plan" html={project.dmp_sharing_plan} />
+              <RichBlock label={t(`${PD}.fields.backupProcedure`)} html={project.dmp_backup_procedure} />
+              <RichBlock label={t(`${PD}.fields.accessControls`)} html={project.dmp_access_controls} />
+              <RichBlock label={t(`${PD}.fields.sharingPlan`)} html={project.dmp_sharing_plan} />
             </SectionCard>
           )}
 
           {tab === 6 && (
-            <SectionCard icon={MoneyIcon} title="Budget & Financial Plan">
+            <SectionCard icon={MoneyIcon} title={t(`${PD}.sections.budgetFinancial`)}>
               <Grid container spacing={2.5} sx={{ mb: 2 }}>
-                <DetailField label="Reporting currency" value={project.reporting_currency} />
-                <DetailField label="Overhead rate" value={project.financial_overhead_rate} />
-                <DetailField label="Total budget" value={fmtMoney(budgetTotal, project.reporting_currency)} />
-                <DetailField label="Spent to date" value={fmtMoney(budgetSpent, project.reporting_currency)} />
+                <DetailField label={t(`${PD}.fields.reportingCurrency`)} value={project.reporting_currency} />
+                <DetailField label={t(`${PD}.fields.overheadRate`)} value={project.financial_overhead_rate} />
+                <DetailField label={t(`${PD}.fields.totalBudget`)} value={fmtMoney(budgetTotal, project.reporting_currency, locale)} />
+                <DetailField label={t(`${PD}.fields.spentToDate`)} value={fmtMoney(budgetSpent, project.reporting_currency, locale)} />
               </Grid>
               {project.financial_notes && (
                 <Typography sx={{ fontSize: 13, mb: 2, color: 'text.secondary' }}>{project.financial_notes}</Typography>
               )}
               {(project.budget_lines || []).length === 0 ? (
-                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No budget line items.</Typography>
+                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PD}.empty.noBudgetLines`)}</Typography>
               ) : (
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>Category</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }} align="right">Amount</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }} align="right">Spent</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.category`)}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.description`)}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }} align="right">{t(`${PD}.table.amount`)}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }} align="right">{t(`${PD}.table.spent`)}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {(project.budget_lines || []).map(bl => (
+                    {(project.budget_lines || []).map((bl) => (
                       <TableRow key={bl.id}>
                         <TableCell>{bl.category}</TableCell>
                         <TableCell>{bl.description || '—'}</TableCell>
-                        <TableCell align="right">{fmtMoney(bl.amount, project.reporting_currency)}</TableCell>
-                        <TableCell align="right">{fmtMoney(bl.spent_to_date, project.reporting_currency)}</TableCell>
+                        <TableCell align="right">{fmtMoney(bl.amount, project.reporting_currency, locale)}</TableCell>
+                        <TableCell align="right">{fmtMoney(bl.spent_to_date, project.reporting_currency, locale)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -635,51 +661,51 @@ export default function ProjectDetailsPage() {
           )}
 
           {tab === 7 && (
-            <SectionCard icon={DeclareIcon} title="Declarations & Sign-off">
-              {Object.entries(DECLARATION_LABELS).map(([key, title]) => (
+            <SectionCard icon={DeclareIcon} title={t(`${PD}.sections.declarationsSignoff`)}>
+              {DECLARATION_KEYS.map((key) => (
                 <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
                   <Chip
-                    label={declarations[key] ? 'Signed' : 'Not signed'}
+                    label={declarations[key] ? t(`${PD}.signoff.signed`) : t(`${PD}.signoff.notSigned`)}
                     size="small"
                     color={declarations[key] ? 'success' : 'default'}
                     sx={{ fontWeight: 700, minWidth: 90 }}
                   />
-                  <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{title}</Typography>
+                  <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{t(`${PD}.declaration.${key}`)}</Typography>
                 </Box>
               ))}
               <Box sx={{ mt: 2.5, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 <Box>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>PI SIGN-OFF NAME</Typography>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>{t(`${PD}.fields.piSignoffName`)}</Typography>
                   <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{project.pi_full_name || '—'}</Typography>
                 </Box>
                 <Box>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>DECLARATION DATE</Typography>
-                  <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{fmtDate(project.declaration_date)}</Typography>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>{t(`${PD}.fields.declarationDate`)}</Typography>
+                  <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{fmtDate(project.declaration_date, locale)}</Typography>
                 </Box>
               </Box>
             </SectionCard>
           )}
 
           {tab === 8 && (
-            <SectionCard icon={DocIcon} title="Uploaded Documents">
+            <SectionCard icon={DocIcon} title={t(`${PD}.sections.uploadedDocuments`)}>
               {(project.documents || []).length === 0 ? (
-                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No documents uploaded.</Typography>
+                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PD}.empty.noDocuments`)}</Typography>
               ) : (
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>File</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Uploaded</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>By</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.file`)}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.type`)}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.uploaded`)}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.by`)}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {(project.documents || []).map(d => (
+                    {(project.documents || []).map((d) => (
                       <TableRow key={d.id}>
                         <TableCell sx={{ fontWeight: 600 }}>{d.original_filename}</TableCell>
-                        <TableCell>{DOC_TYPE_LABELS[d.document_type] || d.document_type}</TableCell>
-                        <TableCell>{fmtDate(d.uploaded_at)}</TableCell>
+                        <TableCell>{getDocTypeLabel(d.document_type, t)}</TableCell>
+                        <TableCell>{fmtDate(d.uploaded_at, locale)}</TableCell>
                         <TableCell>{d.uploaded_by_name || '—'}</TableCell>
                       </TableRow>
                     ))}

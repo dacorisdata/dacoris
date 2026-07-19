@@ -1,27 +1,86 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Box, Typography, Button, Paper, TextField, Dialog, DialogContent, DialogTitle, DialogActions,
   Stepper, Step, StepLabel, Chip, IconButton, Autocomplete, useTheme, CircularProgress,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Menu, MenuItem,
-  Avatar, AvatarGroup, Tooltip, Stack, Divider, Select, FormControl, InputLabel,
+  Avatar, AvatarGroup, Tooltip, Stack, Divider, Select, FormControl, InputLabel, Checkbox,
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, MoreVert as MoreIcon,
   Article as ArticleIcon, Person as PersonIcon, Close as CloseIcon, Search as SearchIcon,
+  Folder as FolderIcon, Group as GroupIcon,
 } from '@mui/icons-material';
 import {
   TeamInvitePanel, MANUSCRIPT_TEAM_ROLES,
 } from '../../../components/TeamInvitePanel';
+import { useAuth } from '../../../contexts/AuthContext';
 
 const ACCENT = '#1ca7a1';
-
-const STEPS = ['Manuscript Details', 'Team'];
 
 const getInitials = (name) => {
   if (!name) return '?';
   return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+};
+
+const parseNameParts = (fullName) => {
+  const trimmed = (fullName || '').trim();
+  if (!trimmed) return { given_name: '', family_name: '' };
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return { given_name: parts[0], family_name: '' };
+  return { given_name: parts.slice(0, -1).join(' '), family_name: parts[parts.length - 1] };
+};
+
+const buildProjectTeamRoster = (project, currentUserId) => {
+  if (!project) return [];
+  const roster = [];
+  const seen = new Set();
+
+  const addPerson = (person) => {
+    if (person.user_id && person.user_id === currentUserId) return;
+    if (seen.has(person.key)) return;
+    seen.add(person.key);
+    roster.push(person);
+  };
+
+  if (project.pi_id) {
+    const name = project.pi_name || project.pi_full_name || 'Principal Investigator';
+    const { given_name, family_name } = parseNameParts(name);
+    addPerson({
+      key: `user:${project.pi_id}`,
+      user_id: project.pi_id,
+      given_name,
+      family_name,
+      name,
+      email: project.pi_email || '',
+      orcid: project.pi_orcid || '',
+      role: 'author',
+      project_role: 'Principal Investigator',
+      source: 'project',
+    });
+  }
+
+  (project.members || []).forEach((m) => {
+    if (m.status === 'declined') return;
+    const name = m.user_name || m.invited_name || '';
+    const { given_name, family_name } = parseNameParts(name);
+    addPerson({
+      key: m.user_id ? `user:${m.user_id}` : `member:${m.id}`,
+      user_id: m.user_id || '',
+      given_name,
+      family_name,
+      name: name || m.invited_email || 'Team member',
+      email: m.user_email || m.invited_email || '',
+      orcid: m.user_orcid || '',
+      role: 'author',
+      project_role: (m.role || 'member').replace(/_/g, ' '),
+      source: 'project',
+      project_member_id: m.id,
+    });
+  });
+
+  return roster;
 };
 
 const STATUS_STYLES = {
@@ -35,8 +94,11 @@ export default function ManuscriptsPage() {
   const router = useRouter();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
+  const { user: currentUser } = useAuth();
 
   const [manuscripts, setManuscripts] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
@@ -60,8 +122,27 @@ export default function ManuscriptsPage() {
     keywords: [],
     shortDescription: '',
     coAuthors: [],
+    projectId: '',
   });
-  const [teamMembers, setTeamMembers] = useState([]);
+  const [projectTeamAuthors, setProjectTeamAuthors] = useState([]);
+  const [additionalAuthors, setAdditionalAuthors] = useState([]);
+  const [projectTeamRoster, setProjectTeamRoster] = useState([]);
+  const [projectTeamLoading, setProjectTeamLoading] = useState(false);
+  const [linkedProject, setLinkedProject] = useState(null);
+
+  const wizardSteps = useMemo(
+    () => (formData.projectId
+      ? ['Manuscript Details', 'Project Team', 'Additional Authors']
+      : ['Manuscript Details', 'Co-Authors']),
+    [formData.projectId],
+  );
+
+  const getWizardStepKey = useCallback((step) => {
+    if (formData.projectId) {
+      return ['details', 'project-team', 'additional-authors'][step] || 'details';
+    }
+    return ['details', 'additional-authors'][step] || 'details';
+  }, [formData.projectId]);
   
   // Available departments list
   const availableDepartments = [
@@ -89,8 +170,63 @@ export default function ManuscriptsPage() {
   const [teamInviteOpen, setTeamInviteOpen] = useState(false);
 
   useEffect(() => {
+    if (activeStep >= wizardSteps.length) {
+      setActiveStep(Math.max(0, wizardSteps.length - 1));
+    }
+  }, [activeStep, wizardSteps.length]);
+
+  useEffect(() => {
     fetchManuscripts();
   }, []);
+
+  const fetchProjects = async () => {
+    setProjectsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/research/projects`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setProjects(data);
+      }
+    } catch (error) {
+      console.error('Error fetching projects:', error);
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
+
+  const fetchProjectTeam = async (projectId) => {
+    if (!projectId) {
+      setLinkedProject(null);
+      setProjectTeamRoster([]);
+      return;
+    }
+    setProjectTeamLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/research/projects/${projectId}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedProject(data);
+        setProjectTeamRoster(buildProjectTeamRoster(data, currentUser?.id));
+      }
+    } catch (error) {
+      console.error('Error fetching project team:', error);
+      setLinkedProject(null);
+      setProjectTeamRoster([]);
+    } finally {
+      setProjectTeamLoading(false);
+    }
+  };
+
+  const openCreateDialog = () => {
+    setCreateDialogOpen(true);
+    fetchProjects();
+  };
 
   const fetchManuscripts = async () => {
     try {
@@ -125,7 +261,8 @@ export default function ManuscriptsPage() {
           short_description: formData.shortDescription,
           department: formData.department,
           keywords: JSON.stringify(formData.keywords),
-          co_authors: teamMembers.map((ca, idx) => ({
+          project_id: formData.projectId || null,
+          co_authors: [...projectTeamAuthors, ...additionalAuthors].map((ca, idx) => ({
             given_name: ca.given_name,
             family_name: ca.family_name,
             email: ca.email,
@@ -151,21 +288,27 @@ export default function ManuscriptsPage() {
   const handleCloseDialog = () => {
     setCreateDialogOpen(false);
     setActiveStep(0);
-    setTeamMembers([]);
+    setProjectTeamAuthors([]);
+    setAdditionalAuthors([]);
+    setProjectTeamRoster([]);
+    setLinkedProject(null);
     setFormData({
       title: '',
       department: '',
       keywords: [],
       shortDescription: '',
       coAuthors: [],
+      projectId: '',
     });
   };
   const handleNext = () => {
-    if (activeStep === 0) {
-      if (!formData.title.trim()) {
-        alert('Please enter a manuscript title');
-        return;
-      }
+    const stepKey = getWizardStepKey(activeStep);
+    if (stepKey === 'details' && !formData.title.trim()) {
+      alert('Please enter a manuscript title');
+      return;
+    }
+    if (stepKey === 'details' && formData.projectId) {
+      fetchProjectTeam(formData.projectId);
     }
     setActiveStep((prev) => prev + 1);
   };
@@ -384,9 +527,46 @@ export default function ManuscriptsPage() {
     }
   };
 
+  const selectedProjectMemberKeys = useMemo(
+    () => new Set(projectTeamAuthors.map((a) => a.key)),
+    [projectTeamAuthors],
+  );
+
+  const toggleProjectTeamMember = (member) => {
+    setProjectTeamAuthors((prev) => {
+      const exists = prev.some((a) => a.key === member.key);
+      if (exists) return prev.filter((a) => a.key !== member.key);
+      return [...prev, { ...member, role: member.role || 'author' }];
+    });
+  };
+
+  const selectAllProjectTeam = () => {
+    setProjectTeamAuthors(projectTeamRoster.map((m) => ({ ...m, role: m.role || 'author' })));
+  };
+
+  const clearProjectTeamSelection = () => setProjectTeamAuthors([]);
+
+  const handleProjectChange = (_, project) => {
+    const projectId = project?.id || '';
+    setFormData((prev) => ({ ...prev, projectId }));
+    setProjectTeamAuthors([]);
+    setAdditionalAuthors([]);
+    if (projectId) {
+      fetchProjectTeam(projectId);
+    } else {
+      setLinkedProject(null);
+      setProjectTeamRoster([]);
+      setProjectTeamAuthors([]);
+      if (activeStep > 0) {
+        setActiveStep(0);
+      }
+    }
+  };
+
   const getStepContent = (step) => {
-    switch (step) {
-      case 0:
+    const stepKey = getWizardStepKey(step);
+
+    if (stepKey === 'details') {
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 2 }}>
             <TextField
@@ -395,6 +575,43 @@ export default function ManuscriptsPage() {
               value={formData.title}
               onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
               required
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+            />
+
+            <Autocomplete
+              options={projects}
+              loading={projectsLoading}
+              value={projects.find(p => p.id === formData.projectId) || null}
+              onChange={handleProjectChange}
+              getOptionLabel={(option) => {
+                if (!option) return '';
+                const code = option.project_code ? `${option.project_code} — ` : '';
+                return `${code}${option.title}`;
+              }}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Linked Project (optional)"
+                  placeholder="Select a research project"
+                  InputProps={{
+                    ...params.InputProps,
+                    startAdornment: (
+                      <>
+                        <FolderIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: -0.5 }} />
+                        {params.InputProps.startAdornment}
+                      </>
+                    ),
+                    endAdornment: (
+                      <>
+                        {projectsLoading ? <CircularProgress color="inherit" size={18} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+              noOptionsText={projectsLoading ? 'Loading projects...' : 'No projects found'}
               sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
             />
 
@@ -442,38 +659,150 @@ export default function ManuscriptsPage() {
             />
           </Box>
         );
-
-      case 1:
-        return (
-          <Box sx={{ pt: 2 }}>
-            <TeamInvitePanel
-              invitees={teamMembers}
-              onChange={setTeamMembers}
-              roles={MANUSCRIPT_TEAM_ROLES}
-              defaultRole="author"
-              accent={ACCENT}
-              listLabel="Authors List"
-              manuscriptTitle={formData.title}
-              manuscriptDescription={formData.shortDescription}
-              manuscriptKeywords={formData.keywords}
-              manuscriptDepartment={formData.department}
-              suggestionsLabel="Suggested Co-Authors"
-              suggestionsHint="Researchers whose specialty and past works align with this manuscript. Click a name to review their profile before inviting."
-              inviteFromProfileLabel="Add as Co-Author"
-              description="Review suggested co-authors, search ORCID, or enter details manually."
-              roleLabel="Default Role for New Authors"
-              formatRole={(r) => ({
-                author: 'Author',
-                corresponding_author: 'Corresponding Author',
-                contributor: 'Contributor',
-              }[r] || r.replace(/_/g, ' '))}
-            />
-          </Box>
-        );
-
-      default:
-        return null;
     }
+
+    if (stepKey === 'project-team') {
+      const selectedProject = projects.find((p) => p.id === formData.projectId) || linkedProject;
+      return (
+        <Box sx={{ pt: 2 }}>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2.5, lineHeight: 1.6 }}>
+            Choose which members from <strong>{selectedProject?.title || 'your project'}</strong> should be
+            co-authors on this manuscript. You can add more authors from suggestions or ORCID in the next step.
+          </Typography>
+
+          {projectTeamLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+              <CircularProgress sx={{ color: ACCENT }} />
+            </Box>
+          ) : projectTeamRoster.length === 0 ? (
+            <Paper elevation={0} variant="outlined" sx={{ p: 4, textAlign: 'center', borderRadius: 2, borderStyle: 'dashed' }}>
+              <GroupIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1.5 }} />
+              <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 0.5 }}>No other team members found</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                This project has no additional members to add. Continue to invite co-authors from suggestions or ORCID.
+              </Typography>
+            </Paper>
+          ) : (
+            <>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1.1 }}>
+                  Project team ({projectTeamRoster.length})
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button size="small" onClick={selectAllProjectTeam} sx={{ textTransform: 'none', fontSize: 12 }}>
+                    Select all
+                  </Button>
+                  <Button size="small" onClick={clearProjectTeamSelection} sx={{ textTransform: 'none', fontSize: 12 }}>
+                    Clear
+                  </Button>
+                </Box>
+              </Box>
+
+              <Stack spacing={1.25} sx={{ mb: 2 }}>
+                {projectTeamRoster.map((member) => {
+                  const selected = selectedProjectMemberKeys.has(member.key);
+                  return (
+                    <Paper
+                      key={member.key}
+                      elevation={0}
+                      variant="outlined"
+                      onClick={() => toggleProjectTeamMember(member)}
+                      sx={{
+                        p: 1.75,
+                        borderRadius: 2,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                        borderColor: selected ? ACCENT : 'divider',
+                        bgcolor: selected ? `${ACCENT}08` : 'transparent',
+                        '&:hover': { borderColor: ACCENT, bgcolor: `${ACCENT}05` },
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Checkbox
+                          checked={selected}
+                          onChange={() => toggleProjectTeamMember(member)}
+                          onClick={(e) => e.stopPropagation()}
+                          sx={{ color: 'text.disabled', '&.Mui-checked': { color: ACCENT }, p: 0.5 }}
+                        />
+                        <Avatar sx={{ width: 40, height: 40, fontSize: 13, fontWeight: 700, bgcolor: selected ? ACCENT : '#94a3b8' }}>
+                          {getInitials(member.name)}
+                        </Avatar>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{member.name}</Typography>
+                          <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+                            {[member.project_role, member.email].filter(Boolean).join(' · ')}
+                          </Typography>
+                        </Box>
+                        {member.orcid && (
+                          <Chip label="ORCID" size="small" sx={{ fontSize: 9, height: 20, bgcolor: 'action.hover' }} />
+                        )}
+                      </Box>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                {projectTeamAuthors.length} of {projectTeamRoster.length} selected
+              </Typography>
+            </>
+          )}
+        </Box>
+      );
+    }
+
+    if (stepKey === 'additional-authors') {
+      return (
+        <Box sx={{ pt: 2 }}>
+          {projectTeamAuthors.length > 0 && (
+            <Paper elevation={0} sx={{ p: 2, mb: 2.5, borderRadius: 2, bgcolor: dark ? 'rgba(255,255,255,0.03)' : `${ACCENT}08`, border: `1px solid ${ACCENT}25` }}>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, color: ACCENT, textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
+                From project team ({projectTeamAuthors.length})
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+                {projectTeamAuthors.map((author) => (
+                  <Chip
+                    key={author.key}
+                    avatar={<Avatar sx={{ bgcolor: ACCENT, width: 24, height: 24, fontSize: 10 }}>{getInitials(author.name)}</Avatar>}
+                    label={author.name}
+                    size="small"
+                    sx={{ bgcolor: 'background.paper', fontSize: 12 }}
+                  />
+                ))}
+              </Box>
+            </Paper>
+          )}
+
+          <TeamInvitePanel
+            invitees={additionalAuthors}
+            onChange={setAdditionalAuthors}
+            lockedInvitees={projectTeamAuthors}
+            roles={MANUSCRIPT_TEAM_ROLES}
+            defaultRole="author"
+            accent={ACCENT}
+            listLabel={formData.projectId ? 'Additional Authors' : 'Authors List'}
+            manuscriptTitle={formData.title}
+            manuscriptDescription={formData.shortDescription}
+            manuscriptKeywords={formData.keywords}
+            manuscriptDepartment={formData.department}
+            suggestionsLabel="Suggested Co-Authors"
+            suggestionsHint="Researchers whose specialty and past works align with this manuscript. Click a name to review their profile before inviting."
+            inviteFromProfileLabel="Add as Co-Author"
+            description={formData.projectId
+              ? 'Add more co-authors from AI suggestions, ORCID search, or manual entry.'
+              : 'Review suggested co-authors, search ORCID, or enter details manually.'}
+            roleLabel="Default Role for New Authors"
+            formatRole={(r) => ({
+              author: 'Author',
+              corresponding_author: 'Corresponding Author',
+              contributor: 'Contributor',
+            }[r] || r.replace(/_/g, ' '))}
+          />
+        </Box>
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -489,7 +818,7 @@ export default function ManuscriptsPage() {
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => setCreateDialogOpen(true)}
+          onClick={openCreateDialog}
           sx={{ textTransform: 'none', borderRadius: 2, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e7490' } }}
         >
           New Manuscript
@@ -529,7 +858,7 @@ export default function ManuscriptsPage() {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => setCreateDialogOpen(true)}
+            onClick={openCreateDialog}
             sx={{ textTransform: 'none', borderRadius: 2, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e7490' } }}
           >
             New Manuscript
@@ -541,6 +870,7 @@ export default function ManuscriptsPage() {
             <TableHead>
               <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
                 <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Title</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Project</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Department</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Authors</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Status</TableCell>
@@ -760,6 +1090,28 @@ export default function ManuscriptsPage() {
                       </Box>
                     )}
                   </TableCell>
+                  <TableCell sx={{ fontSize: 12, minWidth: 160, maxWidth: 220 }}>
+                    {manuscript.project ? (
+                      <Tooltip title={manuscript.project.title} arrow>
+                        <Chip
+                          icon={<FolderIcon sx={{ fontSize: '14px !important' }} />}
+                          label={manuscript.project.project_code || manuscript.project.title}
+                          size="small"
+                          sx={{
+                            fontSize: 10,
+                            maxWidth: 200,
+                            bgcolor: `${ACCENT}10`,
+                            color: ACCENT,
+                            '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
+                          }}
+                        />
+                      </Tooltip>
+                    ) : (
+                      <Typography sx={{ fontSize: 12, color: 'text.disabled', fontStyle: 'italic' }}>
+                        —
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell sx={{ fontSize: 12, minWidth: 200 }}>
                     {editingDepartment === manuscript.id ? (
                       <Autocomplete
@@ -957,7 +1309,7 @@ export default function ManuscriptsPage() {
         </DialogTitle>
         <DialogContent>
           <Stepper activeStep={activeStep} sx={{ pt: 2, pb: 3 }}>
-            {STEPS.map((label) => (
+            {wizardSteps.map((label) => (
               <Step key={label}>
                 <StepLabel>{label}</StepLabel>
               </Step>
@@ -974,7 +1326,7 @@ export default function ManuscriptsPage() {
               Back
             </Button>
           )}
-          {activeStep < STEPS.length - 1 ? (
+          {activeStep < wizardSteps.length - 1 ? (
             <Button
               variant="contained"
               onClick={handleNext}

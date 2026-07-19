@@ -21,7 +21,7 @@ import { grantsAPI } from '../../../../lib/apiModules';
 
 const ACCENT = '#16a699';
 const PAGE_SIZE = 20;
-const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar' };
+const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar', sw: 'sw-KE' };
 
 const STATUS_COLORS = {
   open: { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
@@ -347,7 +347,7 @@ export default function DiscoverOpportunitiesPage() {
   const showingTo = Math.min(page * PAGE_SIZE, filtered.length);
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1400, mx: 'auto', width: '100%' }}>
+    <Box sx={{ px: { xs: 1.5, md: 2 }, py: { xs: 1.5, md: 2 }, width: '100%' }}>
       <Box sx={{ mb: 3 }}>
         <Typography sx={{ fontSize: 24, fontWeight: 800, color: 'text.primary', letterSpacing: -0.3 }}>
           {t('researcher.grantsDiscover.title')}
@@ -559,13 +559,13 @@ export default function DiscoverOpportunitiesPage() {
         </Paper>
       )}
 
-      <Box sx={{ display: 'flex', gap: 3, alignItems: 'flex-start', flexDirection: { xs: 'column', lg: 'row' } }}>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexDirection: { xs: 'column', lg: 'row' } }}>
         <Paper
           elevation={0}
           sx={{
-            width: { xs: '100%', lg: 280 },
+            width: { xs: '100%', lg: 260 },
             flexShrink: 0,
-            p: 2.5,
+            p: 2,
             borderRadius: 3,
             border: `1px solid ${theme.palette.divider}`,
             bgcolor: 'background.paper',

@@ -9,16 +9,21 @@ import {
   RateReview as FeedbackIcon,
   WorkspacePremium as GraduationIcon,
 } from '@mui/icons-material';
+import { useLanguage } from '../../contexts/LanguageContext';
 
-const ACTIONS = [
-  { label: 'Complete requirements', href: '/researcher/postgraduate/requirements', icon: RequirementsIcon },
-  { label: 'Upload progress logs', href: '/researcher/postgraduate/progress', icon: ProgressIcon },
-  { label: 'Report challenges', href: '/researcher/postgraduate/challenges', icon: ChallengesIcon },
-  { label: 'Supervision feedback', href: '/researcher/postgraduate/feedback', icon: FeedbackIcon },
-  { label: 'Graduation readiness', href: '/researcher/postgraduate/graduation', icon: GraduationIcon },
+const PL = 'researcher.pgJourney';
+
+const ACTION_KEYS = [
+  { key: 'completeRequirements', href: '/researcher/postgraduate/requirements', icon: RequirementsIcon },
+  { key: 'uploadProgress', href: '/researcher/postgraduate/progress', icon: ProgressIcon },
+  { key: 'reportChallenges', href: '/researcher/postgraduate/challenges', icon: ChallengesIcon },
+  { key: 'supervisionFeedback', href: '/researcher/postgraduate/feedback', icon: FeedbackIcon },
+  { key: 'graduationReadiness', href: '/researcher/postgraduate/graduation', icon: GraduationIcon },
 ];
 
 export default function PgStudentQuickActions() {
+  const { t } = useLanguage();
+
   return (
     <Paper
       elevation={0}
@@ -30,7 +35,7 @@ export default function PgStudentQuickActions() {
         width: '100%',
       }}
     >
-      <Typography sx={{ fontWeight: 700, fontSize: 15, mb: 1.5 }}>Student actions</Typography>
+      <Typography sx={{ fontWeight: 700, fontSize: 15, mb: 1.5 }}>{t(`${PL}.studentActions`)}</Typography>
       <Box
         sx={{
           display: 'flex',
@@ -39,7 +44,7 @@ export default function PgStudentQuickActions() {
           width: '100%',
         }}
       >
-        {ACTIONS.map(({ label, href, icon: Icon }) => (
+        {ACTION_KEYS.map(({ key, href, icon: Icon }) => (
           <Box
             key={href}
             component={Link}
@@ -62,7 +67,7 @@ export default function PgStudentQuickActions() {
             }}
           >
             <Icon sx={{ fontSize: 18, color: '#1ca7a1', flexShrink: 0 }} />
-            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{label}</Typography>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{t(`${PL}.actions.${key}`)}</Typography>
           </Box>
         ))}
       </Box>

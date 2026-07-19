@@ -16,19 +16,22 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLanguage } from '../../../contexts/LanguageContext';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#1ca7a1';
+const PL = 'researcher.projects';
+const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar', sw: 'sw-KE' };
 
-const STATUS_META = {
-  draft:     { label: 'Draft',     color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
-  proposed:  { label: 'Proposed',  color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-  active:    { label: 'Active',    color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-  suspended: { label: 'Suspended', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-  completed: { label: 'Completed', color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)' },
+const STATUS_STYLE = {
+  draft:     { color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+  proposed:  { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+  active:    { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+  suspended: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+  completed: { color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)' },
 };
 
-const ETHICS_META = {
+const ETHICS_COLORS = {
   approved: '#10b981',
   rejected: '#ef4444',
   under_review: '#0ea5e9',
@@ -36,23 +39,36 @@ const ETHICS_META = {
   draft: '#64748b',
 };
 
-const fmtDate = d => d
-  ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  : '—';
+const getStatusMeta = (status, t) => {
+  const key = (status || '').toLowerCase();
+  const style = STATUS_STYLE[key] || { color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+  const labelKey = `${PL}.status.${key}`;
+  const label = t(labelKey);
+  return { label: label !== labelKey ? label : (status || '—'), ...style };
+};
 
-const fmtMoney = (amt, cur = 'KES') => {
+const getEthicsLabel = (status, t) => {
+  const key = (status || '').toLowerCase();
+  const labelKey = `${PL}.ethicsStatus.${key}`;
+  const label = t(labelKey);
+  return label !== labelKey ? label : status?.replace(/_/g, ' ') || '—';
+};
+
+const fmtDate = (d, locale) =>
+  d ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-US', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+const fmtMoney = (amt, cur = 'KES', locale) => {
   if (amt == null || amt === '') return '—';
-  return `${cur} ${Number(amt).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  return `${cur} ${Number(amt).toLocaleString(LOCALE_MAP[locale] || 'en-US', { maximumFractionDigits: 0 })}`;
 };
 
-const fmtPeriod = (start, end) => {
+const fmtPeriod = (start, end, locale) => {
   if (!start && !end) return '—';
-  return `${fmtDate(start)} – ${fmtDate(end)}`;
+  return `${fmtDate(start, locale)} – ${fmtDate(end, locale)}`;
 };
 
-function StatusChip({ status }) {
-  const key = status?.toLowerCase();
-  const meta = STATUS_META[key] || { label: status || '—', color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+function StatusChip({ status, t }) {
+  const meta = getStatusMeta(status, t);
   return (
     <Chip
       label={meta.label}
@@ -72,6 +88,7 @@ function StatusChip({ status }) {
 export default function ResearcherProjects() {
   const router = useRouter();
   const { fetchUser } = useAuth();
+  const { t, locale } = useLanguage();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
 
@@ -98,7 +115,7 @@ export default function ResearcherProjects() {
       setProjects(live.filter(p => p.status === 'proposed' || p.status === 'draft'));
     } catch {
       setProjects([]);
-      setError('Failed to load projects.');
+      setError(t(`${PL}.errorLoad`));
     } finally {
       setLoading(false);
     }
@@ -126,6 +143,13 @@ export default function ResearcherProjects() {
     funded: projects.filter(p => p.award_id).length,
   };
 
+  const statCards = [
+    { label: t(`${PL}.stats.total`), value: stats.total, color: ACCENT },
+    { label: t(`${PL}.stats.draft`), value: stats.draft, color: '#64748b' },
+    { label: t(`${PL}.stats.proposed`), value: stats.proposed, color: '#f59e0b' },
+    { label: t(`${PL}.stats.funded`), value: stats.funded, color: '#8b5cf6' },
+  ];
+
   const openProject = (p) => {
     if (p.status === 'draft') router.push(`/researcher/projects/${p.id}/setup`);
     else router.push(`/researcher/projects/${p.id}`);
@@ -143,9 +167,9 @@ export default function ResearcherProjects() {
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, gap: 2, flexWrap: 'wrap' }}>
         <Box>
-          <Typography sx={{ fontSize: 22, fontWeight: 700 }}>My Projects</Typography>
+          <Typography sx={{ fontSize: 22, fontWeight: 700 }}>{t(`${PL}.title`)}</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.3 }}>
-            Draft projects open the setup wizard; submitted projects open a read-only details view
+            {t(`${PL}.subtitle`)}
           </Typography>
         </Box>
         <Button
@@ -155,7 +179,7 @@ export default function ResearcherProjects() {
           onClick={loadProjects}
           sx={{ textTransform: 'none', borderRadius: 2 }}
         >
-          Refresh
+          {t(`${PL}.refresh`)}
         </Button>
       </Box>
 
@@ -163,12 +187,7 @@ export default function ResearcherProjects() {
 
       {projects.length > 0 && (
         <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
-          {[
-            { label: 'Total', value: stats.total, color: ACCENT },
-            { label: 'Draft', value: stats.draft, color: '#64748b' },
-            { label: 'Proposed', value: stats.proposed, color: '#f59e0b' },
-            { label: 'Funded', value: stats.funded, color: '#8b5cf6' },
-          ].map(s => (
+          {statCards.map(s => (
             <Box
               key={s.label}
               sx={{
@@ -190,7 +209,7 @@ export default function ResearcherProjects() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
         <TextField
           size="small"
-          placeholder="Search by title, funder, code, or PI…"
+          placeholder={t(`${PL}.searchPlaceholder`)}
           value={search}
           onChange={e => { setSearch(e.target.value); setPage(0); }}
           InputProps={{
@@ -203,7 +222,9 @@ export default function ResearcherProjects() {
           sx={{ width: { xs: '100%', sm: 360 }, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
         />
         <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-          {filtered.length} project{filtered.length !== 1 ? 's' : ''}
+          {filtered.length === 1
+            ? t(`${PL}.projectCount`, { count: filtered.length })
+            : t(`${PL}.projectCountPlural`, { count: filtered.length })}
         </Typography>
       </Box>
 
@@ -215,12 +236,10 @@ export default function ResearcherProjects() {
         >
           <ScienceIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1.5 }} />
           <Typography sx={{ fontWeight: 700, mb: 0.5 }}>
-            {projects.length === 0 ? 'No projects in draft or proposed status' : 'No results found'}
+            {projects.length === 0 ? t(`${PL}.empty.noProjects`) : t(`${PL}.empty.noResults`)}
           </Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', maxWidth: 420, mx: 'auto' }}>
-            {projects.length === 0
-              ? 'Save a project as draft from the setup wizard, or submit one for review — it will appear here.'
-              : 'Try a different search term.'}
+            {projects.length === 0 ? t(`${PL}.empty.noProjectsHint`) : t(`${PL}.empty.noResultsHint`)}
           </Typography>
         </Paper>
       ) : (
@@ -229,14 +248,14 @@ export default function ResearcherProjects() {
             <Table size="small" sx={{ minWidth: 960 }}>
               <TableHead>
                 <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
-                  <TableCell sx={headCell}>Project</TableCell>
-                  <TableCell sx={headCell}>Funded By</TableCell>
-                  <TableCell sx={headCell} align="right">Award Amount</TableCell>
-                  <TableCell sx={headCell}>Period</TableCell>
-                  <TableCell sx={headCell}>Ethics</TableCell>
-                  <TableCell sx={headCell}>Progress</TableCell>
-                  <TableCell sx={headCell}>Status</TableCell>
-                  <TableCell sx={headCell} align="right">Action</TableCell>
+                  <TableCell sx={headCell}>{t(`${PL}.table.project`)}</TableCell>
+                  <TableCell sx={headCell}>{t(`${PL}.table.fundedBy`)}</TableCell>
+                  <TableCell sx={headCell} align="right">{t(`${PL}.table.awardAmount`)}</TableCell>
+                  <TableCell sx={headCell}>{t(`${PL}.table.period`)}</TableCell>
+                  <TableCell sx={headCell}>{t(`${PL}.table.ethics`)}</TableCell>
+                  <TableCell sx={headCell}>{t(`${PL}.table.progress`)}</TableCell>
+                  <TableCell sx={headCell}>{t(`${PL}.table.status`)}</TableCell>
+                  <TableCell sx={headCell} align="right">{t(`${PL}.table.action`)}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -245,7 +264,7 @@ export default function ResearcherProjects() {
                     ? Math.round((p.done_milestone_count / p.milestone_count) * 100)
                     : 0;
                   const ethicsKey = p.ethics_status?.toLowerCase();
-                  const ethicsColor = ETHICS_META[ethicsKey] || '#64748b';
+                  const ethicsColor = ETHICS_COLORS[ethicsKey] || '#64748b';
 
                   return (
                     <TableRow
@@ -260,7 +279,7 @@ export default function ResearcherProjects() {
                     >
                       <TableCell sx={{ py: 1.75, maxWidth: 280 }}>
                         <Typography sx={{ fontSize: 13, fontWeight: 700, lineHeight: 1.4, color: 'text.primary' }}>
-                          {p.title || 'Untitled project'}
+                          {p.title || t(`${PL}.untitled`)}
                         </Typography>
                         <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', mt: 0.5, flexWrap: 'wrap' }}>
                           <Typography sx={{ fontSize: 11, color: 'text.disabled', fontFamily: 'monospace' }}>
@@ -293,33 +312,32 @@ export default function ResearcherProjects() {
                           </Box>
                         ) : (
                           <Typography sx={{ fontSize: 12, color: 'text.disabled', fontStyle: 'italic' }}>
-                            {p.project_type === 'funded' ? 'Pending award link' : 'Unfunded'}
+                            {p.project_type === 'funded' ? t(`${PL}.pendingAwardLink`) : t(`${PL}.unfunded`)}
                           </Typography>
                         )}
                       </TableCell>
 
                       <TableCell align="right" sx={{ py: 1.75, whiteSpace: 'nowrap' }}>
                         <Typography sx={{ fontSize: 12, fontWeight: 700, color: p.total_amount ? 'text.primary' : 'text.disabled' }}>
-                          {fmtMoney(p.total_amount, p.currency)}
+                          {fmtMoney(p.total_amount, p.currency, locale)}
                         </Typography>
                       </TableCell>
 
                       <TableCell sx={{ py: 1.75, whiteSpace: 'nowrap' }}>
                         <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                          {fmtPeriod(p.start_date, p.end_date)}
+                          {fmtPeriod(p.start_date, p.end_date, locale)}
                         </Typography>
                       </TableCell>
 
                       <TableCell sx={{ py: 1.75 }}>
                         {p.ethics_status ? (
                           <Chip
-                            label={p.ethics_status.replace(/_/g, ' ')}
+                            label={getEthicsLabel(p.ethics_status, t)}
                             size="small"
                             sx={{
                               fontSize: 10,
                               fontWeight: 700,
                               height: 22,
-                              textTransform: 'capitalize',
                               bgcolor: `${ethicsColor}18`,
                               color: ethicsColor,
                             }}
@@ -349,11 +367,11 @@ export default function ResearcherProjects() {
                       </TableCell>
 
                       <TableCell sx={{ py: 1.75 }}>
-                        <StatusChip status={p.status} />
+                        <StatusChip status={p.status} t={t} />
                       </TableCell>
 
                       <TableCell align="right" sx={{ py: 1.75 }} onClick={e => e.stopPropagation()}>
-                        <Tooltip title={p.status === 'draft' ? 'Continue setup' : 'View project'} arrow>
+                        <Tooltip title={p.status === 'draft' ? t(`${PL}.tooltips.continueSetup`) : t(`${PL}.tooltips.viewProject`)} arrow>
                           <Button
                             size="small"
                             variant="outlined"
@@ -370,7 +388,7 @@ export default function ResearcherProjects() {
                               '&:hover': { borderColor: ACCENT, bgcolor: 'rgba(28,167,161,0.06)' },
                             }}
                           >
-                            {p.status === 'draft' ? 'Continue' : 'Open'}
+                            {p.status === 'draft' ? t(`${PL}.actions.continue`) : t(`${PL}.actions.open`)}
                           </Button>
                         </Tooltip>
                       </TableCell>

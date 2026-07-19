@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Box, Typography, Tooltip } from '@mui/material';
 import {
   Dashboard as DashIcon,
@@ -43,12 +43,22 @@ import {
 } from '../lib/institutionTypes';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { subtleScrollbarSx } from '../lib/scrollStyles';
+import { sidebarTheme, SIDEBAR_FONTS } from '../lib/sidebarTheme';
 
-const ACCENT = '#1ca7a1';
+const STORAGE_KEY = 'dacoris-researcher-sidebar-sections';
+
+function loadSavedOpen() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return {};
+}
 
 const NAV_SECTIONS = [
   {
     sectionKey: 'main',
+    collapsible: true,
     items: [
       { icon: DashIcon, labelKey: 'researcher.sidebar.dashboard', path: '/researcher/overview' },
       { icon: PersonIcon, labelKey: 'researcher.sidebar.myProfile', path: '/researcher/profile' },
@@ -56,6 +66,7 @@ const NAV_SECTIONS = [
   },
   {
     sectionKey: 'grants',
+    collapsible: true,
     items: [
       { icon: DiscoverIcon, labelKey: 'researcher.sidebar.discoverOpportunities', path: '/researcher/grants/discover' },
       { icon: ProposalIcon, labelKey: 'researcher.sidebar.myProposals', path: '/researcher/grants/proposals' },
@@ -91,6 +102,7 @@ const NAV_SECTIONS = [
   },
   {
     sectionKey: 'data',
+    collapsible: true,
     items: [
       { icon: FormsIcon, labelKey: 'researcher.sidebar.dataImport', path: '/researcher/data/import' },
       { icon: Storage, labelKey: 'researcher.sidebar.dataLakes', path: '/researcher/data/lakes' },
@@ -136,6 +148,32 @@ function buildPgNavSection(user) {
   return { sectionKey: 'postgraduate', collapsible: true, items };
 }
 
+function sectionHasActive(section, isActive) {
+  const allPaths = section.items
+    ? section.items.map(i => i.path)
+    : (section.subsections || []).flatMap(s => s.items.map(i => i.path));
+  return allPaths.some(isActive);
+}
+
+function findActiveSectionKey(sections, isActive) {
+  for (const section of sections) {
+    if (sectionHasActive(section, isActive)) return section.sectionKey;
+  }
+  return null;
+}
+
+function buildDefaultExpanded(sections, isActive, saved = {}) {
+  const activeKey = findActiveSectionKey(sections, isActive);
+  const next = { ...saved };
+  sections.forEach(({ sectionKey }) => {
+    if (next[sectionKey] === undefined) {
+      next[sectionKey] = true;
+    }
+  });
+  if (activeKey) next[activeKey] = true;
+  return next;
+}
+
 export default function ResearcherSidebar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -143,9 +181,11 @@ export default function ResearcherSidebar() {
   const { t } = useLanguage();
   const theme = useMuiTheme();
   const dark = theme.palette.mode === 'dark';
+  const tokens = sidebarTheme(dark);
+  const { accent } = tokens;
 
-  const pgSection = buildPgNavSection(user);
-  const navSections = (() => {
+  const navSections = useMemo(() => {
+    const pgSection = buildPgNavSection(user);
     if (isSupervisorAccount(user) && pgSection) {
       const mainSection = NAV_SECTIONS.find((s) => s.sectionKey === 'main');
       return mainSection ? [mainSection, pgSection] : [pgSection];
@@ -156,18 +196,28 @@ export default function ResearcherSidebar() {
     const insertAt = grantsIdx >= 0 ? grantsIdx + 1 : sections.length;
     sections.splice(insertAt, 0, pgSection);
     return sections;
-  })();
+  }, [user]);
 
-  const [open, setOpen] = useState({ research: true, training: true, postgraduate: true });
-  const toggleSection = (key) => setOpen(prev => ({ ...prev, [key]: !prev[key] }));
+  const isActive = useCallback(
+    (path) => pathname === path || pathname.startsWith(path + '/'),
+    [pathname],
+  );
 
-  const isActive = (path) => pathname === path || pathname.startsWith(path + '/');
-  const sectionHasActive = (section) => {
-    const allPaths = section.items
-      ? section.items.map(i => i.path)
-      : (section.subsections || []).flatMap(s => s.items.map(i => i.path));
-    return allPaths.some(isActive);
-  };
+  const [userOpen, setUserOpen] = useState(loadSavedOpen);
+
+  const open = useMemo(
+    () => buildDefaultExpanded(navSections, isActive, userOpen),
+    [navSections, isActive, userOpen],
+  );
+
+  const toggleSection = useCallback((key) => {
+    setUserOpen(prev => {
+      const current = buildDefaultExpanded(navSections, isActive, prev);
+      const next = { ...current, [key]: !current[key] };
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [navSections, isActive]);
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'R';
 
@@ -179,36 +229,36 @@ export default function ResearcherSidebar() {
           onClick={() => router.push(path)}
           sx={{
             display: 'flex', alignItems: 'center', gap: 1.5,
-            px: 1.5, py: 0.85, mx: 0.5, cursor: 'pointer', borderRadius: '8px',
-            bgcolor: active ? `${ACCENT}16` : 'transparent',
-            color: active ? ACCENT : dark ? 'text.secondary' : '#64748b',
+            px: 1.5, py: 1, mx: 0.5, cursor: 'pointer', borderRadius: '8px',
+            bgcolor: active ? tokens.accentSoft : 'transparent',
+            color: active ? tokens.navActive : tokens.nav,
             position: 'relative',
             transition: 'all 0.15s ease',
             '&:hover': {
-              bgcolor: active ? `${ACCENT}20` : dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-              color: active ? ACCENT : 'text.primary',
+              bgcolor: active ? tokens.accentHover : tokens.itemHoverBg,
+              color: active ? tokens.navActive : tokens.navHover,
             },
             '&::before': active ? {
               content: '""',
               position: 'absolute', left: -4, top: '20%', bottom: '20%',
               width: 3, borderRadius: 4,
-              bgcolor: ACCENT,
+              bgcolor: accent,
             } : {},
           }}
         >
-          <Icon sx={{ fontSize: 17, flexShrink: 0, opacity: active ? 1 : 0.7 }} />
+          <Icon sx={{ fontSize: SIDEBAR_FONTS.itemIcon, flexShrink: 0, opacity: active ? 1 : 0.75 }} />
           <Typography sx={{
-            fontSize: 12.5,
+            fontSize: SIDEBAR_FONTS.item,
             fontWeight: active ? 650 : 450,
             letterSpacing: 0.1,
-            lineHeight: 1.3,
+            lineHeight: 1.35,
           }}>
             {label}
           </Typography>
           {active && (
             <Box sx={{
               ml: 'auto', width: 5, height: 5, borderRadius: '50%',
-              bgcolor: ACCENT, flexShrink: 0,
+              bgcolor: accent, flexShrink: 0,
             }} />
           )}
         </Box>
@@ -224,17 +274,17 @@ export default function ResearcherSidebar() {
         px: 2, pt: 2.5, pb: 0.75,
         cursor: collapsible ? 'pointer' : 'default',
         userSelect: 'none',
-        '&:hover .section-label': collapsible ? { color: 'text.primary' } : {},
+        '&:hover .section-label': collapsible ? { color: tokens.navHover } : {},
       }}
     >
       <Typography
         className="section-label"
         sx={{
-          fontSize: 10,
+          fontSize: SIDEBAR_FONTS.section,
           fontWeight: 700,
           letterSpacing: 1.2,
           textTransform: 'uppercase',
-          color: hasActive ? ACCENT : 'text.disabled',
+          color: hasActive ? tokens.sectionActive : tokens.section,
           transition: 'color 0.15s',
           flex: 1,
         }}
@@ -243,8 +293,8 @@ export default function ResearcherSidebar() {
       </Typography>
       {collapsible && (
         isOpen
-          ? <CollapseIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-          : <ExpandIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+          ? <CollapseIcon sx={{ fontSize: 16, color: hasActive ? tokens.sectionActive : tokens.muted }} />
+          : <ExpandIcon sx={{ fontSize: 16, color: hasActive ? tokens.sectionActive : tokens.muted }} />
       )}
     </Box>
   );
@@ -252,8 +302,8 @@ export default function ResearcherSidebar() {
   const SubsectionLabel = ({ title }) => (
     <Typography sx={{
       px: 2, pt: 1.5, pb: 0.5,
-      fontSize: 10.5, fontWeight: 600,
-      color: dark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
+      fontSize: SIDEBAR_FONTS.subsection, fontWeight: 600,
+      color: tokens.muted,
       letterSpacing: 0.4,
       textTransform: 'uppercase',
     }}>
@@ -264,9 +314,9 @@ export default function ResearcherSidebar() {
   return (
     <Box sx={{
       width: 300,
-      bgcolor: dark ? '#0f172a' : '#ffffff',
+      bgcolor: tokens.bg,
       borderRight: 1,
-      borderColor: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
+      borderColor: tokens.border,
       display: 'flex',
       flexDirection: 'column',
       height: '100vh',
@@ -278,21 +328,19 @@ export default function ResearcherSidebar() {
       <Box sx={{
         px: 2, pt: 2.5, pb: 2,
         borderBottom: 1,
-        borderColor: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)',
-        background: dark
-          ? 'linear-gradient(160deg, #0f1f2e 0%, #0f172a 100%)'
-          : `linear-gradient(160deg, ${ACCENT}0d 0%, transparent 100%)`,
+        borderColor: tokens.border,
+        background: tokens.headerBg,
       }}>
         {user?.institution_name && (
           <Box sx={{
             display: 'inline-flex', alignItems: 'center',
             px: 1.25, py: 0.4, mb: 1.75, borderRadius: 1.5,
-            bgcolor: `${ACCENT}18`,
-            border: `1px solid ${ACCENT}30`,
+            bgcolor: tokens.accentBadgeBg,
+            border: `1px solid ${tokens.accentBorder}`,
           }}>
-            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: ACCENT, mr: 0.75 }} />
+            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: accent, mr: 0.75 }} />
             <Typography sx={{
-              fontSize: 10, fontWeight: 700, color: ACCENT,
+              fontSize: SIDEBAR_FONTS.badge, fontWeight: 700, color: accent,
               letterSpacing: 0.3,
               maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
@@ -304,22 +352,22 @@ export default function ResearcherSidebar() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Box sx={{
             width: 40, height: 40, borderRadius: '10px', flexShrink: 0,
-            background: `linear-gradient(135deg, ${ACCENT} 0%, #0891b2 100%)`,
+            background: `linear-gradient(135deg, ${accent} 0%, #0891b2 100%)`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 14, fontWeight: 700, color: '#fff',
-            boxShadow: `0 2px 8px ${ACCENT}40`,
+            fontSize: SIDEBAR_FONTS.userName, fontWeight: 700, color: '#fff',
+            boxShadow: `0 2px 8px ${accent}40`,
           }}>
             {initials}
           </Box>
           <Box sx={{ overflow: 'hidden', minWidth: 0 }}>
             <Typography sx={{
-              fontSize: 13, fontWeight: 650, color: 'text.primary',
+              fontSize: SIDEBAR_FONTS.userName, fontWeight: 650, color: tokens.name,
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               letterSpacing: 0.1,
             }}>
               {user?.name || t('researcher.sidebar.fallbackName')}
             </Typography>
-            <Typography sx={{ fontSize: 11, color: ACCENT, fontWeight: 500, mt: 0.1 }}>
+            <Typography sx={{ fontSize: SIDEBAR_FONTS.userRole, color: tokens.role, fontWeight: 500, mt: 0.1 }}>
               {user?.job_title || t('researcher.sidebar.fallbackRole')}
             </Typography>
           </Box>
@@ -331,7 +379,7 @@ export default function ResearcherSidebar() {
         ...subtleScrollbarSx(dark),
       }}>
         {navSections.map(({ sectionKey, items, subsections, collapsible }) => {
-          const hasActive = sectionHasActive({ items, subsections });
+          const hasActive = sectionHasActive({ items, subsections }, isActive);
           const isOpen = !collapsible || open[sectionKey] !== false;
           const sectionLabel = t(`researcher.sidebar.sections.${sectionKey}`);
 
@@ -375,14 +423,14 @@ export default function ResearcherSidebar() {
       <Box sx={{
         px: 1.5, py: 1.25,
         borderTop: 1,
-        borderColor: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)',
+        borderColor: tokens.border,
       }}>
         <Box
           onClick={() => { logout(); router.push('/login'); }}
           sx={{
             display: 'flex', alignItems: 'center', gap: 1.5,
             px: 1.5, py: 1, cursor: 'pointer', borderRadius: '8px',
-            color: dark ? 'rgba(255,255,255,0.35)' : '#94a3b8',
+            color: tokens.signOut,
             transition: 'all 0.15s ease',
             '&:hover': {
               bgcolor: 'rgba(239,68,68,0.08)',
@@ -390,8 +438,8 @@ export default function ResearcherSidebar() {
             },
           }}
         >
-          <LogoutIcon sx={{ fontSize: 16 }} />
-          <Typography sx={{ fontSize: 12.5, fontWeight: 500 }}>{t('researcher.sidebar.signOut')}</Typography>
+          <LogoutIcon sx={{ fontSize: SIDEBAR_FONTS.itemIcon }} />
+          <Typography sx={{ fontSize: SIDEBAR_FONTS.signOut, fontWeight: 500 }}>{t('researcher.sidebar.signOut')}</Typography>
         </Box>
       </Box>
     </Box>

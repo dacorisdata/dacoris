@@ -1854,3 +1854,62 @@ async def preview_document(
         filename=getattr(doc, "original_filename", doc.stored_filename),
         headers={"Content-Disposition": f'inline; filename="{getattr(doc, "original_filename", doc.stored_filename)}"'},
     )
+
+
+# ─── Proposal Export ───────────────────────────────────────────
+
+@router.get("/{proposal_id}/export")
+async def export_proposal_document(
+    proposal_id: str,
+    format: str = Query("pdf", pattern="^(pdf|docx|word|doc)$"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
+        ResearchRole.INSTITUTIONAL_LEAD
+    ])),
+):
+    """Download the full proposal as PDF or Word."""
+    from fastapi.responses import Response
+    from services.proposal_export import ExportProposal, ExportSection, export_proposal
+
+    result = await db.execute(
+        select(Proposal)
+        .options(
+            selectinload(Proposal.sections),
+        )
+        .where(
+            Proposal.id == proposal_id,
+            Proposal.institution_id == current_user.primary_institution_id,
+        )
+    )
+    proposal = result.scalar_one_or_none()
+    if not proposal:
+        raise HTTPException(404, "Proposal not found")
+
+    if proposal.sections:
+        _sort_sections(proposal.sections)
+
+    export_data = ExportProposal(
+        title=proposal.title,
+        sections=[
+            ExportSection(
+                title=section.title,
+                content_html=section.content_html or "",
+                word_count=section.word_count or 0,
+            )
+            for section in (proposal.sections or [])
+        ],
+    )
+
+    try:
+        content, filename, media_type = export_proposal(export_data, format)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500, f"Failed to generate export: {exc}") from exc
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

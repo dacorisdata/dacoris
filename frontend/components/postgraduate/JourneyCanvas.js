@@ -16,8 +16,11 @@ import {
   Warning as OverdueIcon,
   Lock as BlockedIcon,
 } from '@mui/icons-material';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 const ACCENT = '#1ca7a1';
+const PL = 'researcher.pgJourney';
+const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar', sw: 'sw-KE' };
 
 const STATUS_COLOR = {
   Complete: 'success',
@@ -43,27 +46,35 @@ function resolveStatus(stage) {
   return stage.orchestration_status || stage.excel_status || 'Not Started';
 }
 
-function statusMeta(status, isOverdue) {
+function translateStageStatus(status, t) {
+  if (!status) return t(`${PL}.stageStatus.not_started`);
+  const key = status.toLowerCase().replace(/\s+/g, '_');
+  const labelKey = `${PL}.stageStatus.${key}`;
+  const label = t(labelKey);
+  return label !== labelKey ? label : status;
+}
+
+function statusMeta(status, isOverdue, t) {
   if (isOverdue || status === 'Overdue') {
-    return { color: '#ef4444', bg: 'rgba(239,68,68,0.12)', icon: OverdueIcon, label: 'Overdue' };
+    return { color: '#ef4444', bg: 'rgba(239,68,68,0.12)', icon: OverdueIcon, label: t(`${PL}.stageStatus.overdue`) };
   }
   const normalized = (status || '').toLowerCase();
   if (normalized.includes('complete')) {
-    return { color: '#16a34a', bg: 'rgba(22,163,74,0.12)', icon: CompleteIcon, label: status };
+    return { color: '#16a34a', bg: 'rgba(22,163,74,0.12)', icon: CompleteIcon, label: translateStageStatus(status, t) };
   }
   if (normalized.includes('progress')) {
-    return { color: ACCENT, bg: `${ACCENT}18`, icon: ActiveIcon, label: status };
+    return { color: ACCENT, bg: `${ACCENT}18`, icon: ActiveIcon, label: translateStageStatus(status, t) };
   }
   if (normalized.includes('block')) {
-    return { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', icon: BlockedIcon, label: status };
+    return { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', icon: BlockedIcon, label: translateStageStatus(status, t) };
   }
-  return { color: '#94a3b8', bg: 'rgba(148,163,184,0.12)', icon: PendingIcon, label: status || 'Not Started' };
+  return { color: '#94a3b8', bg: 'rgba(148,163,184,0.12)', icon: PendingIcon, label: translateStageStatus(status, t) };
 }
 
-function formatDate(value) {
+function formatDate(value, locale) {
   if (!value) return null;
   try {
-    return new Date(value).toLocaleDateString(undefined, {
+    return new Date(value).toLocaleDateString(LOCALE_MAP[locale] || 'en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -79,34 +90,43 @@ function displayStageName(name) {
 }
 
 export function StageGateBadge({ label, passed, detail }) {
+  const { t } = useLanguage();
+
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 0.75, gap: 1 }}>
       <Typography sx={{ fontSize: 13 }}>{label}</Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         {detail && <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{detail}</Typography>}
-        <Chip size="small" label={passed ? 'Passed' : 'Pending'} color={passed ? 'success' : 'default'} />
+        <Chip
+          size="small"
+          label={passed ? t(`${PL}.canvas.passed`) : t(`${PL}.canvas.pending`)}
+          color={passed ? 'success' : 'default'}
+        />
       </Box>
     </Box>
   );
 }
 
 export function JourneyStageChip({ status }) {
+  const { t } = useLanguage();
+  const translated = translateStageStatus(status, t);
   const color = STATUS_COLOR[status] || 'default';
-  return <Chip size="small" label={status || 'Unknown'} color={color} variant={color === 'default' ? 'outlined' : 'filled'} />;
+  return <Chip size="small" label={translated || status || 'Unknown'} color={color} variant={color === 'default' ? 'outlined' : 'filled'} />;
 }
 
 function StageDetailPanel({ stage, gates }) {
+  const { t, locale } = useLanguage();
   const status = resolveStatus(stage);
-  const meta = statusMeta(status, stage.is_overdue);
+  const meta = statusMeta(status, stage.is_overdue, t);
   const gateKey = STAGE_GATES[stage.stage_no];
   const gate = gateKey ? gates?.[gateKey] : null;
 
   const detailRows = [
-    { label: 'SIS status', value: stage.excel_status },
-    { label: 'Orchestration status', value: stage.orchestration_status },
-    { label: 'Date recorded', value: formatDate(stage.excel_date) },
-    { label: 'Units completed', value: stage.extra?.units_done },
-    { label: 'Publications', value: stage.extra?.pub_count != null ? String(stage.extra.pub_count) : null },
+    { label: t(`${PL}.canvas.sisStatus`), value: stage.excel_status },
+    { label: t(`${PL}.canvas.orchestrationStatus`), value: stage.orchestration_status },
+    { label: t(`${PL}.canvas.dateRecorded`), value: formatDate(stage.excel_date, locale) },
+    { label: t(`${PL}.canvas.unitsCompleted`), value: stage.extra?.units_done },
+    { label: t(`${PL}.canvas.publications`), value: stage.extra?.pub_count != null ? String(stage.extra.pub_count) : null },
   ].filter((row) => row.value);
 
   return (
@@ -139,7 +159,7 @@ function StageDetailPanel({ stage, gates }) {
 
       {stage.is_overdue && (
         <Typography sx={{ fontSize: 13, color: 'error.main', mb: 2 }}>
-          This stage is flagged as overdue in the postgraduate workflow.
+          {t(`${PL}.canvas.overdueFlag`)}
         </Typography>
       )}
 
@@ -159,24 +179,29 @@ function StageDetailPanel({ stage, gates }) {
       {gate && (
         <>
           <Divider sx={{ my: 2 }} />
-          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1 }}>Stage gate</Typography>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1 }}>{t(`${PL}.canvas.stageGate`)}</Typography>
           <StageGateBadge
             label={gateKey.replace(/_/g, ' ').replace(/^gate /, 'Gate ').toUpperCase()}
             passed={gate.passed}
             detail={
               gate.completed_units != null
-                ? `${gate.completed_units}/${gate.required_units || 0} units`
+                ? t(`${PL}.canvas.units`, {
+                  completed: gate.completed_units,
+                  required: gate.required_units || 0,
+                })
                 : gate.lead_supervisor || gate.status || gate.outcome || null
             }
           />
           {gate.ethics_status && (
             <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-              Ethics: {gate.ethics_status}
+              {t(`${PL}.canvas.ethics`, { status: gate.ethics_status })}
             </Typography>
           )}
           {gate.finance_cleared != null && (
             <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-              Finance cleared: {gate.finance_cleared ? 'Yes' : 'No'}
+              {t(`${PL}.canvas.financeCleared`, {
+                value: gate.finance_cleared ? t(`${PL}.yes`) : t(`${PL}.no`),
+              })}
             </Typography>
           )}
         </>
@@ -184,7 +209,7 @@ function StageDetailPanel({ stage, gates }) {
 
       {!detailRows.length && !gate && (
         <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-          No additional details recorded for this stage yet.
+          {t(`${PL}.empty.noDetails`)}
         </Typography>
       )}
     </Paper>
@@ -193,6 +218,7 @@ function StageDetailPanel({ stage, gates }) {
 
 export function JourneyCanvas({ stages = [], gates = {}, showGateSummary = true }) {
   const theme = useTheme();
+  const { t } = useLanguage();
   const dark = theme.palette.mode === 'dark';
 
   const sortedStages = useMemo(
@@ -214,7 +240,7 @@ export function JourneyCanvas({ stages = [], gates = {}, showGateSummary = true 
   if (!sortedStages.length) {
     return (
       <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>
-        No journey stages available yet.
+        {t(`${PL}.empty.noStages`)}
       </Typography>
     );
   }
@@ -222,7 +248,7 @@ export function JourneyCanvas({ stages = [], gates = {}, showGateSummary = true 
   return (
     <Box>
       {showGateSummary && (
-        <Typography sx={{ fontWeight: 600, fontSize: 15, mb: 2 }}>Academic Journey</Typography>
+        <Typography sx={{ fontWeight: 600, fontSize: 15, mb: 2 }}>{t(`${PL}.academicJourney`)}</Typography>
       )}
 
       <Box sx={{ width: '100%', overflowX: 'auto', pb: 1 }}>
@@ -237,7 +263,7 @@ export function JourneyCanvas({ stages = [], gates = {}, showGateSummary = true 
         >
           {sortedStages.map((stage, index) => {
             const status = resolveStatus(stage);
-            const meta = statusMeta(status, stage.is_overdue);
+            const meta = statusMeta(status, stage.is_overdue, t);
             const isSelected = stage.stage_no === activeStageNo;
             const isComplete = status.toLowerCase().includes('complete');
             const Icon = meta.icon;
@@ -350,7 +376,7 @@ export function JourneyCanvas({ stages = [], gates = {}, showGateSummary = true 
       </Box>
 
       <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-        Click any stage to view details
+        {t(`${PL}.canvas.clickStage`)}
       </Typography>
 
       {selectedStage && (
@@ -361,12 +387,19 @@ export function JourneyCanvas({ stages = [], gates = {}, showGateSummary = true 
 
       {showGateSummary && gates && Object.keys(gates).length > 0 && (
         <Box sx={{ mt: 3, p: 2, borderRadius: 2, border: '1px dashed', borderColor: 'divider' }}>
-          <Typography sx={{ fontWeight: 600, mb: 1 }}>All Stage Gates</Typography>
-          <StageGateBadge label="Gate A — Coursework" passed={gates.gate_a_coursework?.passed} detail={`${gates.gate_a_coursework?.completed_units || 0}/${gates.gate_a_coursework?.required_units || 0} units`} />
-          <StageGateBadge label="Gate B — Supervisor" passed={gates.gate_b_supervisor?.passed} />
-          <StageGateBadge label="Gate C — Proposal" passed={gates.gate_c_proposal?.passed} />
-          <StageGateBadge label="Gate D — Ethics/DMP" passed={gates.gate_d_research_cleared?.passed} />
-          <StageGateBadge label="Gate H — Graduation" passed={gates.gate_h_graduation?.passed} />
+          <Typography sx={{ fontWeight: 600, mb: 1 }}>{t(`${PL}.canvas.allStageGates`)}</Typography>
+          <StageGateBadge
+            label={t(`${PL}.canvas.gateA`)}
+            passed={gates.gate_a_coursework?.passed}
+            detail={t(`${PL}.canvas.units`, {
+              completed: gates.gate_a_coursework?.completed_units || 0,
+              required: gates.gate_a_coursework?.required_units || 0,
+            })}
+          />
+          <StageGateBadge label={t(`${PL}.canvas.gateB`)} passed={gates.gate_b_supervisor?.passed} />
+          <StageGateBadge label={t(`${PL}.canvas.gateC`)} passed={gates.gate_c_proposal?.passed} />
+          <StageGateBadge label={t(`${PL}.canvas.gateD`)} passed={gates.gate_d_research_cleared?.passed} />
+          <StageGateBadge label={t(`${PL}.canvas.gateH`)} passed={gates.gate_h_graduation?.passed} />
         </Box>
       )}
     </Box>

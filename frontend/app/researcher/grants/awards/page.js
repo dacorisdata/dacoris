@@ -19,22 +19,38 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../../../../contexts/AuthContext';
+import { useLanguage } from '../../../../contexts/LanguageContext';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT  = '#16a699';
 const GOLD    = '#f59e0b';
+const GA = 'researcher.grantsAwards';
+const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar', sw: 'sw-KE' };
 
-const STATUS_META = {
-  active:     { label: 'Active',     color: '#10b981', bg: '#ecfdf5', Icon: CheckIcon },
-  suspended:  { label: 'Suspended',  color: '#f97316', bg: '#fff7ed', Icon: SuspendedIcon },
-  completed:  { label: 'Completed',  color: '#64748b', bg: '#f1f5f9', Icon: CompletedIcon },
-  terminated: { label: 'Terminated', color: '#ef4444', bg: '#fef2f2', Icon: TerminatedIcon },
+const STATUS_STYLE = {
+  active:     { color: '#10b981', bg: '#ecfdf5', Icon: CheckIcon },
+  suspended:  { color: '#f97316', bg: '#fff7ed', Icon: SuspendedIcon },
+  completed:  { color: '#64748b', bg: '#f1f5f9', Icon: CompletedIcon },
+  terminated: { color: '#ef4444', bg: '#fef2f2', Icon: TerminatedIcon },
 };
 
-const fmtDate  = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-const fmtMoney = (amt, cur) => {
+const getStatusMeta = (status, t) => {
+  const key = (status || 'active').toLowerCase();
+  const style = STATUS_STYLE[key] || STATUS_STYLE.active;
+  const labelKey = `${GA}.status.${key}`;
+  const label = t(labelKey);
+  return {
+    ...style,
+    label: label !== labelKey ? label : status,
+  };
+};
+
+const fmtDate = (d, locale) =>
+  d ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-US', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+const fmtMoney = (amt, cur, locale) => {
   if (!amt) return '—';
-  return `${cur || 'KES'} ${Number(amt).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  return `${cur || 'KES'} ${Number(amt).toLocaleString(LOCALE_MAP[locale] || 'en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 };
 
 const sortAwardsForResearcher = (items) =>
@@ -45,7 +61,7 @@ const sortAwardsForResearcher = (items) =>
     return new Date(b.issued_at || 0) - new Date(a.issued_at || 0);
   });
 
-function BudgetBar({ lines = [] }) {
+function BudgetBar({ lines = [], t, locale }) {
   const total  = lines.reduce((s, l) => s + (l.amount || 0), 0);
   const spent  = lines.reduce((s, l) => s + (l.spent_to_date || 0), 0);
   const spentPct = total > 0 ? Math.min(100, Math.round(spent / total * 100)) : 0;
@@ -54,7 +70,7 @@ function BudgetBar({ lines = [] }) {
   return (
     <Box sx={{ mt: 2 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-        <Typography sx={{ fontSize: 11, color: 'text.secondary', fontWeight: 600 }}>Budget utilisation</Typography>
+        <Typography sx={{ fontSize: 11, color: 'text.secondary', fontWeight: 600 }}>{t(`${GA}.certificate.budgetUtilisation`)}</Typography>
         <Typography sx={{ fontSize: 11, color: spentPct > 80 ? '#ef4444' : 'text.secondary' }}>
           {spentPct}%
         </Typography>
@@ -71,7 +87,7 @@ function BudgetBar({ lines = [] }) {
                 {bl.category}
               </Typography>
               <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.primary' }}>
-                {fmtMoney(bl.amount)}
+                {fmtMoney(bl.amount, null, locale)}
               </Typography>
             </Box>
           </Tooltip>
@@ -81,10 +97,10 @@ function BudgetBar({ lines = [] }) {
   );
 }
 
-function AwardCertificate({ award, onOpenProject }) {
+function AwardCertificate({ award, onOpenProject, t, locale }) {
   const theme = useTheme();
   const dark  = theme.palette.mode === 'dark';
-  const sm    = STATUS_META[award.status] || STATUS_META.active;
+  const sm    = getStatusMeta(award.status, t);
   const { Icon: StatusIcon } = sm;
 
   const duration = award.start_date && award.end_date
@@ -118,7 +134,7 @@ function AwardCertificate({ award, onOpenProject }) {
           </Box>
           <Box>
             <Typography sx={{ fontSize: 11, color: GOLD, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>
-              Award Certificate
+              {t(`${GA}.certificate.title`)}
             </Typography>
             <Typography sx={{ fontSize: 13, fontWeight: 800, color: 'text.primary', mt: 0.1 }}>
               {award.award_number}
@@ -136,7 +152,7 @@ function AwardCertificate({ award, onOpenProject }) {
       <Box sx={{ p: 3 }}>
         {/* Proposal title */}
         <Typography sx={{ fontSize: 16, fontWeight: 800, lineHeight: 1.35, mb: 0.5 }}>
-          {award.proposal_title || `Proposal #${award.proposal_id}`}
+          {award.proposal_title || t(`${GA}.certificate.proposalFallback`, { id: award.proposal_id })}
         </Typography>
         <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mb: 2 }}>
           {award.opportunity_title || award.opportunity_sponsor || award.funder_name || '—'}
@@ -155,10 +171,10 @@ function AwardCertificate({ award, onOpenProject }) {
             border: `1px solid ${ACCENT}30`,
           }}>
             <Typography sx={{ fontSize: 10, color: ACCENT, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>
-              Total Award
+              {t(`${GA}.certificate.totalAward`)}
             </Typography>
             <Typography sx={{ fontSize: 20, fontWeight: 800, color: ACCENT, lineHeight: 1 }}>
-              {fmtMoney(award.total_amount, award.currency)}
+              {fmtMoney(award.total_amount, award.currency, locale)}
             </Typography>
           </Box>
 
@@ -167,7 +183,7 @@ function AwardCertificate({ award, onOpenProject }) {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7, mb: 0.5 }}>
               <FunderIcon sx={{ fontSize: 11, color: 'text.disabled' }} />
               <Typography sx={{ fontSize: 10, color: 'text.disabled', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Funder
+                {t(`${GA}.certificate.funder`)}
               </Typography>
             </Box>
             <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary' }}>
@@ -180,15 +196,15 @@ function AwardCertificate({ award, onOpenProject }) {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7, mb: 0.5 }}>
               <CalIcon sx={{ fontSize: 11, color: 'text.disabled' }} />
               <Typography sx={{ fontSize: 10, color: 'text.disabled', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Period
+                {t(`${GA}.certificate.period`)}
               </Typography>
             </Box>
             <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.primary' }}>
-              {fmtDate(award.start_date)} → {fmtDate(award.end_date)}
+              {fmtDate(award.start_date, locale)} → {fmtDate(award.end_date, locale)}
             </Typography>
             {duration !== null && (
               <Typography sx={{ fontSize: 10, color: 'text.disabled', mt: 0.3 }}>
-                {duration} months
+                {t(`${GA}.certificate.monthCount`, { count: duration })}
               </Typography>
             )}
           </Box>
@@ -198,11 +214,11 @@ function AwardCertificate({ award, onOpenProject }) {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7, mb: 0.5 }}>
               <CheckIcon sx={{ fontSize: 11, color: 'text.disabled' }} />
               <Typography sx={{ fontSize: 10, color: 'text.disabled', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Date Awarded
+                {t(`${GA}.certificate.dateAwarded`)}
               </Typography>
             </Box>
             <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary' }}>
-              {fmtDate(award.issued_at)}
+              {fmtDate(award.issued_at, locale)}
             </Typography>
           </Box>
         </Box>
@@ -211,7 +227,7 @@ function AwardCertificate({ award, onOpenProject }) {
         {award.conditions && (
           <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, bgcolor: dark ? '#92400e18' : '#fffbeb', border: '1px solid #fcd34d55' }}>
             <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.4 }}>
-              Award Conditions
+              {t(`${GA}.certificate.conditions`)}
             </Typography>
             <Typography sx={{ fontSize: 12.5, color: dark ? '#fcd34d' : '#78350f', lineHeight: 1.55 }}>
               {award.conditions}
@@ -220,7 +236,7 @@ function AwardCertificate({ award, onOpenProject }) {
         )}
 
         {/* Budget breakdown */}
-        <BudgetBar lines={award.budget_lines} />
+        <BudgetBar lines={award.budget_lines} t={t} locale={locale} />
 
         <Divider sx={{ my: 2 }} />
 
@@ -230,11 +246,11 @@ function AwardCertificate({ award, onOpenProject }) {
             {award.project_id ? (
               <Typography sx={{ fontSize: 12, color: ACCENT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <ProjectIcon sx={{ fontSize: 14 }} />
-                Research project created
+                {t(`${GA}.certificate.projectCreated`)}
               </Typography>
             ) : (
               <Typography sx={{ fontSize: 12, color: 'text.disabled', fontStyle: 'italic' }}>
-                No research project linked yet
+                {t(`${GA}.certificate.noProject`)}
               </Typography>
             )}
           </Box>
@@ -244,7 +260,7 @@ function AwardCertificate({ award, onOpenProject }) {
               startIcon={<OpenIcon sx={{ fontSize: 13 }} />}
               onClick={() => onOpenProject('proposal', award.proposal_id)}
               sx={{ textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5 }}>
-              View Proposal
+              {t(`${GA}.certificate.viewProposal`)}
             </Button>
             {award.project_id ? (
               <Button size="small" variant="contained"
@@ -254,7 +270,7 @@ function AwardCertificate({ award, onOpenProject }) {
                   textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5,
                   bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' },
                 }}>
-                Open Project
+                {t(`${GA}.certificate.openProject`)}
               </Button>
             ) : (
               <Button size="small" variant="contained"
@@ -264,7 +280,7 @@ function AwardCertificate({ award, onOpenProject }) {
                   textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5,
                   bgcolor: GOLD, '&:hover': { bgcolor: '#d97706' },
                 }}>
-                Convert to Project
+                {t(`${GA}.certificate.convertToProject`)}
               </Button>
             )}
           </Box>
@@ -277,6 +293,7 @@ function AwardCertificate({ award, onOpenProject }) {
 export default function ResearcherAwardsPage() {
   const router = useRouter();
   const { fetchUser } = useAuth();
+  const { t, locale } = useLanguage();
   const theme = useTheme();
   const [loading, setLoading]   = useState(true);
   const [awards, setAwards]     = useState([]);
@@ -306,7 +323,7 @@ export default function ResearcherAwardsPage() {
         localStorage.removeItem('token');
         router.push('/login');
       } else {
-        setError('Failed to load awards');
+        setError(t(`${GA}.errorLoad`));
       }
     } finally {
       setLoading(false);
@@ -335,6 +352,17 @@ export default function ResearcherAwardsPage() {
     total_value: awards.reduce((s, a) => s + (a.total_amount || 0), 0),
   };
 
+  const statCards = [
+    { label: t(`${GA}.stats.totalAwards`), value: stats.total, color: '#64748b' },
+    { label: t(`${GA}.stats.active`), value: stats.active, color: ACCENT },
+    { label: t(`${GA}.stats.completed`), value: stats.completed, color: '#10b981' },
+    {
+      label: t(`${GA}.stats.totalFunded`),
+      value: stats.total_value > 0 ? `KES ${(stats.total_value / 1e6).toFixed(1)}M` : '—',
+      color: GOLD,
+    },
+  ];
+
   if (loading) return (
     <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
       <CircularProgress />
@@ -348,15 +376,15 @@ export default function ResearcherAwardsPage() {
         <Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.4 }}>
             <TrophyIcon sx={{ fontSize: 26, color: GOLD }} />
-            <Typography sx={{ fontSize: 22, fontWeight: 800 }}>My Awards</Typography>
+            <Typography sx={{ fontSize: 22, fontWeight: 800 }}>{t(`${GA}.title`)}</Typography>
           </Box>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-            Your awarded grants and linked research projects
+            {t(`${GA}.subtitle`)}
           </Typography>
         </Box>
         <Button size="small" variant="outlined" startIcon={<RefreshIcon sx={{ fontSize: 15 }} />}
           onClick={loadAwards} sx={{ textTransform: 'none', borderRadius: 2 }}>
-          Refresh
+          {t(`${GA}.refresh`)}
         </Button>
       </Box>
 
@@ -365,16 +393,7 @@ export default function ResearcherAwardsPage() {
       {/* Summary stats */}
       {awards.length > 0 && (
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1.5, mb: 3 }}>
-          {[
-            { label: 'Total Awards',   value: stats.total,     color: '#64748b' },
-            { label: 'Active',         value: stats.active,    color: ACCENT },
-            { label: 'Completed',      value: stats.completed, color: '#10b981' },
-            {
-              label: 'Total Funded',
-              value: stats.total_value > 0 ? `KES ${(stats.total_value / 1e6).toFixed(1)}M` : '—',
-              color: GOLD,
-            },
-          ].map(s => (
+          {statCards.map(s => (
             <Paper key={s.label} elevation={0} variant="outlined" sx={{ p: 1.5, borderRadius: 2, textAlign: 'center' }}>
               <Typography sx={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</Typography>
               <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{s.label}</Typography>
@@ -387,19 +406,19 @@ export default function ResearcherAwardsPage() {
       {awards.length === 0 ? (
         <Paper elevation={0} variant="outlined" sx={{ p: 6, borderRadius: 3, textAlign: 'center' }}>
           <TrophyIcon sx={{ fontSize: 52, color: `${GOLD}55`, mb: 2 }} />
-          <Typography sx={{ fontSize: 16, fontWeight: 700, mb: 0.5 }}>No awards yet</Typography>
+          <Typography sx={{ fontSize: 16, fontWeight: 700, mb: 0.5 }}>{t(`${GA}.empty.title`)}</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 3 }}>
-            Awards will appear here once your proposals are approved and funded.
+            {t(`${GA}.empty.subtitle`)}
           </Typography>
           <Button variant="contained" onClick={() => router.push('/researcher/grants/applications')}
             sx={{ textTransform: 'none', bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, borderRadius: 2 }}>
-            View My Applications
+            {t(`${GA}.empty.viewApplications`)}
           </Button>
         </Paper>
       ) : (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           {awards.map(a => (
-            <AwardCertificate key={a.id} award={a} onOpenProject={handleOpenProject} />
+            <AwardCertificate key={a.id} award={a} onOpenProject={handleOpenProject} t={t} locale={locale} />
           ))}
         </Box>
       )}

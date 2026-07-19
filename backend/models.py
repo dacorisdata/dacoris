@@ -743,6 +743,7 @@ class ResearchProject(Base):
     dmp_linked_document = relationship("ProjectDocument", foreign_keys=[dmp_linked_document_id],
                                        post_update=True)
     research_outputs = relationship("ResearchOutput", back_populates="project")
+    manuscripts = relationship("Manuscript", back_populates="project")
 
 
 class EthicsApplication(Base):
@@ -1402,6 +1403,7 @@ class Manuscript(Base):
     
     # Owner/creator
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=True, index=True)
     
     # Content
     content = Column(Text, nullable=True)
@@ -1421,6 +1423,7 @@ class Manuscript(Base):
     
     # Relationships
     user = relationship("User", back_populates="manuscripts")
+    project = relationship("ResearchProject", back_populates="manuscripts")
     co_authors = relationship("ManuscriptCoAuthor", back_populates="manuscript", cascade="all, delete-orphan")
     citations = relationship("ManuscriptCitation", back_populates="manuscript", cascade="all, delete-orphan")
     comments = relationship("ManuscriptComment", back_populates="manuscript", cascade="all, delete-orphan")

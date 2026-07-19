@@ -769,6 +769,8 @@ async def get_project(
             "invited_at": m.invited_at, "joined_at": m.joined_at,
             "user_id": m.user_id,
             "user_name": m.user.name if m.user else m.invited_name,
+            "user_email": m.user.email if m.user else m.invited_email,
+            "user_orcid": m.user.orcid_id if m.user else None,
         }
         for m in (project.members or [])
     ]

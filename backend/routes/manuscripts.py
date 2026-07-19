@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 
 from database import get_db
-from models import User, Manuscript, ManuscriptCoAuthor, ManuscriptCitation, Publication, PublicationLibrary, NotificationType, NotificationPriority, ManuscriptComment, ManuscriptReviewer
+from models import User, Manuscript, ManuscriptCoAuthor, ManuscriptCitation, Publication, PublicationLibrary, NotificationType, NotificationPriority, ManuscriptComment, ManuscriptReviewer, ResearchProject, ProjectMember
 from auth import get_current_user
 from services.notification_service import NotificationService
 from services.citation_service import (
@@ -106,11 +106,21 @@ class CreatorResponse(BaseModel):
         from_attributes = True
 
 
+class ProjectSummary(BaseModel):
+    id: str
+    title: str
+    project_code: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ManuscriptCreate(BaseModel):
     title: str
     short_description: Optional[str] = None
     department: Optional[str] = None
     keywords: Optional[str] = None  # JSON string array
+    project_id: Optional[str] = None
     co_authors: List[CoAuthorCreate] = []
 
 
@@ -119,6 +129,7 @@ class ManuscriptUpdate(BaseModel):
     short_description: Optional[str] = None
     department: Optional[str] = None
     keywords: Optional[str] = None
+    project_id: Optional[str] = None
     content: Optional[str] = None
     abstract: Optional[str] = None
     status: Optional[str] = None
@@ -134,6 +145,8 @@ class ManuscriptResponse(BaseModel):
     abstract: Optional[str]
     status: str
     version: int
+    project_id: Optional[str] = None
+    project: Optional[ProjectSummary] = None
     created_at: datetime
     updated_at: Optional[datetime]
     creator: Optional[CreatorResponse] = None
@@ -147,6 +160,35 @@ class ManuscriptResponse(BaseModel):
 # MANUSCRIPT ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════
 
+_MANUSCRIPT_OPTS = (
+    selectinload(Manuscript.co_authors),
+    selectinload(Manuscript.user),
+    selectinload(Manuscript.project),
+)
+
+
+async def _validate_project_access(project_id: str, user: User, db: AsyncSession) -> ResearchProject:
+    result = await db.execute(
+        select(ResearchProject).where(ResearchProject.id == project_id)
+    )
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.institution_id != user.primary_institution_id:
+        raise HTTPException(status_code=403, detail="Project not in your institution")
+    if project.pi_id == user.id:
+        return project
+    member_result = await db.execute(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user.id,
+            ProjectMember.status == "accepted",
+        )
+    )
+    if member_result.scalar_one_or_none():
+        return project
+    raise HTTPException(status_code=403, detail="You don't have access to this project")
+
 @router.post("", response_model=ManuscriptResponse)
 async def create_manuscript(
     manuscript: ManuscriptCreate,
@@ -154,11 +196,15 @@ async def create_manuscript(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new manuscript with co-authors"""
+    if manuscript.project_id:
+        await _validate_project_access(manuscript.project_id, current_user, db)
+
     new_manuscript = Manuscript(
         title=manuscript.title,
         short_description=manuscript.short_description,
         department=manuscript.department,
         keywords=manuscript.keywords,
+        project_id=manuscript.project_id,
         user_id=current_user.id
     )
     db.add(new_manuscript)
@@ -181,10 +227,7 @@ async def create_manuscript(
     
     # Reload manuscript with co_authors eagerly loaded
     result = await db.execute(
-        select(Manuscript).options(
-            selectinload(Manuscript.co_authors),
-            selectinload(Manuscript.user)
-        ).where(
+        select(Manuscript).options(*_MANUSCRIPT_OPTS).where(
             Manuscript.id == new_manuscript.id
         )
     )
@@ -298,10 +341,7 @@ async def get_manuscripts(
 ):
     """Get all manuscripts for current user"""
     result = await db.execute(
-        select(Manuscript).options(
-            selectinload(Manuscript.co_authors),
-            selectinload(Manuscript.user)
-        ).where(
+        select(Manuscript).options(*_MANUSCRIPT_OPTS).where(
             Manuscript.user_id == current_user.id
         ).order_by(Manuscript.updated_at.desc())
     )
@@ -318,10 +358,7 @@ async def get_manuscript(
 ):
     """Get a specific manuscript"""
     result = await db.execute(
-        select(Manuscript).options(
-            selectinload(Manuscript.co_authors),
-            selectinload(Manuscript.user)
-        ).where(
+        select(Manuscript).options(*_MANUSCRIPT_OPTS).where(
             Manuscript.id == manuscript_id,
             Manuscript.user_id == current_user.id
         )
@@ -353,18 +390,19 @@ async def update_manuscript(
     if not manuscript:
         raise HTTPException(status_code=404, detail="Manuscript not found")
     
+    update_data = update.dict(exclude_unset=True)
+    if "project_id" in update_data and update_data["project_id"]:
+        await _validate_project_access(update_data["project_id"], current_user, db)
+
     # Update fields
-    for field, value in update.dict(exclude_unset=True).items():
+    for field, value in update_data.items():
         setattr(manuscript, field, value)
     
     await db.commit()
     
     # Reload with co_authors eagerly loaded
     result = await db.execute(
-        select(Manuscript).options(
-            selectinload(Manuscript.co_authors),
-            selectinload(Manuscript.user)
-        ).where(
+        select(Manuscript).options(*_MANUSCRIPT_OPTS).where(
             Manuscript.id == manuscript_id
         )
     )

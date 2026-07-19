@@ -86,7 +86,7 @@ export default function Navbar() {
 
         {/* Nav links (desktop) */}
         <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 0.5 }}>
-          <Button color="inherit" component={Link} href="/login">{t('navbar.home')}</Button>
+          <Button color="inherit" component={Link} href="/">{t('navbar.home')}</Button>
           <Button color="inherit" component={Link} href="/about">{t('navbar.about')}</Button>
           <Button color="inherit" component={Link} href="/research-output">{t('navbar.researchOutput')}</Button>
         </Box>
@@ -416,7 +416,7 @@ export default function Navbar() {
 
         <List>
           <ListItem disablePadding>
-            <ListItemButton component={Link} href="/login" onClick={handleMobileDrawerClose}>
+            <ListItemButton component={Link} href="/" onClick={handleMobileDrawerClose}>
               <ListItemText primary={t('navbar.home')} />
             </ListItemButton>
           </ListItem>

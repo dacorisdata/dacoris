@@ -1,6 +1,7 @@
 import "./globals.css";
 import { Inter, Noto_Sans_Arabic } from "next/font/google";
 import RootChrome from "@/components/layout/RootChrome";
+import AppReadyGate from "@/components/layout/AppReadyGate";
 import { Providers } from "./providers";
 
 const inter = Inter({
@@ -27,7 +28,9 @@ export default function RootLayout({ children }) {
     <html lang="en" className={`${inter.variable} ${notoSansArabic.variable}`}>
       <body>
         <Providers>
-          <RootChrome>{children}</RootChrome>
+          <AppReadyGate>
+            <RootChrome>{children}</RootChrome>
+          </AppReadyGate>
         </Providers>
       </body>
     </html>

@@ -16,6 +16,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 const inp = { '& .MuiOutlinedInput-root': { borderRadius: 2 } };
@@ -79,8 +80,9 @@ function ResearcherProfileModal({
   accent,
   onInvite,
   alreadyAdded,
-  inviteLabel = 'Invite to Team',
+  inviteLabel,
 }) {
+  const { t } = useLanguage();
   const data = snapshot || researcher;
   if (!data) return null;
 
@@ -94,9 +96,9 @@ function ResearcherProfileModal({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
       <DialogTitle sx={{ pb: 1 }}>
-        <Typography sx={{ fontSize: 18, fontWeight: 700 }}>{data.name || 'Researcher Profile'}</Typography>
+        <Typography sx={{ fontSize: 18, fontWeight: 700 }}>{data.name || t('researcher.teamInvite.profileTitle')}</Typography>
         <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
-          {[data.job_title, data.department].filter(Boolean).join(' · ') || 'Institution researcher'}
+          {[data.job_title, data.department].filter(Boolean).join(' · ') || t('researcher.teamInvite.institutionResearcher')}
         </Typography>
       </DialogTitle>
       <DialogContent sx={{ pt: '8px !important' }}>
@@ -115,7 +117,7 @@ function ResearcherProfileModal({
             {(snapshot?.match_reasons?.length > 0 || researcher?.reasons?.length > 0) && (
               <Box>
                 <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', mb: 1 }}>
-                  Why suggested
+                  {t('researcher.teamInvite.whySuggested')}
                 </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
                   {(snapshot?.match_reasons || researcher?.reasons || []).map((r, i) => (
@@ -128,7 +130,7 @@ function ResearcherProfileModal({
             {expertise.length > 0 && (
               <Box>
                 <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', mb: 1 }}>
-                  Expertise
+                  {t('researcher.teamInvite.expertise')}
                 </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
                   {expertise.map(kw => (
@@ -141,7 +143,7 @@ function ResearcherProfileModal({
             {skills.length > 0 && (
               <Box>
                 <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', mb: 1 }}>
-                  Skills
+                  {t('researcher.teamInvite.skills')}
                 </Typography>
                 <Typography sx={{ fontSize: 13, color: 'text.primary' }}>{skills.join(' · ')}</Typography>
               </Box>
@@ -150,7 +152,7 @@ function ResearcherProfileModal({
             {snapshot?.biography && (
               <Box>
                 <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', mb: 0.75 }}>
-                  Biography
+                  {t('researcher.teamInvite.biography')}
                 </Typography>
                 <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.55 }}>{snapshot.biography}</Typography>
               </Box>
@@ -159,7 +161,7 @@ function ResearcherProfileModal({
             {pubs.length > 0 && (
               <Box>
                 <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', mb: 1 }}>
-                  Recent work
+                  {t('researcher.teamInvite.recentWork')}
                 </Typography>
                 {pubs.map((t, i) => (
                   <Typography key={i} sx={{ fontSize: 12.5, color: 'text.secondary', mb: 0.75, lineHeight: 1.45 }}>
@@ -181,7 +183,7 @@ function ResearcherProfileModal({
         )}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5 }}>
-        <Button onClick={onClose} sx={{ textTransform: 'none' }}>Close</Button>
+        <Button onClick={onClose} sx={{ textTransform: 'none' }}>{t('researcher.teamInvite.close')}</Button>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
@@ -189,7 +191,7 @@ function ResearcherProfileModal({
           onClick={onInvite}
           sx={{ bgcolor: accent, textTransform: 'none', borderRadius: 2, '&:hover': { bgcolor: '#0e8a85' } }}
         >
-          {alreadyAdded ? 'Already on team' : inviteLabel}
+          {alreadyAdded ? t('researcher.teamInvite.alreadyOnTeam') : (inviteLabel || t('researcher.teamInvite.inviteToTeam'))}
         </Button>
       </DialogActions>
     </Dialog>
@@ -215,9 +217,17 @@ export function TeamInvitePanel({
   suggestionsLabel = 'Suggested Collaborators',
   suggestionsHint = 'Researchers at your institution whose expertise may strengthen this work. Click a name to review their profile.',
   inviteFromProfileLabel = 'Invite to Team',
+  lockedInvitees = [],
 }) {
   const theme = useTheme();
   const { user: currentUser } = useAuth();
+  const { t } = useLanguage();
+  const listLabelText = listLabel || t('researcher.teamInvite.listLabel');
+  const descriptionText = description || t('researcher.teamInvite.description');
+  const roleLabelText = roleLabel || t('researcher.teamInvite.roleLabel');
+  const suggestionsLabelText = suggestionsLabel || t('researcher.teamInvite.suggestionsLabel');
+  const suggestionsHintText = suggestionsHint || t('researcher.teamInvite.suggestionsHint');
+  const inviteFromProfileLabelText = inviteFromProfileLabel || t('researcher.teamInvite.inviteToTeam');
   const EMPTY_FORM = {
     given_name: '', family_name: '', email: '', affiliation: '', orcid: '',
     user_id: '', name: '', role: defaultRole, source: '',
@@ -281,19 +291,23 @@ export function TeamInvitePanel({
 
   const addInvitee = (invitee, { fromSearch = false } = {}) => {
     if (isSelfPerson(invitee)) {
-      setError('You cannot add yourself to the team list.');
+      setError(t('researcher.teamInvite.cannotAddSelf'));
       return false;
     }
     const valid = fromSearch ? isValidSearchInvitee(invitee) : isValidManualInvitee(invitee);
     if (!valid) {
       setError(fromSearch
-        ? 'Could not add this person — name is missing.'
-        : 'Complete name and email before adding to the list.');
+        ? t('researcher.teamInvite.missingName')
+        : t('researcher.teamInvite.completeNameEmail'));
       return false;
     }
     const key = getInviteeKey(invitee);
     if (invitees.some(p => getInviteeKey(p) === key)) {
-      setError('This person is already in the team list.');
+      setError(t('researcher.teamInvite.alreadyOnList'));
+      return false;
+    }
+    if (lockedInvitees.some(p => getInviteeKey(p) === key)) {
+      setError(t('researcher.teamInvite.alreadyOnList'));
       return false;
     }
     onChange([...invitees, { ...invitee, role: invitee.role || form.role }]);
@@ -302,7 +316,7 @@ export function TeamInvitePanel({
     setFamilyName('');
     setOrcidResults([]);
     if (fromSearch && !invitee.email?.trim()) {
-      setInfo(`${getDisplayName(invitee)} added. Add their email in the team list if you have it.`);
+      setInfo(t('researcher.teamInvite.addedNeedEmail', { name: getDisplayName(invitee) }));
     }
     return true;
   };
@@ -352,8 +366,8 @@ export function TeamInvitePanel({
   };
 
   const excludeUserIds = useMemo(
-    () => invitees.filter(i => i.user_id).map(i => i.user_id).join(','),
-    [invitees],
+    () => [...lockedInvitees, ...invitees].filter(i => i.user_id).map(i => i.user_id).join(','),
+    [invitees, lockedInvitees],
   );
   const manuscriptKeywordsKey = useMemo(
     () => (Array.isArray(manuscriptKeywords) ? manuscriptKeywords.join(',') : (manuscriptKeywords || '')),
@@ -501,7 +515,7 @@ export function TeamInvitePanel({
 
   const selectOrcidPerson = async (person) => {
     if (isSelfPerson(person)) {
-      setError('You cannot invite yourself.');
+      setError(t('researcher.teamInvite.cannotInviteSelf'));
       return;
     }
     setAddingPerson(true);
@@ -518,26 +532,26 @@ export function TeamInvitePanel({
 
   const canAddCurrent = isValidManualInvitee(form);
   const selectedAlreadyAdded = selectedResearcher
-    ? invitees.some(p => p.user_id === selectedResearcher.user_id)
+    ? [...lockedInvitees, ...invitees].some(p => p.user_id && p.user_id === selectedResearcher.user_id)
     : false;
 
   return (
     <Box>
-      {description && (
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2 }}>{description}</Typography>
+      {descriptionText && (
+        <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2 }}>{descriptionText}</Typography>
       )}
 
       {showSuggestions && (
         <Box sx={{ mb: 2.5 }}>
           <SubLabel
-            label={suggestionsLabel}
+            label={suggestionsLabelText}
             action={suggestionsAi ? (
-              <Chip icon={<AiIcon sx={{ fontSize: 14 }} />} label="AI-enhanced" size="small"
+              <Chip icon={<AiIcon sx={{ fontSize: 14 }} />} label={t('researcher.teamInvite.aiEnhanced')} size="small"
                 sx={{ height: 22, fontSize: 10, fontWeight: 700, bgcolor: '#8b5cf618', color: '#7c3aed' }} />
             ) : null}
           />
           <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 1.5 }}>
-            {suggestionsHint}
+            {suggestionsHintText}
           </Typography>
 
           {loadingSuggestions ? (
@@ -548,13 +562,13 @@ export function TeamInvitePanel({
             <Box sx={{ p: 2.5, textAlign: 'center', border: '1px dashed', borderColor: 'divider', borderRadius: 2 }}>
               <SuggestIcon sx={{ fontSize: 28, color: 'text.disabled', mb: 0.75 }} />
               <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                No collaborator suggestions yet. Enrich researcher profiles with expertise keywords to improve matching.
+                {t('researcher.teamInvite.noSuggestions')}
               </Typography>
             </Box>
           ) : (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {suggestions.map(person => {
-                const added = invitees.some(p => p.user_id === person.user_id);
+                const added = [...lockedInvitees, ...invitees].some(p => p.user_id && p.user_id === person.user_id);
                 return (
                   <Paper
                     key={person.user_id}
@@ -580,10 +594,10 @@ export function TeamInvitePanel({
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.25 }}>
                           <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{person.name}</Typography>
                           {added && (
-                            <Chip label="On team" size="small" sx={{ height: 18, fontSize: 9, bgcolor: `${accent}18`, color: accent }} />
+                            <Chip label={t('researcher.teamInvite.onTeam')} size="small" sx={{ height: 18, fontSize: 9, bgcolor: `${accent}18`, color: accent }} />
                           )}
                           {person.score > 0 && (
-                            <Chip label={`${Math.round(person.score * 100)}% fit`} size="small"
+                            <Chip label={t('researcher.teamInvite.fitPercent', { percent: Math.round(person.score * 100) })} size="small"
                               sx={{ height: 18, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
                           )}
                         </Box>
@@ -627,7 +641,7 @@ export function TeamInvitePanel({
             '&:hover': { bgcolor: inviteTab === 'orcid' ? '#0e8a85' : 'action.hover' },
           }}
         >
-          ORCID Search
+          {t('researcher.teamInvite.orcidSearch')}
         </Button>
         <Button
           size="small"
@@ -640,20 +654,20 @@ export function TeamInvitePanel({
             '&:hover': { bgcolor: inviteTab === 'manual' ? '#0e8a85' : 'action.hover' },
           }}
         >
-          Manual Entry
+          {t('researcher.teamInvite.manualEntry')}
         </Button>
       </Box>
 
       {inviteTab === 'orcid' && (
         <>
           <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 1.5 }}>
-            Search the ORCID registry by name and click Add on a result.
+            {t('researcher.teamInvite.orcidSearchHint')}
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-            <TextField size="small" label="Given Name" value={givenName}
+            <TextField size="small" label={t('researcher.teamInvite.givenName')} value={givenName}
               onChange={e => { setGivenName(e.target.value); setOrcidResults([]); }}
               onKeyDown={e => e.key === 'Enter' && searchOrcid()} sx={{ flex: 1, ...inp }} />
-            <TextField size="small" label="Family Name" value={familyName}
+            <TextField size="small" label={t('researcher.teamInvite.familyName')} value={familyName}
               onChange={e => { setFamilyName(e.target.value); setOrcidResults([]); }}
               onKeyDown={e => e.key === 'Enter' && searchOrcid()} sx={{ flex: 1, ...inp }} />
             <Button variant="contained" onClick={searchOrcid}
@@ -684,12 +698,12 @@ export function TeamInvitePanel({
                     </Box>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mb: 0.25 }}>
-                        <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{person.name || 'Unknown'}</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{person.name || t('researcher.teamInvite.unknown')}</Typography>
                         {isSelf && (
-                          <Chip label="You" size="small" sx={{ height: 18, fontSize: 9, fontWeight: 700, bgcolor: '#64748b22', color: '#64748b' }} />
+                          <Chip label={t('researcher.teamInvite.you')} size="small" sx={{ height: 18, fontSize: 9, fontWeight: 700, bgcolor: '#64748b22', color: '#64748b' }} />
                         )}
                         {person.registered && !isSelf && (
-                          <Chip label="Registered on DACORIS" size="small" sx={{ height: 18, fontSize: 9, fontWeight: 700, bgcolor: '#10b98122', color: '#10b981' }} />
+                          <Chip label={t('researcher.teamInvite.registered')} size="small" sx={{ height: 18, fontSize: 9, fontWeight: 700, bgcolor: '#10b98122', color: '#10b981' }} />
                         )}
                       </Box>
                       <Typography sx={{ fontSize: 11, color: 'text.secondary' }} noWrap>
@@ -700,12 +714,12 @@ export function TeamInvitePanel({
                       )}
                     </Box>
                   </Box>
-                  <Tooltip title={isSelf ? 'You cannot invite yourself' : 'Add to team list'}>
+                  <Tooltip title={isSelf ? t('researcher.teamInvite.cannotInviteSelfTooltip') : t('researcher.teamInvite.addToTeam')}>
                     <span>
                       <Button size="small" variant="outlined" startIcon={addingPerson ? <CircularProgress size={14} /> : <AddIcon />}
                         disabled={addingPerson || isSelf} onClick={() => selectOrcidPerson(person)}
                         sx={{ textTransform: 'none', borderRadius: 2, flexShrink: 0, borderColor: accent, color: accent }}>
-                        Add
+                        {t('researcher.teamInvite.add')}
                       </Button>
                     </span>
                   </Tooltip>
@@ -719,28 +733,28 @@ export function TeamInvitePanel({
       {inviteTab === 'manual' && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2 }}>
           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-            Enter collaborator details directly when they are not found via ORCID search.
+            {t('researcher.teamInvite.manualEntryHint')}
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <TextField size="small" label="Given Name *" value={form.given_name}
+            <TextField size="small" label={t('researcher.teamInvite.givenNameRequired')} value={form.given_name}
               onChange={e => setForm(f => ({ ...f, given_name: e.target.value, user_id: '', source: 'manual' }))}
               sx={{ flex: '1 1 180px', ...inp }} />
-            <TextField size="small" label="Family Name *" value={form.family_name}
+            <TextField size="small" label={t('researcher.teamInvite.familyNameRequired')} value={form.family_name}
               onChange={e => setForm(f => ({ ...f, family_name: e.target.value, user_id: '', source: 'manual' }))}
               sx={{ flex: '1 1 180px', ...inp }} />
           </Box>
-          <TextField fullWidth size="small" label="ORCID iD" value={form.orcid}
+          <TextField fullWidth size="small" label={t('researcher.teamInvite.orcidId')} value={form.orcid}
             onChange={e => setForm(f => ({ ...f, orcid: e.target.value, user_id: '', source: 'manual' }))}
             placeholder="0000-0000-0000-0000"
             InputProps={{
               startAdornment: <InputAdornment position="start"><OrcidIcon sx={{ fontSize: 15, color: accent }} /></InputAdornment>,
             }}
             sx={inp} />
-          <TextField fullWidth size="small" label="Email *" type="email" value={form.email}
+          <TextField fullWidth size="small" label={t('researcher.teamInvite.email')} type="email" value={form.email}
             onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-            helperText="Required for email and in-system notifications"
+            helperText={t('researcher.teamInvite.emailHelper')}
             sx={inp} />
-          <TextField fullWidth size="small" label="Affiliation (optional)" value={form.affiliation}
+          <TextField fullWidth size="small" label={t('researcher.teamInvite.affiliationOptional')} value={form.affiliation}
             onChange={e => setForm(f => ({ ...f, affiliation: e.target.value }))}
             placeholder="Institution / Department"
             sx={inp} />
@@ -748,12 +762,12 @@ export function TeamInvitePanel({
             onClick={() => addInvitee({ ...form, role: form.role })}
             disabled={!canAddCurrent}
             sx={{ alignSelf: 'flex-start', textTransform: 'none', borderRadius: 2 }}>
-            Add to Team List
+            {t('researcher.teamInvite.addToTeamList')}
           </Button>
         </Box>
       )}
 
-      <TextField fullWidth size="small" select label={roleLabel} value={form.role}
+      <TextField fullWidth size="small" select label={roleLabelText} value={form.role}
         onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
         sx={{ ...inp }}>
         {roles.map(r => (
@@ -764,11 +778,11 @@ export function TeamInvitePanel({
       </TextField>
 
       <Divider sx={{ my: 2.5 }} />
-      <SubLabel label={`${listLabel} (${invitees.length})`} />
+      <SubLabel label={`${listLabelText} (${invitees.length})`} />
       {invitees.length === 0 ? (
         <Box sx={{ p: 3, textAlign: 'center', border: '1px dashed', borderColor: 'divider', borderRadius: 2 }}>
           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-            No team members added yet. Pick a suggested collaborator, search ORCID, or use Manual Entry.
+            {t('researcher.teamInvite.emptyTeamList')}
           </Typography>
         </Box>
       ) : (
@@ -794,7 +808,7 @@ export function TeamInvitePanel({
                       <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{inv.affiliation}</Typography>
                     )}
                     {!inv.email?.trim() ? (
-                      <TextField size="small" label="Email (required for notifications)" type="email"
+                      <TextField size="small" label={t('researcher.teamInvite.emailForNotifications')} type="email"
                         value={inv.email || ''}
                         onChange={e => updateInviteeEmail(key, e.target.value)}
                         sx={{ mt: 1, width: '100%', ...inp }} />
@@ -803,7 +817,7 @@ export function TeamInvitePanel({
                     )}
                     <FormControl size="small" sx={{ mt: 1, minWidth: 180, ...inp }}>
                       <InputLabel>Role</InputLabel>
-                      <Select value={inv.role} label="Role" onChange={e => updateInviteeRole(key, e.target.value)}>
+                      <Select value={inv.role} label={t('researcher.teamInvite.role')} onChange={e => updateInviteeRole(key, e.target.value)}>
                         {roles.map(r => (
                           <MenuItem key={r} value={r} sx={{ textTransform: 'capitalize', fontSize: 12 }}>
                             {formatRole(r)}
@@ -834,7 +848,7 @@ export function TeamInvitePanel({
         accent={accent}
         onInvite={inviteFromProfile}
         alreadyAdded={selectedAlreadyAdded}
-        inviteLabel={inviteFromProfileLabel}
+        inviteLabel={inviteFromProfileLabelText}
       />
     </Box>
   );

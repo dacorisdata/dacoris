@@ -24,15 +24,18 @@ import {
 import { JourneyCanvas } from './JourneyCanvas';
 import PgStudentQuickActions from './PgStudentQuickActions';
 import { ProgressRiskChip, normalizeRiskLevel } from './SupervisorUi';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 const ACCENT = '#1ca7a1';
 const HERO_GRADIENT = 'linear-gradient(135deg, #1e3a5f 0%, #243b53 55%, #1a365d 100%)';
+const PL = 'researcher.pgJourney';
+const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar', sw: 'sw-KE' };
 
-const fmtDate = (d) =>
-  d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+const fmtDate = (d, locale) =>
+  d ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-US', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
-const fmtKes = (n) =>
-  n == null ? '—' : `KES ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const fmtKes = (n, locale) =>
+  n == null ? '—' : `KES ${Number(n).toLocaleString(LOCALE_MAP[locale] || 'en-US', { maximumFractionDigits: 0 })}`;
 
 function isDateLike(value) {
   return /^\d{4}-\d{2}-\d{2}/.test(String(value || '').trim());
@@ -92,7 +95,7 @@ function StatCard({ icon: Icon, label, value, sub, color = ACCENT }) {
   );
 }
 
-function GradeBars({ enrolments }) {
+function GradeBars({ enrolments, t }) {
   const grades = useMemo(() => {
     const counts = {};
     enrolments.forEach((e) => {
@@ -106,7 +109,7 @@ function GradeBars({ enrolments }) {
   const max = grades[0]?.[1] || 1;
 
   if (!grades.length) {
-    return <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No graded courses yet.</Typography>;
+    return <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PL}.empty.noGradedCourses`)}</Typography>;
   }
 
   return (
@@ -167,6 +170,7 @@ function SectionCard({ title, children, action, sx }) {
 
 export default function PgStudentDashboard({ data }) {
   const theme = useTheme();
+  const { t, locale } = useLanguage();
   const dark = theme.palette.mode === 'dark';
 
   const student = data?.external?.student;
@@ -210,29 +214,31 @@ export default function PgStudentDashboard({ data }) {
   const currentStageLabel = displayStage(journey?.current_stage || student?.current_stage_name || '');
 
   const researchMeta = [
-    currentStageLabel && { label: 'Current stage', value: currentStageLabel },
-    overallStatus && { label: 'Programme status', value: overallStatus },
-    expectedGraduation && { label: 'Expected graduation', value: fmtDate(expectedGraduation) },
+    currentStageLabel && { label: t(`${PL}.currentStage`), value: currentStageLabel },
+    overallStatus && { label: t(`${PL}.programmeStatus`), value: overallStatus },
+    expectedGraduation && { label: t(`${PL}.expectedGraduation`), value: fmtDate(expectedGraduation, locale) },
   ].filter(Boolean);
 
   const researchTitle =
     proposal?.title ||
-    `${student?.degree_level || 'Postgraduate'} research — ${student?.programme_name || 'Programme'}`;
+    t(`${PL}.researchTitle`, {
+      degree: student?.degree_level || t(`${PL}.defaults.postgraduate`),
+      programme: student?.programme_name || t(`${PL}.defaults.programme`),
+    });
 
-  const firstName = student?.full_name?.split(' ')[0] || 'Student';
+  const firstName = student?.full_name?.split(' ')[0] || t(`${PL}.defaults.student`);
 
   const financeMetrics = account
     ? [
-        { label: 'Total programme fee', value: fmtKes(account.total_programme_fee_kes) },
-        { label: 'Amount paid', value: fmtKes(account.amount_paid_kes) },
-        { label: 'Scholarship', value: fmtKes(account.scholarship_kes) },
-        { label: 'Outstanding', value: fmtKes(account.outstanding_kes) },
+        { label: t(`${PL}.finance.totalProgrammeFee`), value: fmtKes(account.total_programme_fee_kes, locale) },
+        { label: t(`${PL}.finance.amountPaid`), value: fmtKes(account.amount_paid_kes, locale) },
+        { label: t(`${PL}.finance.scholarship`), value: fmtKes(account.scholarship_kes, locale) },
+        { label: t(`${PL}.finance.outstanding`), value: fmtKes(account.outstanding_kes, locale) },
       ]
     : [];
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, width: '100%' }}>
-      {/* Welcome hero */}
       <Paper
         elevation={0}
         sx={{
@@ -250,22 +256,22 @@ export default function PgStudentDashboard({ data }) {
               {student?.student_id} · {student?.institution}
             </Typography>
             <Typography variant="h5" sx={{ fontWeight: 800, mb: 1.5 }}>
-              Welcome back, {firstName}!
+              {t(`${PL}.welcomeBack`, { name: firstName })}
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
               <Chip
                 size="small"
-                label={`${student?.degree_level || 'PG'} · ${student?.programme_name || 'Programme'}`}
+                label={`${student?.degree_level || t(`${PL}.defaults.postgraduate`)} · ${student?.programme_name || t(`${PL}.defaults.programme`)}`}
                 sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 600 }}
               />
               <Chip
                 size="small"
-                label={`Supervisor: ${leadSupervisor}`}
+                label={t(`${PL}.supervisor`, { name: leadSupervisor })}
                 sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 600 }}
               />
               <Chip
                 size="small"
-                label={student?.status || journey?.overall_status || 'Active'}
+                label={student?.status || journey?.overall_status || t(`${PL}.defaults.active`)}
                 sx={{ bgcolor: 'rgba(16,185,129,0.25)', color: '#6ee7b7', fontWeight: 700 }}
               />
               {currentStageLabel && (
@@ -280,7 +286,7 @@ export default function PgStudentDashboard({ data }) {
           {avgMark && (
             <Box sx={{ flexShrink: 0, textAlign: { xs: 'left', sm: 'right' } }}>
               <Typography sx={{ fontSize: 11, opacity: 0.75, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Coursework average
+                {t(`${PL}.courseworkAverage`)}
               </Typography>
               <Typography sx={{ fontSize: 32, fontWeight: 800, lineHeight: 1 }}>
                 {avgMark}
@@ -291,7 +297,6 @@ export default function PgStudentDashboard({ data }) {
         </Box>
       </Paper>
 
-      {/* Research focus */}
       <Paper
         elevation={0}
         sx={{
@@ -308,7 +313,7 @@ export default function PgStudentDashboard({ data }) {
           <ResearchIcon sx={{ color: ACCENT, mt: 0.25, flexShrink: 0 }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontSize: 11, fontWeight: 700, color: ACCENT, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.5 }}>
-              Research focus
+              {t(`${PL}.researchFocus`)}
             </Typography>
             <Typography sx={{ fontWeight: 700, fontSize: { xs: 16, md: 18 }, mb: 1 }}>
               {researchTitle}
@@ -340,7 +345,7 @@ export default function PgStudentDashboard({ data }) {
                 ))}
                 <Box>
                   <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                    Progress risk
+                    {t(`${PL}.progressRisk`)}
                   </Typography>
                   <Box sx={{ mt: 0.5 }}>
                     <ProgressRiskChip
@@ -353,7 +358,7 @@ export default function PgStudentDashboard({ data }) {
             )}
             {statusNote && (
               <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.5 }}>
-                <strong>Programme note:</strong> {statusNote}
+                <strong>{t(`${PL}.programmeNote`)}</strong> {statusNote}
               </Typography>
             )}
           </Box>
@@ -362,7 +367,6 @@ export default function PgStudentDashboard({ data }) {
 
       <PgStudentQuickActions />
 
-      {/* Summary stats */}
       <Box
         sx={{
           display: 'flex',
@@ -373,63 +377,65 @@ export default function PgStudentDashboard({ data }) {
       >
         <StatCard
           icon={CreditsIcon}
-          label="Coursework units"
+          label={t(`${PL}.stats.courseworkUnits`)}
           value={creditsCompleted}
-          sub={creditsRequired !== '—' ? `${creditsRequired} required` : `${enrolments.length} courses enrolled`}
+          sub={creditsRequired !== '—'
+            ? t(`${PL}.stats.required`, { count: creditsRequired })
+            : t(`${PL}.stats.coursesEnrolled`, { count: enrolments.length })}
         />
         <StatCard
           icon={AttendanceIcon}
-          label="Programme progress"
+          label={t(`${PL}.stats.programmeProgress`)}
           value={`${journeyProgress}%`}
-          sub={`${completedStages} of ${stages.length} stages complete`}
+          sub={t(`${PL}.stats.stagesComplete`, { completed: completedStages, total: stages.length })}
           color="#6366f1"
         />
         <StatCard
           icon={FinanceIcon}
-          label="Balance due"
-          value={fmtKes(account?.outstanding_kes ?? 0)}
-          sub={account?.payment_status || 'No finance record'}
+          label={t(`${PL}.stats.balanceDue`)}
+          value={fmtKes(account?.outstanding_kes ?? 0, locale)}
+          sub={account?.payment_status || t(`${PL}.stats.noFinanceRecord`)}
           color="#f59e0b"
         />
         <StatCard
           icon={PubIcon}
-          label="Publications"
+          label={t(`${PL}.stats.publications`)}
           value={pubCount}
-          sub={pubRequired ? `${pubRequired} required for programme` : 'Research outputs'}
+          sub={pubRequired
+            ? t(`${PL}.stats.requiredForProgramme`, { count: pubRequired })
+            : t(`${PL}.stats.researchOutputs`)}
           color="#10b981"
         />
       </Box>
 
-      {/* Journey timeline */}
       <SectionCard
-        title="Academic Journey"
+        title={t(`${PL}.academicJourney`)}
         action={
           <Typography sx={{ fontSize: 12, fontWeight: 600, color: ACCENT, flexShrink: 0 }}>
-            {journeyProgress}% complete
+            {t(`${PL}.percentComplete`, { percent: journeyProgress })}
           </Typography>
         }
       >
         {(leadSupervisor !== '—' || coSupervisor) && (
           <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2 }}>
-            {leadSupervisor !== '—' && `Lead: ${leadSupervisor}`}
-            {coSupervisor && ` · Co-supervisor: ${coSupervisor}`}
+            {leadSupervisor !== '—' && t(`${PL}.leadSupervisor`, { name: leadSupervisor })}
+            {coSupervisor && ` · ${t(`${PL}.coSupervisor`, { name: coSupervisor })}`}
           </Typography>
         )}
         <JourneyCanvas stages={stages} gates={gates} showGateSummary={false} />
       </SectionCard>
 
-      {/* Courses — full width */}
-      <SectionCard title="Current courses">
+      <SectionCard title={t(`${PL}.currentCourses`)}>
         <Box sx={{ overflowX: 'auto', width: '100%' }}>
           <Table size="small" sx={{ width: '100%' }}>
             <TableHead>
               <TableRow>
-                <TableCell>Course</TableCell>
-                <TableCell>Code</TableCell>
-                <TableCell>Year</TableCell>
-                <TableCell align="right">Mark</TableCell>
-                <TableCell>Grade</TableCell>
-                <TableCell>Status</TableCell>
+                <TableCell>{t(`${PL}.table.course`)}</TableCell>
+                <TableCell>{t(`${PL}.table.code`)}</TableCell>
+                <TableCell>{t(`${PL}.table.year`)}</TableCell>
+                <TableCell align="right">{t(`${PL}.table.mark`)}</TableCell>
+                <TableCell>{t(`${PL}.table.grade`)}</TableCell>
+                <TableCell>{t(`${PL}.table.status`)}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -437,7 +443,7 @@ export default function PgStudentDashboard({ data }) {
                 <TableRow>
                   <TableCell colSpan={6}>
                     <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 1 }}>
-                      No coursework enrolments on record.
+                      {t(`${PL}.empty.noCoursework`)}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -462,8 +468,7 @@ export default function PgStudentDashboard({ data }) {
         </Box>
       </SectionCard>
 
-      {/* Financial summary — full width */}
-      <SectionCard title="Financial summary">
+      <SectionCard title={t(`${PL}.financialSummary`)}>
         {account ? (
           <Box sx={{ width: '100%' }}>
             <Box
@@ -484,16 +489,18 @@ export default function PgStudentDashboard({ data }) {
             </Box>
             <Chip
               size="small"
-              label={account.finance_clearance ? 'Finance clearance granted' : `Payment: ${account.payment_status || 'Pending'}`}
+              label={account.finance_clearance
+                ? t(`${PL}.finance.clearanceGranted`)
+                : t(`${PL}.finance.payment`, { status: account.payment_status || 'Pending' })}
               color={account.finance_clearance ? 'success' : 'default'}
               sx={{ mb: 2 }}
             />
             {transactions.length > 0 && (
               <Box sx={{ width: '100%' }}>
-                <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1 }}>Recent payments</Typography>
-                {transactions.slice(0, 4).map((t) => (
+                <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1 }}>{t(`${PL}.finance.recentPayments`)}</Typography>
+                {transactions.slice(0, 4).map((tx) => (
                   <Box
-                    key={t.transaction_id}
+                    key={tx.transaction_id}
                     sx={{
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -505,20 +512,19 @@ export default function PgStudentDashboard({ data }) {
                     }}
                   >
                     <Typography sx={{ fontSize: 12, flex: 1, minWidth: 0 }}>
-                      {fmtDate(t.transaction_date)} · {t.fee_type || t.payment_method}
+                      {fmtDate(tx.transaction_date, locale)} · {tx.fee_type || tx.payment_method}
                     </Typography>
-                    <Typography sx={{ fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{fmtKes(t.amount_kes)}</Typography>
+                    <Typography sx={{ fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{fmtKes(tx.amount_kes, locale)}</Typography>
                   </Box>
                 ))}
               </Box>
             )}
           </Box>
         ) : (
-          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No finance account linked in FMS.</Typography>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PL}.finance.noAccount`)}</Typography>
         )}
       </SectionCard>
 
-      {/* Bottom widgets — horizontal flex row, full width */}
       <Box
         sx={{
           display: 'flex',
@@ -528,7 +534,7 @@ export default function PgStudentDashboard({ data }) {
           alignItems: 'stretch',
         }}
       >
-        <SectionCard title="Journey progress" sx={{ flex: '1 1 260px' }}>
+        <SectionCard title={t(`${PL}.journeyProgress`)} sx={{ flex: '1 1 260px' }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 1 }}>
             <Box
               sx={{
@@ -560,38 +566,38 @@ export default function PgStudentDashboard({ data }) {
             </Box>
             <Chip
               size="small"
-              label={journey?.overall_status || student?.status || 'Enrolled'}
+              label={journey?.overall_status || student?.status || t(`${PL}.defaults.enrolled`)}
               color="success"
               sx={{ fontWeight: 600 }}
             />
           </Box>
         </SectionCard>
 
-        <SectionCard title="Grade distribution" sx={{ flex: '1 1 260px' }}>
-          <GradeBars enrolments={enrolments} />
+        <SectionCard title={t(`${PL}.gradeDistribution`)} sx={{ flex: '1 1 260px' }}>
+          <GradeBars enrolments={enrolments} t={t} />
         </SectionCard>
 
         {account?.scholarship_kes > 0 && (
-          <SectionCard title="Scholarships" sx={{ flex: '1 1 220px' }}>
+          <SectionCard title={t(`${PL}.scholarships`)} sx={{ flex: '1 1 220px' }}>
             <Typography sx={{ fontSize: 14, fontWeight: 700, color: '#10b981' }}>
-              {fmtKes(account.scholarship_kes)}
+              {fmtKes(account.scholarship_kes, locale)}
             </Typography>
             <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-              Applied to programme fees
+              {t(`${PL}.finance.appliedToFees`)}
             </Typography>
           </SectionCard>
         )}
 
-        <SectionCard title="Academic profile" sx={{ flex: '2 1 320px' }}>
-          <ProfileRow label="Programme" value={student?.programme_name} />
-          <ProfileRow label="Department" value={student?.department} />
-          <ProfileRow label="Degree level" value={student?.degree_level} />
-          <ProfileRow label="Cohort" value={student?.cohort_year} />
-          <ProfileRow label="Study mode" value={student?.study_mode} />
-          <ProfileRow label="Enrolled" value={fmtDate(student?.enrolment_date)} />
-          <ProfileRow label="Expected graduation" value={fmtDate(student?.expected_graduation_date || journey?.expected_graduation)} />
-          <ProfileRow label="Lead supervisor" value={leadSupervisor} />
-          {coSupervisor && <ProfileRow label="Co-supervisor" value={coSupervisor} />}
+        <SectionCard title={t(`${PL}.academicProfile`)} sx={{ flex: '2 1 320px' }}>
+          <ProfileRow label={t(`${PL}.profile.programme`)} value={student?.programme_name} />
+          <ProfileRow label={t(`${PL}.profile.department`)} value={student?.department} />
+          <ProfileRow label={t(`${PL}.profile.degreeLevel`)} value={student?.degree_level} />
+          <ProfileRow label={t(`${PL}.profile.cohort`)} value={student?.cohort_year} />
+          <ProfileRow label={t(`${PL}.profile.studyMode`)} value={student?.study_mode} />
+          <ProfileRow label={t(`${PL}.profile.enrolled`)} value={fmtDate(student?.enrolment_date, locale)} />
+          <ProfileRow label={t(`${PL}.profile.expectedGraduation`)} value={fmtDate(student?.expected_graduation_date || journey?.expected_graduation, locale)} />
+          <ProfileRow label={t(`${PL}.profile.leadSupervisor`)} value={leadSupervisor} />
+          {coSupervisor && <ProfileRow label={t(`${PL}.profile.coSupervisor`)} value={coSupervisor} />}
         </SectionCard>
       </Box>
     </Box>

@@ -17,13 +17,47 @@ import {
   History as HistoryIcon, Lock as LockIcon, Restore as RestoreIcon,
   CommentBank as CommentIcon, Close as CloseIcon,
   KeyboardArrowUp as MoveUpIcon, KeyboardArrowDown as MoveDownIcon,
+  Download as DownloadIcon, PictureAsPdf as PdfIcon, Article as WordIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import { useLanguage } from '../../../../../contexts/LanguageContext';
 
 const TiptapEditor = dynamic(() => import('../../../../../components/TiptapEditor'), { ssr: false });
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#16a699';
+const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar', sw: 'sw-KE' };
+const WORKFLOW_STEP_KEYS = ['received', 'eligibility', 'technical', 'budget', 'panel', 'final'];
+const PW = 'researcher.proposalWorkspace';
+
+const normalizeStatusKey = (status) => (status || '').toLowerCase().replace(/\s+/g, '_');
+
+const getStatusLabel = (status, t) => {
+  const key = normalizeStatusKey(status);
+  const labelKey = `researcher.grantsProposals.status.${key}`;
+  const label = t(labelKey);
+  return label !== labelKey ? label : (status || t('researcher.grantsProposals.status.unknown'));
+};
+
+const formatRole = (role, t) => {
+  const map = {
+    'Co-Investigator': t('researcher.grantsProposals.roles.coInvestigator'),
+    Consultant: t('researcher.grantsProposals.roles.consultant'),
+    Advisor: t('researcher.grantsProposals.roles.advisor'),
+    Collaborator: t('researcher.grantsProposals.roles.collaborator'),
+  };
+  return map[role] || role;
+};
+
+const formatCollabStatus = (status, t) => {
+  const key = (status || '').toLowerCase();
+  if (key === 'accepted') return t('researcher.grantsProposals.collab.statusAccepted');
+  if (key === 'pending') return t('researcher.grantsProposals.collab.statusPending');
+  return status;
+};
+
+const fmtDate = (d, locale, options = { year: 'numeric', month: 'short', day: 'numeric' }) =>
+  d ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-US', options) : '—';
 
 // Section list item with up/down reorder controls
 function SectionListItem({
@@ -39,6 +73,7 @@ function SectionListItem({
   onDelete,
   onMoveUp,
   onMoveDown,
+  t,
 }) {
   const isComplete = (sectionData.wordCount || 0) > 50;
   const canMoveUp = isDraft && index > 0;
@@ -122,7 +157,7 @@ function SectionListItem({
       </Box>
       <ListItemText
         primary={section.title}
-        secondary={`${sectionData.wordCount || 0} words`}
+        secondary={t(`${PW}.words`, { count: sectionData.wordCount || 0 })}
         primaryTypographyProps={{ fontSize: 13, fontWeight: isActive ? 600 : 400, noWrap: true }}
         secondaryTypographyProps={{ fontSize: 11 }}
         sx={{ pr: isDraft ? 11 : 6 }}
@@ -136,6 +171,7 @@ export default function ProposalWorkspacePage() {
   const params = useParams();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
+  const { t, locale } = useLanguage();
   
   const [loading, setLoading] = useState(true);
   const [proposalSections, setProposalSections] = useState([]);
@@ -182,6 +218,8 @@ export default function ProposalWorkspacePage() {
   const [editTitleDialog, setEditTitleDialog] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [reorderingSection, setReorderingSection] = useState(false);
+  const [downloadMenu, setDownloadMenu] = useState(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     loadProposal({ initialLoad: true });
@@ -224,7 +262,7 @@ export default function ProposalWorkspacePage() {
     } catch (e) {
       console.error('Failed to save section:', e);
       if (e.response?.status === 401) {
-        setError('Session expired. Please log in again.');
+        setError(t(`${PW}.sessionExpired`));
         localStorage.removeItem('token');
         setTimeout(() => router.push('/login'), 2000);
       }
@@ -331,11 +369,11 @@ export default function ProposalWorkspacePage() {
       }
     } catch (e) {
       if (e.response?.status === 401) {
-        setError('Session expired. Please log in again.');
+        setError(t(`${PW}.sessionExpired`));
         localStorage.removeItem('token');
         setTimeout(() => router.push('/login'), 2000);
       } else {
-        setError(e.response?.data?.detail || 'Failed to load proposal');
+        setError(e.response?.data?.detail || t(`${PW}.errorLoad`));
       }
       console.error(e);
     } finally {
@@ -354,10 +392,10 @@ export default function ProposalWorkspacePage() {
       setSaving(true);
       const ok = await persistCurrentSection(currentSection, sectionContent, wordCount, { silent: false });
       if (!ok) {
-        setError('Failed to save section');
+        setError(t(`${PW}.errorSaveSection`));
         return;
       }
-      setSuccess('Section saved successfully');
+      setSuccess(t(`${PW}.successSaveSection`));
       setTimeout(() => setSuccess(''), 3000);
     } finally {
       setSaving(false);
@@ -399,12 +437,12 @@ export default function ProposalWorkspacePage() {
       setUploadDialog(false);
       setUploadFiles([]);
       setUploadRequirementId(null);
-      setSuccess(`${uploadFiles.length} document(s) uploaded`);
+      setSuccess(t(`${PW}.successUpload`, { count: uploadFiles.length }));
       await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
       console.error('Upload error:', e);
       console.error('Error response:', e.response?.data);
-      setError(e.response?.data?.detail || 'Failed to upload documents');
+      setError(e.response?.data?.detail || t(`${PW}.errorUpload`));
     }
   };
 
@@ -420,15 +458,15 @@ export default function ProposalWorkspacePage() {
       );
       setAddDocDialog(false);
       setNewDocLabel('');
-      setSuccess('Document requirement added');
+      setSuccess(t(`${PW}.successDocRequirement`));
       await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to add document requirement');
+      setError(e.response?.data?.detail || t(`${PW}.errorDocRequirement`));
     }
   };
 
   const deleteDocumentRequirement = async (requirementId) => {
-    if (!confirm('Remove this document requirement? Any uploaded file will also be deleted.')) return;
+    if (!confirm(t(`${PW}.confirmDeleteDocReq`))) return;
 
     try {
       const token = localStorage.getItem('token');
@@ -436,10 +474,10 @@ export default function ProposalWorkspacePage() {
         `${API_URL}/grants/proposals/${params.id}/document-requirements/${requirementId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setSuccess('Document requirement removed');
+      setSuccess(t(`${PW}.successDocReqRemoved`));
       await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to remove document requirement');
+      setError(e.response?.data?.detail || t(`${PW}.errorDocReqRemoved`));
     }
   };
 
@@ -459,15 +497,15 @@ export default function ProposalWorkspacePage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      setSuccess('Proposal submitted successfully! Your proposal is now under review.');
+      setSuccess(t(`${PW}.successSubmit`));
       await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
       if (e.response?.status === 401) {
-        setError('Session expired. Please log in again.');
+        setError(t(`${PW}.sessionExpired`));
         localStorage.removeItem('token');
         setTimeout(() => router.push('/login'), 2000);
       } else {
-        setError(e.response?.data?.detail || 'Failed to submit proposal');
+        setError(e.response?.data?.detail || t(`${PW}.errorSubmit`));
       }
       console.error(e);
     }
@@ -487,16 +525,16 @@ export default function ProposalWorkspacePage() {
       
       setAddSectionDialog(false);
       setNewSectionTitle('');
-      setSuccess('Section added');
+      setSuccess(t(`${PW}.successSectionAdded`));
       await loadProposal({ preserveSectionId: response.data.id });
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to add section');
+      setError(e.response?.data?.detail || t(`${PW}.errorSectionAdded`));
       console.error('Add section error:', e);
     }
   };
 
   const deleteSection = async (sectionId) => {
-    if (!confirm('Are you sure you want to delete this section?')) return;
+    if (!confirm(t(`${PW}.confirmDeleteSection`))) return;
     
     try {
       if (sectionId === currentSection) {
@@ -508,11 +546,11 @@ export default function ProposalWorkspacePage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      setSuccess('Section deleted');
+      setSuccess(t(`${PW}.successSectionDeleted`));
       const nextSectionId = sectionId === currentSection ? null : currentSection;
       await loadProposal({ preserveSectionId: nextSectionId });
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to delete section');
+      setError(e.response?.data?.detail || t(`${PW}.errorSectionDeleted`));
       console.error('Delete section error:', e);
     }
   };
@@ -532,10 +570,10 @@ export default function ProposalWorkspacePage() {
       setEditSectionDialog(false);
       setEditingSectionId(null);
       setEditingSectionTitle('');
-      setSuccess('Section renamed');
+      setSuccess(t(`${PW}.successSectionRenamed`));
       await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to rename section');
+      setError(e.response?.data?.detail || t(`${PW}.errorSectionRenamed`));
       console.error('Rename section error:', e);
     }
   };
@@ -561,7 +599,7 @@ export default function ProposalWorkspacePage() {
     } catch (e) {
       console.error('Failed to save section order:', e);
       setProposalSections(previousOrder);
-      setError(e.response?.data?.detail || 'Failed to save section order');
+      setError(e.response?.data?.detail || t(`${PW}.errorSectionOrder`));
     } finally {
       setReorderingSection(false);
     }
@@ -594,7 +632,7 @@ export default function ProposalWorkspacePage() {
       );
       setSectionVersions(res.data);
     } catch (e) {
-      setError('Failed to load version history');
+      setError(t(`${PW}.errorVersions`));
     } finally {
       setVersionsLoading(false);
     }
@@ -609,10 +647,10 @@ export default function ProposalWorkspacePage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setVersionDialog(false);
-      setSuccess('Version restored successfully');
+      setSuccess(t(`${PW}.successVersionRestored`));
       await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to restore version');
+      setError(e.response?.data?.detail || t(`${PW}.errorVersionRestored`));
     }
   };
 
@@ -631,10 +669,10 @@ export default function ProposalWorkspacePage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setPermissionsDialog(false);
-      setSuccess('Section permissions updated');
+      setSuccess(t(`${PW}.successPermissions`));
       await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to update permissions');
+      setError(e.response?.data?.detail || t(`${PW}.errorPermissions`));
     }
   };
 
@@ -663,13 +701,76 @@ export default function ProposalWorkspacePage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      setSuccess('Proposal title updated successfully');
+      setSuccess(t(`${PW}.successTitleUpdated`));
       setEditTitleDialog(false);
       setEditedTitle('');
       await loadProposal({ preserveSectionId: currentSection });
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to update proposal title');
+      setError(e.response?.data?.detail || t(`${PW}.errorTitleUpdated`));
       console.error('Update title error:', e);
+    }
+  };
+
+  const downloadProposal = async (format) => {
+    setDownloadMenu(null);
+    try {
+      setDownloading(true);
+      await persistCurrentSection();
+      const token = localStorage.getItem('token');
+      const res = await axios.get(
+        `${API_URL}/grants/proposals/${params.id}/export`,
+        {
+          params: { format },
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob',
+          validateStatus: (status) => status >= 200 && status < 300,
+        }
+      );
+
+      const contentType = res.headers['content-type'] || '';
+      if (contentType.includes('application/json')) {
+        const message = await res.data.text();
+        throw new Error(message);
+      }
+
+      let filename = format === 'pdf' ? 'proposal.pdf' : 'proposal.doc';
+      const disposition = res.headers['content-disposition'];
+      const match = disposition?.match(/filename="?([^";]+)"?/i);
+      if (match?.[1]) filename = match[1];
+
+      const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setSuccess(t(`${PW}.successDownload`));
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) {
+      if (e.response?.status === 401) {
+        setError(t(`${PW}.sessionExpired`));
+        localStorage.removeItem('token');
+        setTimeout(() => router.push('/login'), 2000);
+        return;
+      }
+
+      let detail = t(`${PW}.errorDownload`);
+      const errorBlob = e.response?.data;
+      if (errorBlob instanceof Blob) {
+        try {
+          const text = await errorBlob.text();
+          const parsed = JSON.parse(text);
+          detail = parsed.detail || detail;
+        } catch {
+          // keep generic message
+        }
+      }
+      setError(detail);
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -684,9 +785,9 @@ export default function ProposalWorkspacePage() {
   if (!proposal) {
     return (
       <Box sx={{ p: 4 }}>
-        <Alert severity="error">Proposal not found</Alert>
+        <Alert severity="error">{t(`${PW}.notFound`)}</Alert>
         <Button startIcon={<BackIcon />} onClick={() => router.push('/researcher/grants/proposals')} sx={{ mt: 2 }}>
-          Back to Proposals
+          {t(`${PW}.backToProposals`)}
         </Button>
       </Box>
     );
@@ -713,32 +814,32 @@ export default function ProposalWorkspacePage() {
           }}
           sx={{ mb: 2, color: 'text.secondary' }}
         >
-          Back to Proposals
+          {t(`${PW}.backToProposals`)}
         </Button>
         
         {/* ── Workflow Stepper ────────────────────────────── */}
         {proposal.status !== 'draft' && (() => {
-          const STEPS = ['Received', 'Eligibility Review', 'Technical Review', 'Budget Review', 'Panel Review', 'Final Approval'];
           const step = proposal.review_step ?? 0;
           const isTerminal = ['awarded','declined'].includes(proposal.status);
           const terminalColor = proposal.status === 'awarded' ? '#10b981' : '#ef4444';
+          const reviewStage = proposal.review_stage_name || t(`${PW}.workflow.underReviewDefault`);
           return (
             <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2.5, borderColor: isTerminal ? terminalColor + '55' : ACCENT + '44' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
                 <Box>
                   <Typography sx={{ fontSize: 13, fontWeight: 700, color: isTerminal ? terminalColor : ACCENT }}>
                     {isTerminal
-                      ? (proposal.status === 'awarded' ? '🏆 Proposal Awarded!' : '❌ Proposal Not Awarded')
-                      : `📋 ${proposal.review_stage_name || 'Under Review'}`}
+                      ? (proposal.status === 'awarded' ? `🏆 ${t(`${PW}.workflow.awarded`)}` : `❌ ${t(`${PW}.workflow.notAwarded`)}`)
+                      : `📋 ${t(`${PW}.workflow.underReview`, { stage: reviewStage })}`}
                   </Typography>
                   {proposal.stage_notes && (
                     <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.3 }}>
-                      Note: {proposal.stage_notes}
+                      {t(`${PW}.workflow.note`, { notes: proposal.stage_notes })}
                     </Typography>
                   )}
                 </Box>
                 <Chip
-                  label={proposal.status?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                  label={getStatusLabel(proposal.status, t)}
                   size="small"
                   sx={{ bgcolor: isTerminal ? terminalColor + '22' : ACCENT + '22', color: isTerminal ? terminalColor : ACCENT, fontWeight: 700, fontSize: 11 }}
                 />
@@ -751,15 +852,15 @@ export default function ProposalWorkspacePage() {
                     [`& .${stepConnectorClasses.line}`]: { borderTopWidth: 2 },
                   }} />
                 }>
-                  {STEPS.map((label, i) => (
-                    <Step key={label} completed={i < step}>
+                  {WORKFLOW_STEP_KEYS.map((stepKey, i) => (
+                    <Step key={stepKey} completed={i < step}>
                       <StepLabel
                         sx={{
                           '& .MuiStepLabel-label': { fontSize: 10, mt: 0.5 },
                           '& .MuiStepIcon-root.Mui-active': { color: ACCENT },
                           '& .MuiStepIcon-root.Mui-completed': { color: ACCENT },
                         }}
-                      >{label}</StepLabel>
+                      >{t(`${PW}.workflow.steps.${stepKey}`)}</StepLabel>
                     </Step>
                   ))}
                 </Stepper>
@@ -771,43 +872,43 @@ export default function ProposalWorkspacePage() {
         {/* ── Award Details Card ── */}
         {proposal.status === 'awarded' && proposal.award && (() => {
           const aw = proposal.award;
-          const fmtNum = v => v ? new Intl.NumberFormat().format(v) : '—';
-          const fmtD = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+          const fmtNum = v => v ? new Intl.NumberFormat(LOCALE_MAP[locale] || 'en-US').format(v) : '—';
+          const fmtD = d => fmtDate(d, locale);
           return (
             <Paper variant="outlined" sx={{ p: 2.5, mb: 2, borderRadius: 2.5, borderColor: '#10b98155', bgcolor: 'rgba(16,185,129,0.04)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography sx={{ fontSize: 18 }}>🏆</Typography>
-                  <Typography sx={{ fontSize: 14, fontWeight: 800, color: '#10b981' }}>Award Details</Typography>
+                  <Typography sx={{ fontSize: 14, fontWeight: 800, color: '#10b981' }}>{t(`${PW}.award.title`)}</Typography>
                 </Box>
                 <Chip label={aw.award_number || `AWD-${aw.id}`} size="small"
                   sx={{ bgcolor: '#10b98122', color: '#10b981', fontWeight: 700, fontSize: 10.5 }} />
               </Box>
               <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 1.5, mb: aw.conditions ? 2 : 0 }}>
                 <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.08)' }}>
-                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Total Award</Typography>
+                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{t(`${PW}.award.totalAward`)}</Typography>
                   <Typography sx={{ fontSize: 18, fontWeight: 800, color: '#10b981' }}>{aw.currency} {fmtNum(aw.total_amount)}</Typography>
                 </Box>
                 {aw.funder_name && (
                   <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.08)' }}>
-                    <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Funder</Typography>
+                    <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{t(`${PW}.award.funder`)}</Typography>
                     <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{aw.funder_name}</Typography>
                   </Box>
                 )}
                 {(aw.start_date || aw.end_date) && (
                   <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.08)' }}>
-                    <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Period</Typography>
+                    <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{t(`${PW}.award.period`)}</Typography>
                     <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{fmtD(aw.start_date)} → {fmtD(aw.end_date)}</Typography>
                   </Box>
                 )}
                 <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.08)' }}>
-                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Date Awarded</Typography>
+                  <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{t(`${PW}.award.dateAwarded`)}</Typography>
                   <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{fmtD(aw.issued_at)}</Typography>
                 </Box>
               </Box>
               {aw.conditions && (
                 <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 1.5, bgcolor: '#fff8e1', border: '1px solid #f59e0b44' }}>
-                  <Typography sx={{ fontSize: 10, color: '#92400e', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, mb: 0.5 }}>Award Conditions</Typography>
+                  <Typography sx={{ fontSize: 10, color: '#92400e', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, mb: 0.5 }}>{t(`${PW}.award.conditions`)}</Typography>
                   <Typography sx={{ fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>{aw.conditions}</Typography>
                 </Box>
               )}
@@ -834,7 +935,7 @@ export default function ProposalWorkspacePage() {
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Chip
-                label={isDraft ? 'Draft' : proposal.status?.replace(/_/g, ' ')}
+                label={isDraft ? t(`${PW}.header.draft`) : getStatusLabel(proposal.status, t)}
                 size="small"
                 sx={{
                   fontSize: 11,
@@ -845,7 +946,7 @@ export default function ProposalWorkspacePage() {
               />
               {/* Collaborators */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Team:</Typography>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{t(`${PW}.header.team`)}</Typography>
                 <AvatarGroup 
                   max={4} 
                   sx={{ 
@@ -854,7 +955,7 @@ export default function ProposalWorkspacePage() {
                   }}
                   onClick={(e) => setCollaboratorMenu(e.currentTarget)}
                 >
-                  <Tooltip title={`${proposal.lead_pi?.name || 'Lead PI'} (Lead PI)`} arrow>
+                  <Tooltip title={`${proposal.lead_pi?.name || t('researcher.grantsProposals.roles.leadPi')} (${t('researcher.grantsProposals.roles.leadPi')})`} arrow>
                     <Avatar sx={{ bgcolor: ACCENT }}>
                       {proposal.lead_pi?.name?.charAt(0) || 'L'}
                     </Avatar>
@@ -862,7 +963,7 @@ export default function ProposalWorkspacePage() {
                   {proposal.collaborators?.map((collab, idx) => (
                     <Tooltip 
                       key={idx}
-                      title={`${collab.user?.name || collab.invited_name || 'Pending'} (${collab.role || 'Co-Investigator'})`}
+                      title={`${collab.user?.name || collab.invited_name || t('researcher.grantsProposals.roles.pending')} (${formatRole(collab.role || 'Co-Investigator', t)})`}
                       arrow
                     >
                       <Avatar sx={{ bgcolor: '#8b5cf6', opacity: collab.status === 'pending' ? 0.6 : 1 }}>
@@ -878,11 +979,27 @@ export default function ProposalWorkspacePage() {
           <Box sx={{ display: 'flex', gap: 1 }}>
             {autoSaving && (
               <Chip 
-                label="Auto-saving..." 
+                label={t(`${PW}.header.autoSaving`)} 
                 size="small" 
                 sx={{ fontSize: 11, bgcolor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
               />
             )}
+            {downloading && (
+              <Chip
+                label={t(`${PW}.header.downloading`)}
+                size="small"
+                sx={{ fontSize: 11, bgcolor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
+              />
+            )}
+            <Button
+              variant="outlined"
+              startIcon={downloading ? <CircularProgress size={14} /> : <DownloadIcon />}
+              onClick={(e) => setDownloadMenu(e.currentTarget)}
+              disabled={downloading}
+              sx={{ textTransform: 'none', borderRadius: 2 }}
+            >
+              {t(`${PW}.header.download`)}
+            </Button>
             <Button
               variant="contained"
               startIcon={<SendIcon />}
@@ -890,7 +1007,7 @@ export default function ProposalWorkspacePage() {
               disabled={!canSubmit || !isDraft}
               sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, textTransform: 'none' }}
             >
-              Submit Proposal
+              {t(`${PW}.header.submitProposal`)}
             </Button>
           </Box>
         </Box>
@@ -898,7 +1015,7 @@ export default function ProposalWorkspacePage() {
         {/* Completion Progress */}
         <Paper elevation={0} sx={{ mt: 2, p: 2, bgcolor: 'background.paper', borderRadius: 2 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Completion Progress</Typography>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{t(`${PW}.progress.title`)}</Typography>
             <Typography sx={{ fontSize: 13, fontWeight: 700, color: ACCENT }}>
               {completion.overall}%
             </Typography>
@@ -915,19 +1032,19 @@ export default function ProposalWorkspacePage() {
           />
           <Box sx={{ display: 'flex', gap: 3, mt: 1.5, fontSize: 12, color: 'text.secondary' }}>
             <Typography sx={{ fontSize: 12 }}>
-              Sections: {completion.sections}/{completion.totalSections}
+              {t(`${PW}.progress.sections`, { completed: completion.sections, total: completion.totalSections })}
             </Typography>
             {completion.totalDocItems > 0 && (
               <Typography sx={{ fontSize: 12 }}>
-                Documents uploaded: {completion.uploadedDocItems}/{completion.totalDocItems}
+                {t(`${PW}.progress.documents`, { uploaded: completion.uploadedDocItems, total: completion.totalDocItems })}
               </Typography>
             )}
           </Box>
           {completion.overall < 80 && (
             <Alert severity="warning" sx={{ mt: 2, fontSize: 12 }}>
-              Complete at least 80% of sections to submit.
+              {t(`${PW}.progress.warning`)}
               {completion.totalSections - completion.sections > 0 &&
-                ` ${completion.totalSections - completion.sections} section(s) still need more content.`}
+                ` ${t(`${PW}.progress.sectionsNeeded`, { count: completion.totalSections - completion.sections })}`}
             </Alert>
           )}
         </Paper>
@@ -949,7 +1066,7 @@ export default function ProposalWorkspacePage() {
           <Box sx={{ p: 2 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
               <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
-                PROPOSAL SECTIONS
+                {t(`${PW}.sidebar.sections`)}
               </Typography>
               <Box sx={{ display: 'flex', gap: 0.5 }}>
                 <IconButton 
@@ -983,6 +1100,7 @@ export default function ProposalWorkspacePage() {
                     onDelete={deleteSection}
                     onMoveUp={(sectionId) => moveSection(sectionId, 'up')}
                     onMoveDown={(sectionId) => moveSection(sectionId, 'down')}
+                    t={t}
                   />
                 ))}
               </List>
@@ -995,7 +1113,7 @@ export default function ProposalWorkspacePage() {
           <Box sx={{ p: 2 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
               <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
-                DOCUMENTS ({documentRequirements.length})
+                {t(`${PW}.sidebar.documents`, { count: documentRequirements.length })}
               </Typography>
               <Box sx={{ display: 'flex', gap: 0.5 }}>
                 <IconButton
@@ -1037,7 +1155,7 @@ export default function ProposalWorkspacePage() {
                         )}
                         <ListItemText
                           primary={req.label}
-                          secondary={uploaded ? uploaded.original_filename : 'No file uploaded'}
+                          secondary={uploaded ? uploaded.original_filename : t(`${PW}.sidebar.noFileUploaded`)}
                           primaryTypographyProps={{ fontSize: 12, fontWeight: 600 }}
                           secondaryTypographyProps={{ fontSize: 10 }}
                           sx={{ mr: 1 }}
@@ -1066,7 +1184,7 @@ export default function ProposalWorkspacePage() {
                 })}
                 {documentRequirements.length === 0 && (
                   <Typography sx={{ fontSize: 11, color: 'text.secondary', fontStyle: 'italic', px: 1 }}>
-                    Add required documents as line items, then upload files for each.
+                    {t(`${PW}.sidebar.addDocumentsHint`)}
                   </Typography>
                 )}
               </List>
@@ -1080,12 +1198,12 @@ export default function ProposalWorkspacePage() {
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100%', textAlign: 'center', py: 8 }}>
               <DocIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
               <Typography sx={{ fontSize: 18, fontWeight: 600, mb: 1 }}>
-                {proposalSections.length === 0 ? 'No sections yet' : 'Select a section to begin'}
+                {proposalSections.length === 0 ? t(`${PW}.editor.noSections`) : t(`${PW}.editor.selectSection`)}
               </Typography>
               <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 3, maxWidth: 360 }}>
                 {proposalSections.length === 0
-                  ? 'Add your own proposal sections. Each section starts blank until you write in it.'
-                  : 'Choose a section from the sidebar. Your work is saved automatically when you switch sections.'}
+                  ? t(`${PW}.editor.noSectionsHint`)
+                  : t(`${PW}.editor.selectSectionHint`)}
               </Typography>
               {isDraft && proposalSections.length === 0 && (
                 <Button
@@ -1094,7 +1212,7 @@ export default function ProposalWorkspacePage() {
                   onClick={() => setAddSectionDialog(true)}
                   sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, textTransform: 'none' }}
                 >
-                  Add First Section
+                  {t(`${PW}.editor.addFirstSection`)}
                 </Button>
               )}
             </Box>
@@ -1103,14 +1221,17 @@ export default function ProposalWorkspacePage() {
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
                 <Box>
                   <Typography sx={{ fontSize: 20, fontWeight: 700, mb: 0.5 }}>
-                    {proposalSections.find(s => s.id === currentSection)?.title || 'Section'}
+                    {proposalSections.find(s => s.id === currentSection)?.title || t(`${PW}.editor.sectionFallback`)}
                   </Typography>
                   <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                    Version {sections[currentSection]?.version || 1} • Last edited by {sections[currentSection]?.last_edited_by || 'you'}
+                    {t(`${PW}.editor.versionInfo`, {
+                      version: sections[currentSection]?.version || 1,
+                      editor: sections[currentSection]?.last_edited_by || t(`${PW}.editor.you`),
+                    })}
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <Tooltip title="Version History">
+                  <Tooltip title={t(`${PW}.tooltips.versionHistory`)}>
                     <IconButton
                       size="small"
                       onClick={() => openVersionHistory(currentSection)}
@@ -1119,7 +1240,7 @@ export default function ProposalWorkspacePage() {
                       <HistoryIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Comments">
+                  <Tooltip title={t(`${PW}.tooltips.comments`)}>
                     <IconButton
                       size="small"
                       onClick={() => setCommentsOpen(v => !v)}
@@ -1129,7 +1250,7 @@ export default function ProposalWorkspacePage() {
                     </IconButton>
                   </Tooltip>
                   {isDraft && proposal?.lead_pi_id && (
-                    <Tooltip title="Section Permissions">
+                    <Tooltip title={t(`${PW}.tooltips.sectionPermissions`)}>
                       <IconButton
                         size="small"
                         onClick={() => {
@@ -1149,7 +1270,7 @@ export default function ProposalWorkspacePage() {
                     disabled={saving || !isDraft}
                     sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, textTransform: 'none' }}
                   >
-                    {saving ? 'Saving...' : 'Save Section'}
+                    {saving ? t(`${PW}.editor.saving`) : t(`${PW}.editor.saveSection`)}
                   </Button>
                 </Box>
               </Box>
@@ -1161,7 +1282,9 @@ export default function ProposalWorkspacePage() {
                     content={sectionContent}
                     onChange={setSectionContent}
                     onWordCount={setWordCount}
-                    placeholder={`Write your ${proposalSections.find(s => s.id === currentSection)?.title.toLowerCase() || 'content'} here... Type @ to mention someone`}
+                    placeholder={t(`${PW}.editor.placeholder`, {
+                      section: proposalSections.find(s => s.id === currentSection)?.title.toLowerCase() || t(`${PW}.editor.writeContent`),
+                    })}
                     disabled={!isDraft}
                     collaborators={proposal?.collaborators || []}
                     currentUser={currentUser}
@@ -1185,7 +1308,7 @@ export default function ProposalWorkspacePage() {
                 {commentsOpen && (
                   <Box sx={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                      <Typography sx={{ fontSize: 13, fontWeight: 700 }}>Comments</Typography>
+                      <Typography sx={{ fontSize: 13, fontWeight: 700 }}>{t(`${PW}.comments.title`)}</Typography>
                       <IconButton size="small" onClick={() => setCommentsOpen(false)}>
                         <CloseIcon fontSize="small" />
                       </IconButton>
@@ -1194,13 +1317,13 @@ export default function ProposalWorkspacePage() {
                     {/* New comment input (shown when text is selected) */}
                     {pendingComment && (
                       <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, borderColor: '#f59e0b' }}>
-                        <Typography sx={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, mb: 0.5 }}>NEW COMMENT ON:</Typography>
+                        <Typography sx={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, mb: 0.5 }}>{t(`${PW}.comments.newOn`)}</Typography>
                         <Typography sx={{ fontSize: 12, fontStyle: 'italic', mb: 1, color: 'text.secondary' }}>
                           "{pendingComment.selectedText?.slice(0, 60)}{pendingComment.selectedText?.length > 60 ? '…' : ''}"
                         </Typography>
                         <TextField
                           fullWidth size="small" multiline rows={2}
-                          placeholder="Add a comment..."
+                          placeholder={t(`${PW}.comments.placeholder`)}
                           value={newCommentText}
                           onChange={e => setNewCommentText(e.target.value)}
                           sx={{ mb: 1 }}
@@ -1208,7 +1331,7 @@ export default function ProposalWorkspacePage() {
                         />
                         <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
                           <Button size="small" onClick={() => { setPendingComment(null); setNewCommentText(''); }}>
-                            Cancel
+                            {t(`${PW}.comments.cancel`)}
                           </Button>
                           <Button size="small" variant="contained"
                             disabled={!newCommentText.trim()}
@@ -1219,7 +1342,7 @@ export default function ProposalWorkspacePage() {
                                 commentId: pendingComment.commentId,
                                 text: newCommentText,
                                 selectedText: pendingComment.selectedText,
-                                author: currentUser?.name || 'You',
+                                author: currentUser?.name || t(`${PW}.comments.authorYou`),
                                 resolved: false,
                                 createdAt: new Date().toISOString(),
                               };
@@ -1231,7 +1354,7 @@ export default function ProposalWorkspacePage() {
                               setNewCommentText('');
                             }}
                           >
-                            Save
+                            {t(`${PW}.comments.save`)}
                           </Button>
                         </Box>
                       </Paper>
@@ -1240,7 +1363,7 @@ export default function ProposalWorkspacePage() {
                     {/* Existing comments */}
                     {(commentsBySectionId[currentSection] || []).length === 0 && !pendingComment ? (
                       <Typography sx={{ fontSize: 12, color: 'text.disabled', textAlign: 'center', py: 3 }}>
-                        Select text in the editor and click the comment button to add a comment.
+                        {t(`${PW}.comments.emptyHint`)}
                       </Typography>
                     ) : (
                       (commentsBySectionId[currentSection] || []).map((c, i) => (
@@ -1251,7 +1374,7 @@ export default function ProposalWorkspacePage() {
                               <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{c.author}</Typography>
                             </Box>
                             {!c.resolved && (
-                              <Tooltip title="Resolve">
+                              <Tooltip title={t(`${PW}.tooltips.resolve`)}>
                                 <IconButton size="small" sx={{ p: 0.25 }}
                                   onClick={() => setCommentsBySectionId(prev => ({
                                     ...prev,
@@ -1270,7 +1393,7 @@ export default function ProposalWorkspacePage() {
                             </Typography>
                           )}
                           <Typography sx={{ fontSize: 13 }}>{c.text}</Typography>
-                          {c.resolved && <Chip label="Resolved" size="small" sx={{ mt: 0.5, fontSize: 10, bgcolor: '#10b98122', color: '#10b981' }} />}
+                          {c.resolved && <Chip label={t(`${PW}.comments.resolved`)} size="small" sx={{ mt: 0.5, fontSize: 10, bgcolor: '#10b98122', color: '#10b981' }} />}
                         </Paper>
                       ))
                     )}
@@ -1286,8 +1409,8 @@ export default function ProposalWorkspacePage() {
       <Dialog open={uploadDialog} onClose={() => { setUploadDialog(false); setUploadFiles([]); setUploadRequirementId(null); }} maxWidth="sm" fullWidth>
         <DialogTitle>
           {uploadRequirementId
-            ? `Upload: ${documentRequirements.find(r => r.id === uploadRequirementId)?.label || 'Document'}`
-            : 'Upload Document'}
+            ? t(`${PW}.uploadDialog.title`, { label: documentRequirements.find(r => r.id === uploadRequirementId)?.label || t(`${PW}.uploadDialog.titleGeneric`) })
+            : t(`${PW}.uploadDialog.titleGeneric`)}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
@@ -1311,18 +1434,18 @@ export default function ProposalWorkspacePage() {
               <CloudUploadIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
               <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 0.5 }}>
                 {uploadFiles.length > 0 
-                  ? `${uploadFiles.length} file(s) selected` 
-                  : 'Click to upload or drag and drop'}
+                  ? t(`${PW}.uploadDialog.filesSelected`, { count: uploadFiles.length })
+                  : t(`${PW}.uploadDialog.clickToUpload`)}
               </Typography>
               <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                PDF, DOC, DOCX (max 10MB per file)
+                {t(`${PW}.uploadDialog.fileTypes`)}
               </Typography>
             </Box>
             
             {uploadFiles.length > 0 && (
               <Box>
                 <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1, color: 'text.secondary' }}>
-                  SELECTED FILES
+                  {t(`${PW}.uploadDialog.selectedFiles`)}
                 </Typography>
                 <List dense>
                   {uploadFiles.map((file, idx) => (
@@ -1353,27 +1476,29 @@ export default function ProposalWorkspacePage() {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => { setUploadDialog(false); setUploadFiles([]); setUploadRequirementId(null); }}>Cancel</Button>
+          <Button onClick={() => { setUploadDialog(false); setUploadFiles([]); setUploadRequirementId(null); }}>{t(`${PW}.uploadDialog.cancel`)}</Button>
           <Button 
             onClick={uploadDocument} 
             variant="contained" 
             disabled={uploadFiles.length === 0}
             sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
           >
-            Upload {uploadFiles.length > 0 && `(${uploadFiles.length})`}
+            {uploadFiles.length > 0
+              ? t(`${PW}.uploadDialog.uploadCount`, { count: uploadFiles.length })
+              : t(`${PW}.uploadDialog.upload`)}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Add Document Requirement Dialog */}
       <Dialog open={addDocDialog} onClose={() => setAddDocDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add Required Document</DialogTitle>
+        <DialogTitle>{t(`${PW}.addDocDialog.title`)}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
-            label="Document name"
-            placeholder="e.g. CV, Budget spreadsheet, Support letter"
+            label={t(`${PW}.addDocDialog.label`)}
+            placeholder={t(`${PW}.addDocDialog.placeholder`)}
             value={newDocLabel}
             onChange={(e) => setNewDocLabel(e.target.value)}
             sx={{ mt: 2 }}
@@ -1385,26 +1510,26 @@ export default function ProposalWorkspacePage() {
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => { setAddDocDialog(false); setNewDocLabel(''); }}>Cancel</Button>
+          <Button onClick={() => { setAddDocDialog(false); setNewDocLabel(''); }}>{t(`${PW}.addDocDialog.cancel`)}</Button>
           <Button
             onClick={addDocumentRequirement}
             variant="contained"
             disabled={!newDocLabel.trim()}
             sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
           >
-            Add Document
+            {t(`${PW}.addDocDialog.add`)}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Add Section Dialog */}
       <Dialog open={addSectionDialog} onClose={() => setAddSectionDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Section</DialogTitle>
+        <DialogTitle>{t(`${PW}.addSectionDialog.title`)}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
-            label="Section Title"
+            label={t(`${PW}.addSectionDialog.label`)}
             value={newSectionTitle}
             onChange={(e) => setNewSectionTitle(e.target.value)}
             sx={{ mt: 2 }}
@@ -1416,26 +1541,26 @@ export default function ProposalWorkspacePage() {
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setAddSectionDialog(false)}>Cancel</Button>
+          <Button onClick={() => setAddSectionDialog(false)}>{t(`${PW}.addSectionDialog.cancel`)}</Button>
           <Button 
             onClick={addSection} 
             variant="contained" 
             disabled={!newSectionTitle.trim()}
             sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
           >
-            Add Section
+            {t(`${PW}.addSectionDialog.add`)}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Edit Section Dialog */}
       <Dialog open={editSectionDialog} onClose={() => setEditSectionDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Rename Section</DialogTitle>
+        <DialogTitle>{t(`${PW}.renameSectionDialog.title`)}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
-            label="Section Title"
+            label={t(`${PW}.renameSectionDialog.label`)}
             value={editingSectionTitle}
             onChange={(e) => setEditingSectionTitle(e.target.value)}
             sx={{ mt: 2 }}
@@ -1447,14 +1572,14 @@ export default function ProposalWorkspacePage() {
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setEditSectionDialog(false)}>Cancel</Button>
+          <Button onClick={() => setEditSectionDialog(false)}>{t(`${PW}.renameSectionDialog.cancel`)}</Button>
           <Button 
             onClick={renameSection} 
             variant="contained" 
             disabled={!editingSectionTitle.trim()}
             sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
           >
-            Rename
+            {t(`${PW}.renameSectionDialog.rename`)}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1464,13 +1589,13 @@ export default function ProposalWorkspacePage() {
         <DialogTitle>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Box>
-              <Typography sx={{ fontWeight: 700 }}>Version History</Typography>
+              <Typography sx={{ fontWeight: 700 }}>{t(`${PW}.versionDialog.title`)}</Typography>
               <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
                 {proposalSections.find(s => s.id === currentSection)?.title}
               </Typography>
             </Box>
             {sectionVersions.length > 0 && (
-              <Chip label={`${sectionVersions.length} versions`} size="small" sx={{ bgcolor: ACCENT + '22', color: ACCENT }} />
+              <Chip label={t(`${PW}.versionDialog.versionsCount`, { count: sectionVersions.length })} size="small" sx={{ bgcolor: ACCENT + '22', color: ACCENT }} />
             )}
           </Box>
         </DialogTitle>
@@ -1480,8 +1605,8 @@ export default function ProposalWorkspacePage() {
           ) : sectionVersions.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 6 }}>
               <HistoryIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-              <Typography sx={{ color: 'text.secondary' }}>No version history yet.</Typography>
-              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>Versions are saved automatically each time you save the section.</Typography>
+              <Typography sx={{ color: 'text.secondary' }}>{t(`${PW}.versionDialog.noHistory`)}</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>{t(`${PW}.versionDialog.autoSaveHint`)}</Typography>
             </Box>
           ) : (
             <Box sx={{ display: 'flex', height: 480 }}>
@@ -1497,12 +1622,12 @@ export default function ProposalWorkspacePage() {
                       '&:hover': { bgcolor: ACCENT + '10' }
                     }}
                   >
-                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Version {v.version_number}</Typography>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{t(`${PW}.versionDialog.version`, { number: v.version_number })}</Typography>
                     <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{v.saved_by}</Typography>
                     <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>
-                      {v.saved_at ? new Date(v.saved_at).toLocaleString() : '—'}
+                      {v.saved_at ? new Date(v.saved_at).toLocaleString(LOCALE_MAP[locale] || 'en-US') : '—'}
                     </Typography>
-                    <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>{v.word_count} words</Typography>
+                    <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>{t(`${PW}.words`, { count: v.word_count })}</Typography>
                   </Box>
                 ))}
               </Box>
@@ -1511,7 +1636,7 @@ export default function ProposalWorkspacePage() {
                 {previewVersion ? (
                   <>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography sx={{ fontWeight: 600 }}>Version {previewVersion.version_number} Preview</Typography>
+                      <Typography sx={{ fontWeight: 600 }}>{t(`${PW}.versionDialog.preview`, { number: previewVersion.version_number })}</Typography>
                       {isDraft && (
                         <Button
                           size="small"
@@ -1520,18 +1645,18 @@ export default function ProposalWorkspacePage() {
                           onClick={() => restoreVersion(previewVersion.id)}
                           sx={{ borderColor: ACCENT, color: ACCENT }}
                         >
-                          Restore This Version
+                          {t(`${PW}.versionDialog.restore`)}
                         </Button>
                       )}
                     </Box>
                     <Box
                       sx={{ p: 2, border: `1px solid`, borderColor: 'divider', borderRadius: 2, fontSize: 14 }}
-                      dangerouslySetInnerHTML={{ __html: previewVersion.content_html || '<em>Empty</em>' }}
+                      dangerouslySetInnerHTML={{ __html: previewVersion.content_html || `<em>${t(`${PW}.versionDialog.empty`)}</em>` }}
                     />
                   </>
                 ) : (
                   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-                    <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>Select a version to preview</Typography>
+                    <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>{t(`${PW}.versionDialog.selectPreview`)}</Typography>
                   </Box>
                 )}
               </Box>
@@ -1539,7 +1664,7 @@ export default function ProposalWorkspacePage() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => { setVersionDialog(false); setPreviewVersion(null); }}>Close</Button>
+          <Button onClick={() => { setVersionDialog(false); setPreviewVersion(null); }}>{t(`${PW}.versionDialog.close`)}</Button>
         </DialogActions>
       </Dialog>
 
@@ -1547,20 +1672,20 @@ export default function ProposalWorkspacePage() {
       <Dialog open={permissionsDialog} onClose={() => setPermissionsDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box>
-            <Typography sx={{ fontWeight: 700 }}>Section Permissions</Typography>
+            <Typography sx={{ fontWeight: 700 }}>{t(`${PW}.permissionsDialog.title`)}</Typography>
             <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{editingPermSection?.title}</Typography>
           </Box>
         </DialogTitle>
         <DialogContent>
           <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>
-            Restrict who can edit this section. Leave all roles unchecked to allow all team members to edit.
+            {t(`${PW}.permissionsDialog.info`)}
           </Alert>
-          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1 }}>Allowed Editors</Typography>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1 }}>{t(`${PW}.permissionsDialog.allowedEditors`)}</Typography>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             {[
-              { value: 'principal_investigator', label: 'Principal Investigator' },
-              { value: 'grant_officer', label: 'Grant Officer' },
-              { value: 'co_investigator', label: 'Co-Investigator' },
+              { value: 'principal_investigator', label: t(`${PW}.permissionsDialog.principalInvestigator`) },
+              { value: 'grant_officer', label: t(`${PW}.permissionsDialog.grantOfficer`) },
+              { value: 'co_investigator', label: t(`${PW}.permissionsDialog.coInvestigator`) },
             ].map((role) => (
               <Box
                 key={role.value}
@@ -1587,17 +1712,32 @@ export default function ProposalWorkspacePage() {
           </Box>
           {allowedRoles.length === 0 && (
             <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1.5 }}>
-              No restrictions — all team members can edit this section.
+              {t(`${PW}.permissionsDialog.noRestrictions`)}
             </Typography>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setPermissionsDialog(false)}>Cancel</Button>
+          <Button onClick={() => setPermissionsDialog(false)}>{t(`${PW}.permissionsDialog.cancel`)}</Button>
           <Button onClick={savePermissions} variant="contained" sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}>
-            Save Permissions
+            {t(`${PW}.permissionsDialog.save`)}
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Menu
+        anchorEl={downloadMenu}
+        open={Boolean(downloadMenu)}
+        onClose={() => setDownloadMenu(null)}
+      >
+        <MenuItem onClick={() => downloadProposal('pdf')} disabled={downloading}>
+          <PdfIcon sx={{ fontSize: 18, mr: 1.5, color: '#ef4444' }} />
+          {t(`${PW}.header.downloadPdf`)}
+        </MenuItem>
+        <MenuItem onClick={() => downloadProposal('docx')} disabled={downloading}>
+          <WordIcon sx={{ fontSize: 18, mr: 1.5, color: '#2563eb' }} />
+          {t(`${PW}.header.downloadWord`)}
+        </MenuItem>
+      </Menu>
 
       {/* Collaborator Menu */}
       <Menu
@@ -1607,7 +1747,7 @@ export default function ProposalWorkspacePage() {
       >
         <Box sx={{ px: 2, py: 1 }}>
           <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1 }}>
-            TEAM MEMBERS
+            {t(`${PW}.teamMenu.title`)}
           </Typography>
         </Box>
         <MenuItem disabled>
@@ -1616,9 +1756,9 @@ export default function ProposalWorkspacePage() {
           </Avatar>
           <Box>
             <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
-              {proposal?.lead_pi?.name || 'Lead PI'}
+              {proposal?.lead_pi?.name || t('researcher.grantsProposals.roles.leadPi')}
             </Typography>
-            <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Lead PI</Typography>
+            <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{t('researcher.grantsProposals.roles.leadPi')}</Typography>
           </Box>
         </MenuItem>
         {proposal?.collaborators?.map((collab, idx) => (
@@ -1628,10 +1768,10 @@ export default function ProposalWorkspacePage() {
             </Avatar>
             <Box>
               <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
-                {collab.user?.name || collab.invited_name || 'Pending'}
+                {collab.user?.name || collab.invited_name || t('researcher.grantsProposals.roles.pending')}
               </Typography>
               <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-                {collab.role || 'Co-Investigator'} • {collab.status}
+                {formatRole(collab.role || 'Co-Investigator', t)} • {formatCollabStatus(collab.status, t)}
               </Typography>
             </Box>
           </MenuItem>
@@ -1648,12 +1788,12 @@ export default function ProposalWorkspacePage() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Edit Proposal Title</DialogTitle>
+        <DialogTitle>{t(`${PW}.editTitleDialog.title`)}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
-            label="Proposal Title"
+            label={t(`${PW}.editTitleDialog.label`)}
             value={editedTitle}
             onChange={(e) => setEditedTitle(e.target.value)}
             sx={{ mt: 2 }}
@@ -1669,7 +1809,7 @@ export default function ProposalWorkspacePage() {
             setEditTitleDialog(false);
             setEditedTitle('');
           }}>
-            Cancel
+            {t(`${PW}.editTitleDialog.cancel`)}
           </Button>
           <Button 
             onClick={updateProposalTitle}
@@ -1678,7 +1818,7 @@ export default function ProposalWorkspacePage() {
             sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
             startIcon={<EditIcon />}
           >
-            Update Title
+            {t(`${PW}.editTitleDialog.update`)}
           </Button>
         </DialogActions>
       </Dialog>

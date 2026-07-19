@@ -49,14 +49,14 @@ function NetworkCanvas() {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < 120) {
             ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(m.x, m.y);
-            ctx.strokeStyle = `rgba(255,255,255,${(1 - dist / 120) * 0.12})`;
+            ctx.strokeStyle = `rgba(24,165,157,${(1 - dist / 120) * 0.35})`;
             ctx.lineWidth = 0.6; ctx.stroke();
           }
         }
         const glow = 0.5 + 0.5 * Math.sin(t * 1.5 + n.pulse);
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.r + glow * 0.8, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${0.2 + glow * 0.3})`;
+        ctx.fillStyle = `rgba(24,165,157,${0.5 + glow * 0.5})`;
         ctx.fill();
       }
       raf = requestAnimationFrame(draw);
@@ -169,9 +169,7 @@ function LoginPageContent() {
             width: '46%',
             flexShrink: 0,
             position: 'relative',
-            background: isDark
-              ? 'linear-gradient(145deg, #0f2027 0%, #134e4a 50%, #0d9488 100%)'
-              : 'linear-gradient(145deg, #0f766e 0%, #0d9488 45%, #14b8a6 100%)',
+            background: '#0b3c5d',
             flexDirection: 'column',
             justifyContent: 'flex-start',
             px: 6,

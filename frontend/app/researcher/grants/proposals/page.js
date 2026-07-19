@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import { Add as AddIcon, Edit as EditIcon, Send as SubmitIcon, Search as SearchIcon, PersonAdd as InviteIcon, Delete as DeleteIcon, People as PeopleIcon } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
+import { useLanguage } from '../../../../contexts/LanguageContext';
 import axios from 'axios';
 import {
   TeamInvitePanel, PROPOSAL_TEAM_ROLES, buildTeamInvitePayload, getDisplayName,
@@ -17,65 +18,71 @@ import {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#16a699';
+const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar', sw: 'sw-KE' };
 
-const PROPOSAL_STATUS_META = {
-  draft:           { label: 'Draft',               color: '#f59e0b', priority: 1 },
-  returned:        { label: 'Revision Requested',  color: '#f97316', priority: 0 },
-  submitted:       { label: 'Submitted',           color: ACCENT,    priority: 2 },
-  internal_review: { label: 'In Review',           color: '#3b82f6', priority: 3 },
-  under_review:    { label: 'In Review',           color: '#0ea5e9', priority: 4 },
-  awarded:         { label: 'Awarded',             color: '#10b981', priority: 5 },
-  declined:        { label: 'Not Awarded',         color: '#ef4444', priority: 6 },
+const STATUS_STYLE = {
+  draft:           { color: '#f59e0b', priority: 1 },
+  returned:        { color: '#f97316', priority: 0 },
+  submitted:       { color: ACCENT,    priority: 2 },
+  internal_review: { color: '#3b82f6', priority: 3 },
+  under_review:    { color: '#0ea5e9', priority: 4 },
+  awarded:         { color: '#10b981', priority: 5 },
+  declined:        { color: '#ef4444', priority: 6 },
 };
-
-const STATUS_GROUPS = [
-  {
-    key: 'action',
-    label: 'Needs Your Attention',
-    hint: 'Revision requested — edit and resubmit',
-    color: '#f97316',
-    match: (status) => normalizeStatusKey(status) === 'returned',
-  },
-  {
-    key: 'draft',
-    label: 'Drafts',
-    hint: 'Still in progress',
-    color: '#f59e0b',
-    match: (status) => normalizeStatusKey(status) === 'draft',
-  },
-  {
-    key: 'pipeline',
-    label: 'Submitted & Under Review',
-    hint: 'Waiting on review',
-    color: '#0ea5e9',
-    match: (status) => ['submitted', 'internal_review', 'under_review'].includes(normalizeStatusKey(status)),
-  },
-  {
-    key: 'awarded',
-    label: 'Awarded',
-    hint: 'Successful applications',
-    color: '#10b981',
-    match: (status) => normalizeStatusKey(status) === 'awarded',
-  },
-];
 
 function normalizeStatusKey(status) {
   return (status || '').toLowerCase();
 }
 
-function getStatusMeta(status) {
-  return PROPOSAL_STATUS_META[normalizeStatusKey(status)] || {
-    label: status || 'Unknown',
-    color: '#64748b',
-    priority: 99,
+function getStatusGroups(t) {
+  return [
+    {
+      key: 'action',
+      label: t('researcher.grantsProposals.groups.action.label'),
+      hint: t('researcher.grantsProposals.groups.action.hint'),
+      color: '#f97316',
+      match: (status) => normalizeStatusKey(status) === 'returned',
+    },
+    {
+      key: 'draft',
+      label: t('researcher.grantsProposals.groups.draft.label'),
+      hint: t('researcher.grantsProposals.groups.draft.hint'),
+      color: '#f59e0b',
+      match: (status) => normalizeStatusKey(status) === 'draft',
+    },
+    {
+      key: 'pipeline',
+      label: t('researcher.grantsProposals.groups.pipeline.label'),
+      hint: t('researcher.grantsProposals.groups.pipeline.hint'),
+      color: '#0ea5e9',
+      match: (status) => ['submitted', 'internal_review', 'under_review'].includes(normalizeStatusKey(status)),
+    },
+    {
+      key: 'awarded',
+      label: t('researcher.grantsProposals.groups.awarded.label'),
+      hint: t('researcher.grantsProposals.groups.awarded.hint'),
+      color: '#10b981',
+      match: (status) => normalizeStatusKey(status) === 'awarded',
+    },
+  ];
+}
+
+function getStatusMeta(status, t) {
+  const key = normalizeStatusKey(status);
+  const style = STATUS_STYLE[key] || { color: '#64748b', priority: 99 };
+  const labelKey = `researcher.grantsProposals.status.${key}`;
+  const label = t(labelKey);
+  return {
+    label: label !== labelKey ? label : (status || t('researcher.grantsProposals.status.unknown')),
+    ...style,
   };
 }
 
-const statusColor = (status) => getStatusMeta(status).color;
-const getStatusLabel = (status) => getStatusMeta(status).label;
+const statusColor = (status, t) => getStatusMeta(status, t).color;
+const getStatusLabel = (status, t) => getStatusMeta(status, t).label;
 
-const getStatusGroupKey = (status) => {
-  const group = STATUS_GROUPS.find((g) => g.match(status));
+const getStatusGroupKey = (status, groups) => {
+  const group = groups.find((g) => g.match(status));
   return group?.key || 'pipeline';
 };
 
@@ -87,12 +94,32 @@ const proposalSortDate = (proposal) => {
   return new Date(date || 0).getTime();
 };
 
-const sortProposalsForResearcher = (items) =>
+const sortProposalsForResearcher = (items, t) =>
   [...items].sort((a, b) => {
-    const priorityDiff = getStatusMeta(a.status).priority - getStatusMeta(b.status).priority;
+    const priorityDiff = getStatusMeta(a.status, t).priority - getStatusMeta(b.status, t).priority;
     if (priorityDiff !== 0) return priorityDiff;
     return proposalSortDate(b) - proposalSortDate(a);
   });
+
+const formatRole = (role, t) => {
+  const map = {
+    'Co-Investigator': t('researcher.grantsProposals.roles.coInvestigator'),
+    Consultant: t('researcher.grantsProposals.roles.consultant'),
+    Advisor: t('researcher.grantsProposals.roles.advisor'),
+    Collaborator: t('researcher.grantsProposals.roles.collaborator'),
+  };
+  return map[role] || role;
+};
+
+const formatCollabStatus = (status, t) => {
+  const key = (status || '').toLowerCase();
+  if (key === 'accepted') return t('researcher.grantsProposals.collab.statusAccepted');
+  if (key === 'pending') return t('researcher.grantsProposals.collab.statusPending');
+  return status;
+};
+
+const fmtDate = (d, locale, options = { year: 'numeric', month: 'short', day: 'numeric' }) =>
+  d ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-US', options) : '—';
 
 const proposalRowBg = (status, dark) => {
   const key = normalizeStatusKey(status);
@@ -120,8 +147,10 @@ function MyProposalsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { fetchUser } = useAuth();
+  const { t, locale } = useLanguage();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
+  const statusGroups = getStatusGroups(t);
   const [loading, setLoading] = useState(true);
   const [proposals, setProposals] = useState([]);
   const [error, setError] = useState('');
@@ -175,7 +204,7 @@ function MyProposalsContent() {
         return;
       }
       setSelectedOpp(oppData);
-      setNewTitle(`Application for ${oppData.title}`);
+      setNewTitle(t('researcher.grantsProposals.defaultTitle', { title: oppData.title }));
       setCreateDialog(true);
     } catch (e) {
       console.error('Failed to parse opportunity data:', e);
@@ -192,7 +221,7 @@ function MyProposalsContent() {
       setProposals(list);
       if (userId) openCreateOrExisting(userId, list);
     } catch (e) {
-      setError('Failed to load proposals');
+      setError(t('researcher.grantsProposals.errorLoad'));
       console.error(e);
     } finally {
       setLoading(false);
@@ -208,12 +237,12 @@ function MyProposalsContent() {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      setSuccess(`Proposal "${proposalToDelete.title}" deleted successfully`);
+      setSuccess(t('researcher.grantsProposals.successDelete', { title: proposalToDelete.title }));
       setDeleteDialog(false);
       setProposalToDelete(null);
       await loadProposals();
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to delete proposal');
+      setError(e.response?.data?.detail || t('researcher.grantsProposals.errorDelete'));
       console.error('Delete error:', e);
     }
   };
@@ -229,13 +258,13 @@ function MyProposalsContent() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      setSuccess('Proposal title updated successfully');
+      setSuccess(t('researcher.grantsProposals.successUpdateTitle'));
       setEditTitleDialog(false);
       setEditingProposal(null);
       setEditedTitle('');
       await loadProposals();
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to update proposal title');
+      setError(e.response?.data?.detail || t('researcher.grantsProposals.errorUpdateTitle'));
       console.error('Update title error:', e);
     }
   };
@@ -252,7 +281,7 @@ function MyProposalsContent() {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setSuccess('Proposal created! Team members will be notified.');
+      setSuccess(t('researcher.grantsProposals.successCreate'));
       setCreateDialog(false);
       setNewTitle('');
       setSelectedOpp(null);
@@ -260,18 +289,20 @@ function MyProposalsContent() {
       setActiveStep(0);
       setTimeout(() => router.push(`/researcher/grants/proposals/${res.data.id}`), 1500);
     } catch (e) {
-      setError('Failed to create proposal: ' + (e.response?.data?.detail || e.message));
+      setError(t('researcher.grantsProposals.errorCreate', {
+        detail: e.response?.data?.detail || e.message,
+      }));
     }
   };
 
   const handleNext = () => setActiveStep((prev) => prev + 1);
   const handleBack = () => setActiveStep((prev) => prev - 1);
 
-  const sortedProposals = sortProposalsForResearcher(proposals);
+  const sortedProposals = sortProposalsForResearcher(proposals, t);
   const pageStart = page * rowsPerPage;
   const paginatedProposals = sortedProposals.slice(pageStart, pageStart + rowsPerPage);
   const previousPageLastGroup = pageStart > 0
-    ? getStatusGroupKey(sortedProposals[pageStart - 1].status)
+    ? getStatusGroupKey(sortedProposals[pageStart - 1].status, statusGroups)
     : null;
 
   if (loading) return <Box sx={{ display:'flex', justifyContent:'center', alignItems:'center', minHeight:'100vh' }}><CircularProgress /></Box>;
@@ -280,13 +311,13 @@ function MyProposalsContent() {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display:'flex', justifyContent:'space-between', alignItems:'center', mb: 3 }}>
         <Box>
-          <Typography sx={{ fontSize: 22, fontWeight: 700, color: 'text.primary' }}>My Proposals</Typography>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.3 }}>Track your grant proposals across all stages of the application lifecycle</Typography>
+          <Typography sx={{ fontSize: 22, fontWeight: 700, color: 'text.primary' }}>{t('researcher.grantsProposals.title')}</Typography>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.3 }}>{t('researcher.grantsProposals.subtitle')}</Typography>
         </Box>
         <Button variant="contained" size="small" startIcon={<AddIcon />}
           onClick={() => setCreateDialog(true)}
           sx={{ bgcolor:ACCENT, textTransform:'none', fontWeight:600, borderRadius:2, '&:hover':{ bgcolor:'#14958a' } }}>
-          New Proposal
+          {t('researcher.grantsProposals.newProposal')}
         </Button>
       </Box>
 
@@ -295,16 +326,16 @@ function MyProposalsContent() {
 
       {proposals.length === 0 ? (
         <Box sx={{ textAlign: 'center', py: 8 }}>
-          <Typography sx={{ color: 'text.secondary', mb: 2 }}>No proposals yet</Typography>
+          <Typography sx={{ color: 'text.secondary', mb: 2 }}>{t('researcher.grantsProposals.empty')}</Typography>
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateDialog(true)}
             sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}>
-            Create Your First Proposal
+            {t('researcher.grantsProposals.createFirst')}
           </Button>
         </Box>
       ) : (
         <>
           <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
-            {STATUS_GROUPS.map((group) => {
+            {statusGroups.map((group) => {
               const count = proposals.filter((p) => group.match(p.status)).length;
               if (count === 0) return null;
               return (
@@ -338,14 +369,14 @@ function MyProposalsContent() {
             <Table>
               <TableHead>
                 <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)' }}>
-                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>Proposal Title</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>Linked Opportunity</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>Team Members</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>Progress</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>Status</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>Date Created</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>Submitted</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }} align="right">Actions</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>{t('researcher.grantsProposals.table.title')}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>{t('researcher.grantsProposals.table.opportunity')}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>{t('researcher.grantsProposals.table.team')}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>{t('researcher.grantsProposals.table.progress')}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>{t('researcher.grantsProposals.table.status')}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>{t('researcher.grantsProposals.table.dateCreated')}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }}>{t('researcher.grantsProposals.table.submitted')}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: 13 }} align="right">{t('researcher.grantsProposals.table.actions')}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -354,9 +385,9 @@ function MyProposalsContent() {
                   let lastGroup = previousPageLastGroup;
 
                   paginatedProposals.forEach((p) => {
-                    const groupKey = getStatusGroupKey(p.status);
+                    const groupKey = getStatusGroupKey(p.status, statusGroups);
                     if (groupKey !== lastGroup) {
-                      const group = STATUS_GROUPS.find((g) => g.key === groupKey);
+                      const group = statusGroups.find((g) => g.key === groupKey);
                       rows.push(
                         <TableRow key={`group-${groupKey}-${p.id}`}>
                           <TableCell
@@ -441,7 +472,7 @@ function MyProposalsContent() {
                           sx={{ cursor: 'pointer', '&:hover': { opacity: 0.8 } }}
                         >
                           <Typography sx={{ fontSize: 13, fontWeight: 600, color: ACCENT, textDecoration: 'underline' }}>
-                            {p.opportunity?.title || `Opportunity #${p.opportunity_id}`}
+                            {p.opportunity?.title || t('researcher.grantsProposals.opportunityFallback', { id: p.opportunity_id })}
                           </Typography>
                           <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
                             {p.opportunity?.sponsor || '—'}
@@ -465,7 +496,7 @@ function MyProposalsContent() {
                           }}
                         >
                           {/* Lead PI */}
-                          <Tooltip title={`${p.lead_pi?.name || 'Lead PI'} - Lead PI`} arrow>
+                          <Tooltip title={`${p.lead_pi?.name || t('researcher.grantsProposals.roles.leadPi')} - ${t('researcher.grantsProposals.roles.leadPi')}`} arrow>
                             <Avatar 
                               sx={{ 
                                 bgcolor: ACCENT, 
@@ -484,7 +515,7 @@ function MyProposalsContent() {
                           {p.collaborators?.map((collab, idx) => (
                             <Tooltip 
                               key={idx}
-                              title={`${collab.user?.name || collab.invited_name || 'Pending'} - ${collab.role || 'Co-Investigator'} (${collab.status || 'pending'})`}
+                              title={`${collab.user?.name || collab.invited_name || t('researcher.grantsProposals.roles.pending')} - ${formatRole(collab.role || 'Co-Investigator', t)} (${formatCollabStatus(collab.status, t)})`}
                               arrow
                             >
                               <Avatar 
@@ -504,7 +535,9 @@ function MyProposalsContent() {
                           ))}
                         </Box>
                         <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>
-                          {1 + (p.collaborators?.length || 0)} member{(1 + (p.collaborators?.length || 0)) !== 1 ? 's' : ''}
+                          {(1 + (p.collaborators?.length || 0)) === 1
+                            ? t('researcher.grantsProposals.memberCount', { count: 1 + (p.collaborators?.length || 0) })
+                            : t('researcher.grantsProposals.memberCountPlural', { count: 1 + (p.collaborators?.length || 0) })}
                         </Typography>
                       </TableCell>
 
@@ -519,7 +552,7 @@ function MyProposalsContent() {
                             <Box>
                               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                                 <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                                  {filled}/{total} sections
+                                  {t('researcher.grantsProposals.sectionsCount', { filled, total })}
                                 </Typography>
                                 <Typography sx={{ fontSize: 12, fontWeight: 700, color }}>
                                   {pct}%
@@ -542,13 +575,13 @@ function MyProposalsContent() {
                       
                       <TableCell>
                         <Chip 
-                          label={getStatusLabel(p.status)} 
+                          label={getStatusLabel(p.status, t)} 
                           size="small" 
                           sx={{ 
                             fontSize: 11, 
                             fontWeight: 700, 
-                            bgcolor: statusColor(p.status) + '22', 
-                            color: statusColor(p.status),
+                            bgcolor: statusColor(p.status, t) + '22', 
+                            color: statusColor(p.status, t),
                             borderRadius: 1.5
                           }} 
                         />
@@ -556,11 +589,7 @@ function MyProposalsContent() {
                       
                       <TableCell>
                         <Typography sx={{ fontSize: 13, color: 'text.primary' }}>
-                          {new Date(p.created_at).toLocaleDateString('en-US', { 
-                            month: 'short', 
-                            day: 'numeric', 
-                            year: 'numeric' 
-                          })}
+                          {fmtDate(p.created_at, locale)}
                         </Typography>
                       </TableCell>
 
@@ -569,24 +598,24 @@ function MyProposalsContent() {
                         {p.submitted_at ? (
                           <>
                             <Typography sx={{ fontSize: 13, color: 'text.primary', fontWeight: 500 }}>
-                              {new Date(p.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              {fmtDate(p.submitted_at, locale)}
                             </Typography>
                             <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-                              {new Date(p.submitted_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              {p.submitted_at ? new Date(p.submitted_at).toLocaleTimeString(LOCALE_MAP[locale] || 'en-US', { hour: '2-digit', minute: '2-digit' }) : ''}
                             </Typography>
                           </>
                         ) : (
-                          <Typography sx={{ fontSize: 12, color: 'text.disabled', fontStyle: 'italic' }}>Not submitted</Typography>
+                          <Typography sx={{ fontSize: 12, color: 'text.disabled', fontStyle: 'italic' }}>{t('researcher.grantsProposals.notSubmitted')}</Typography>
                         )}
                       </TableCell>
                       
                       <TableCell align="right">
                         {(() => {
                           const isDraft = p.status === 'draft' || p.status?.toUpperCase() === 'DRAFT';
-                          const lockedTip = 'This proposal has been submitted and can no longer be edited';
+                          const lockedTip = t('researcher.grantsProposals.lockedTip');
                           return (
                             <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-                              <Tooltip title={isDraft ? 'Edit Proposal' : lockedTip} arrow>
+                              <Tooltip title={isDraft ? t('researcher.grantsProposals.tooltips.editProposal') : lockedTip} arrow>
                                 <span>
                                   <IconButton 
                                     size="small"
@@ -598,7 +627,7 @@ function MyProposalsContent() {
                                   </IconButton>
                                 </span>
                               </Tooltip>
-                              <Tooltip title={isDraft ? 'Manage Team' : lockedTip} arrow>
+                              <Tooltip title={isDraft ? t('researcher.grantsProposals.tooltips.manageTeam') : lockedTip} arrow>
                                 <span>
                                   <IconButton 
                                     size="small"
@@ -614,7 +643,7 @@ function MyProposalsContent() {
                                   </IconButton>
                                 </span>
                               </Tooltip>
-                              <Tooltip title={isDraft ? 'Delete Proposal' : lockedTip} arrow>
+                              <Tooltip title={isDraft ? t('researcher.grantsProposals.tooltips.deleteProposal') : lockedTip} arrow>
                                 <span>
                                   <IconButton 
                                     size="small"
@@ -672,16 +701,16 @@ function MyProposalsContent() {
         PaperProps={{ sx: { borderRadius: 3 } }}
       >
         <DialogTitle sx={{ pb: 1 }}>
-          <Typography sx={{ fontSize: 20, fontWeight: 700 }}>Create New Proposal</Typography>
+          <Typography sx={{ fontSize: 20, fontWeight: 700 }}>{t('researcher.grantsProposals.createDialog.title')}</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
-            {selectedOpp ? `Applying for: ${selectedOpp.title}` : 'Start your grant application'}
+            {selectedOpp ? t('researcher.grantsProposals.createDialog.applyingFor', { title: selectedOpp.title }) : t('researcher.grantsProposals.createDialog.startApplication')}
           </Typography>
         </DialogTitle>
 
         <Stepper activeStep={activeStep} sx={{ px: 3, pt: 2 }}>
-          <Step><StepLabel>Proposal Details</StepLabel></Step>
-          <Step><StepLabel>Team</StepLabel></Step>
-          <Step><StepLabel>Review & Create</StepLabel></Step>
+          <Step><StepLabel>{t('researcher.grantsProposals.createDialog.steps.details')}</StepLabel></Step>
+          <Step><StepLabel>{t('researcher.grantsProposals.createDialog.steps.team')}</StepLabel></Step>
+          <Step><StepLabel>{t('researcher.grantsProposals.createDialog.steps.review')}</StepLabel></Step>
         </Stepper>
 
         <DialogContent sx={{ mt: 2 }}>
@@ -690,22 +719,22 @@ function MyProposalsContent() {
             <Box>
               <TextField
                 fullWidth
-                label="Proposal Title"
+                label={t('researcher.grantsProposals.createDialog.proposalTitle')}
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 sx={{ mb: 2 }}
-                helperText="Give your proposal a descriptive title"
+                helperText={t('researcher.grantsProposals.createDialog.titleHelper')}
               />
               {selectedOpp && (
                 <Box sx={{ p: 2, bgcolor: `${ACCENT}08`, borderRadius: 2, border: `1px solid ${ACCENT}40` }}>
-                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: ACCENT, mb: 1 }}>OPPORTUNITY</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: ACCENT, mb: 1 }}>{t('researcher.grantsProposals.createDialog.opportunity')}</Typography>
                   <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 0.5 }}>{selectedOpp.title}</Typography>
                   <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                    Sponsor: {selectedOpp.sponsor}
+                    {t('researcher.grantsProposals.createDialog.sponsor', { sponsor: selectedOpp.sponsor })}
                   </Typography>
                   {selectedOpp.deadline && (
                     <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                      Deadline: {new Date(selectedOpp.deadline).toLocaleDateString()}
+                      {t('researcher.grantsProposals.createDialog.deadline', { date: fmtDate(selectedOpp.deadline, locale) })}
                     </Typography>
                   )}
                 </Box>
@@ -721,28 +750,31 @@ function MyProposalsContent() {
               roles={PROPOSAL_TEAM_ROLES}
               defaultRole="Co-Investigator"
               accent={ACCENT}
-              listLabel="Team List"
+              listLabel={t('researcher.teamInvite.listLabel')}
               opportunityId={selectedOpp?.id}
               proposalTitle={newTitle}
-              description="Review suggested collaborators for this opportunity, search ORCID, or enter details manually."
-              roleLabel="Default Role for New Team Members"
-              formatRole={(r) => r}
+              description={t('researcher.teamInvite.description')}
+              roleLabel={t('researcher.teamInvite.roleLabel')}
+              formatRole={(r) => formatRole(r, t)}
+              suggestionsLabel={t('researcher.teamInvite.suggestionsLabel')}
+              suggestionsHint={t('researcher.teamInvite.suggestionsHint')}
+              inviteFromProfileLabel={t('researcher.teamInvite.inviteToTeam')}
             />
           )}
 
           {/* Step 3: Review */}
           {activeStep === 2 && (
             <Box>
-              <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 2 }}>Review & Confirm</Typography>
+              <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 2 }}>{t('researcher.grantsProposals.createDialog.reviewTitle')}</Typography>
               
               <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 2, mb: 2 }}>
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1 }}>PROPOSAL TITLE</Typography>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1 }}>{t('researcher.grantsProposals.createDialog.proposalTitleLabel')}</Typography>
                 <Typography sx={{ fontSize: 14 }}>{newTitle}</Typography>
               </Box>
 
               {selectedOpp && (
                 <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 2, mb: 2 }}>
-                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1 }}>OPPORTUNITY</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1 }}>{t('researcher.grantsProposals.createDialog.opportunity')}</Typography>
                   <Typography sx={{ fontSize: 14 }}>{selectedOpp.title}</Typography>
                   <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>{selectedOpp.sponsor}</Typography>
                 </Box>
@@ -750,11 +782,11 @@ function MyProposalsContent() {
 
               <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
                 <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1 }}>
-                  TEAM ({teamMembers.length})
+                  {t('researcher.grantsProposals.createDialog.teamLabel', { count: teamMembers.length })}
                 </Typography>
                 {teamMembers.length === 0 ? (
                   <Typography sx={{ fontSize: 12, color: 'text.secondary', fontStyle: 'italic' }}>
-                    No team members added
+                    {t('researcher.grantsProposals.createDialog.noTeamMembers')}
                   </Typography>
                 ) : (
                   teamMembers.map((c, idx) => (
@@ -764,13 +796,13 @@ function MyProposalsContent() {
                     }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
                         <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{getDisplayName(c)}</Typography>
-                        <Chip label={c.role} size="small" sx={{ fontSize: 10, height: 20 }} />
+                        <Chip label={formatRole(c.role, t)} size="small" sx={{ fontSize: 10, height: 20 }} />
                       </Box>
                       {c.email && (
-                        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Email: {c.email}</Typography>
+                        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{t('researcher.grantsProposals.createDialog.email', { email: c.email })}</Typography>
                       )}
                       {c.affiliation && (
-                        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Affiliation: {c.affiliation}</Typography>
+                        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{t('researcher.grantsProposals.createDialog.affiliation', { affiliation: c.affiliation })}</Typography>
                       )}
                     </Box>
                   ))
@@ -778,7 +810,7 @@ function MyProposalsContent() {
               </Box>
 
               <Alert severity="info" sx={{ mt: 2 }}>
-                Team members will receive email notifications and in-app alerts to join this proposal.
+                {t('researcher.grantsProposals.createDialog.teamNotify')}
               </Alert>
             </Box>
           )}
@@ -790,11 +822,11 @@ function MyProposalsContent() {
             setActiveStep(0);
             setTeamMembers([]);
           }}>
-            Cancel
+            {t('researcher.grantsProposals.common.cancel')}
           </Button>
           {activeStep > 0 && (
             <Button onClick={handleBack}>
-              Back
+              {t('researcher.grantsProposals.common.back')}
             </Button>
           )}
           {activeStep < 2 ? (
@@ -804,7 +836,7 @@ function MyProposalsContent() {
               disabled={activeStep === 0 && !newTitle.trim()}
               sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
             >
-              Next
+              {t('researcher.grantsProposals.common.next')}
             </Button>
           ) : (
             <Button 
@@ -813,7 +845,7 @@ function MyProposalsContent() {
               disabled={!newTitle.trim()}
               sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
             >
-              Create Proposal
+              {t('researcher.grantsProposals.createDialog.createProposal')}
             </Button>
           )}
         </DialogActions>
@@ -828,68 +860,68 @@ function MyProposalsContent() {
         PaperProps={{ sx: { borderRadius: 3 } }}
       >
         <DialogTitle sx={{ pb: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
-          <Typography sx={{ fontSize: 20, fontWeight: 700 }}>Opportunity Details</Typography>
+          <Typography sx={{ fontSize: 20, fontWeight: 700 }}>{t('researcher.grantsProposals.opportunityModal.title')}</Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
           {selectedOpportunity ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
               <Box>
-                <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>TITLE</Typography>
+                <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.title')}</Typography>
                 <Typography sx={{ fontSize: 15, fontWeight: 600 }}>{selectedOpportunity.title}</Typography>
               </Box>
               
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>SPONSOR / FUNDER</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.sponsor')}</Typography>
                   <Typography sx={{ fontSize: 14 }}>{selectedOpportunity.sponsor || '—'}</Typography>
                 </Box>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>SPONSOR TYPE</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.sponsorType')}</Typography>
                   <Typography sx={{ fontSize: 14 }}>{selectedOpportunity.sponsor_type || '—'}</Typography>
                 </Box>
               </Box>
 
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>CATEGORY / SECTOR</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.category')}</Typography>
                   <Typography sx={{ fontSize: 14 }}>{selectedOpportunity.category || '—'}</Typography>
                 </Box>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>GEOGRAPHY</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.geography')}</Typography>
                   <Typography sx={{ fontSize: 14 }}>{selectedOpportunity.geography || '—'}</Typography>
                 </Box>
               </Box>
 
               <Box>
-                <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>ELIGIBLE APPLICANTS</Typography>
+                <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.eligibleApplicants')}</Typography>
                 <Typography sx={{ fontSize: 14 }}>{selectedOpportunity.eligible_applicants || '—'}</Typography>
               </Box>
 
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>FUNDING TYPE</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.fundingType')}</Typography>
                   <Typography sx={{ fontSize: 14 }}>{selectedOpportunity.funding_type || '—'}</Typography>
                 </Box>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>CURRENCY</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.currency')}</Typography>
                   <Typography sx={{ fontSize: 14 }}>{selectedOpportunity.currency || '—'}</Typography>
                 </Box>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>STATUS</Typography>
-                  <Chip label={selectedOpportunity.status || 'Unknown'} size="small" 
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.status')}</Typography>
+                  <Chip label={getStatusLabel(selectedOpportunity.status, t)} size="small" 
                     sx={{ fontSize: 11, fontWeight: 600, bgcolor: ACCENT + '22', color: ACCENT }} />
                 </Box>
               </Box>
 
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>MIN AWARD</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.minAward')}</Typography>
                   <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
                     {selectedOpportunity.currency} {selectedOpportunity.amount_min?.toLocaleString() || '—'}
                   </Typography>
                 </Box>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>MAX AWARD</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.maxAward')}</Typography>
                   <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
                     {selectedOpportunity.currency} {selectedOpportunity.amount_max?.toLocaleString() || '—'}
                   </Typography>
@@ -898,36 +930,36 @@ function MyProposalsContent() {
 
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>OPEN DATE</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.openDate')}</Typography>
                   <Typography sx={{ fontSize: 14 }}>
-                    {selectedOpportunity.open_date ? new Date(selectedOpportunity.open_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
+                    {selectedOpportunity.open_date ? fmtDate(selectedOpportunity.open_date, locale, { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
                   </Typography>
                 </Box>
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>DEADLINE</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.deadline')}</Typography>
                   <Typography sx={{ fontSize: 14, fontWeight: 600, color: '#ef4444' }}>
-                    {selectedOpportunity.deadline ? new Date(selectedOpportunity.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
+                    {selectedOpportunity.deadline ? fmtDate(selectedOpportunity.deadline, locale, { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
                   </Typography>
                 </Box>
               </Box>
 
               {selectedOpportunity.round_cycle && (
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>ROUND / CYCLE</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.roundCycle')}</Typography>
                   <Typography sx={{ fontSize: 14 }}>{selectedOpportunity.round_cycle}</Typography>
                 </Box>
               )}
 
               {selectedOpportunity.contact_email && (
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>CONTACT EMAIL</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.contactEmail')}</Typography>
                   <Typography sx={{ fontSize: 14, color: ACCENT }}>{selectedOpportunity.contact_email}</Typography>
                 </Box>
               )}
 
               {selectedOpportunity.url && (
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>OPPORTUNITY URL</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.url')}</Typography>
                   <Typography 
                     component="a" 
                     href={selectedOpportunity.url} 
@@ -941,17 +973,17 @@ function MyProposalsContent() {
 
               {selectedOpportunity.notes && (
                 <Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>INTERNAL NOTES</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>{t('researcher.grantsProposals.opportunityModal.fields.notes')}</Typography>
                   <Typography sx={{ fontSize: 14, fontStyle: 'italic', color: 'text.secondary' }}>{selectedOpportunity.notes}</Typography>
                 </Box>
               )}
             </Box>
           ) : (
-            <Typography sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>No opportunity details available</Typography>
+            <Typography sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>{t('researcher.grantsProposals.opportunityModal.noDetails')}</Typography>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setOpportunityModal(false)}>Close</Button>
+          <Button onClick={() => setOpportunityModal(false)}>{t('researcher.grantsProposals.common.close')}</Button>
         </DialogActions>
       </Dialog>
 
@@ -964,7 +996,7 @@ function MyProposalsContent() {
         PaperProps={{ sx: { borderRadius: 3 } }}
       >
         <DialogTitle sx={{ pb: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
-          <Typography sx={{ fontSize: 20, fontWeight: 700 }}>Manage Team</Typography>
+          <Typography sx={{ fontSize: 20, fontWeight: 700 }}>{t('researcher.grantsProposals.teamModal.title')}</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
             {selectedProposal?.title}
           </Typography>
@@ -974,23 +1006,23 @@ function MyProposalsContent() {
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
               {/* Lead PI */}
               <Box>
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1.5 }}>LEAD PRINCIPAL INVESTIGATOR</Typography>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1.5 }}>{t('researcher.grantsProposals.teamModal.leadPi')}</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2, bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderRadius: 2 }}>
                   <Avatar sx={{ bgcolor: ACCENT, width: 40, height: 40 }}>
                     {selectedProposal.lead_pi?.name?.charAt(0) || 'L'}
                   </Avatar>
                   <Box sx={{ flex: 1 }}>
-                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{selectedProposal.lead_pi?.name || 'Lead PI'}</Typography>
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{selectedProposal.lead_pi?.name || t('researcher.grantsProposals.roles.leadPi')}</Typography>
                     <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{selectedProposal.lead_pi?.email || '—'}</Typography>
                   </Box>
-                  <Chip label="Lead PI" size="small" sx={{ bgcolor: ACCENT + '22', color: ACCENT, fontWeight: 600 }} />
+                  <Chip label={t('researcher.grantsProposals.roles.leadPi')} size="small" sx={{ bgcolor: ACCENT + '22', color: ACCENT, fontWeight: 600 }} />
                 </Box>
               </Box>
 
               {/* Collaborators */}
               <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>COLLABORATORS ({selectedProposal.collaborators?.length || 0})</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>{t('researcher.grantsProposals.teamModal.collaborators', { count: selectedProposal.collaborators?.length || 0 })}</Typography>
                   <Button 
                     size="small" 
                     startIcon={<InviteIcon />}
@@ -1001,7 +1033,7 @@ function MyProposalsContent() {
                     }}
                     sx={{ textTransform: 'none', fontSize: 12, fontWeight: 600, color: ACCENT }}
                   >
-                    Invite Member
+                    {t('researcher.grantsProposals.teamModal.inviteMember')}
                   </Button>
                 </Box>
                 
@@ -1025,7 +1057,7 @@ function MyProposalsContent() {
                         </Avatar>
                         <Box sx={{ flex: 1 }}>
                           <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-                            {collab.user?.name || collab.invited_name || 'Pending'}
+                            {collab.user?.name || collab.invited_name || t('researcher.grantsProposals.roles.pending')}
                           </Typography>
                           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
                             {collab.user?.email || collab.invited_email || '—'}
@@ -1040,14 +1072,14 @@ function MyProposalsContent() {
                             }}
                             sx={{ fontSize: 13 }}
                           >
-                            <MenuItem value="Co-Investigator">Co-Investigator</MenuItem>
-                            <MenuItem value="Consultant">Consultant</MenuItem>
-                            <MenuItem value="Advisor">Advisor</MenuItem>
-                            <MenuItem value="Collaborator">Collaborator</MenuItem>
+                            <MenuItem value="Co-Investigator">{t('researcher.grantsProposals.roles.coInvestigator')}</MenuItem>
+                            <MenuItem value="Consultant">{t('researcher.grantsProposals.roles.consultant')}</MenuItem>
+                            <MenuItem value="Advisor">{t('researcher.grantsProposals.roles.advisor')}</MenuItem>
+                            <MenuItem value="Collaborator">{t('researcher.grantsProposals.roles.collaborator')}</MenuItem>
                           </Select>
                         </FormControl>
                         <Chip 
-                          label={collab.status || 'pending'} 
+                          label={formatCollabStatus(collab.status, t)} 
                           size="small" 
                           sx={{ 
                             fontSize: 11, 
@@ -1059,7 +1091,7 @@ function MyProposalsContent() {
                         <IconButton 
                           size="small"
                           onClick={() => {
-                            if (confirm(`Remove ${collab.user?.name || collab.invited_name} from team?`)) {
+                            if (confirm(t('researcher.grantsProposals.collab.removeConfirm', { name: collab.user?.name || collab.invited_name }))) {
                               // TODO: Remove collaborator
                               console.log('Remove collaborator:', collab.id);
                             }
@@ -1073,7 +1105,7 @@ function MyProposalsContent() {
                   </Box>
                 ) : (
                   <Box sx={{ textAlign: 'center', py: 4, bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderRadius: 2 }}>
-                    <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>No collaborators yet</Typography>
+                    <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>{t('researcher.grantsProposals.teamModal.noCollaborators')}</Typography>
                     <Button 
                       size="small" 
                       variant="outlined" 
@@ -1085,18 +1117,18 @@ function MyProposalsContent() {
                       }}
                       sx={{ textTransform: 'none', borderColor: ACCENT, color: ACCENT }}
                     >
-                      Invite First Member
+                      {t('researcher.grantsProposals.teamModal.inviteFirst')}
                     </Button>
                   </Box>
                 )}
               </Box>
             </Box>
           ) : (
-            <Typography sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>No proposal selected</Typography>
+            <Typography sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>{t('researcher.grantsProposals.teamModal.noProposal')}</Typography>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setTeamModal(false)}>Close</Button>
+          <Button onClick={() => setTeamModal(false)}>{t('researcher.grantsProposals.common.close')}</Button>
         </DialogActions>
       </Dialog>
 
@@ -1107,13 +1139,13 @@ function MyProposalsContent() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Delete Proposal</DialogTitle>
+        <DialogTitle>{t('researcher.grantsProposals.deleteDialog.title')}</DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            This action cannot be undone. All sections, documents, and collaborator invitations will be permanently deleted.
+            {t('researcher.grantsProposals.deleteDialog.warning')}
           </Alert>
           <Typography sx={{ fontSize: 14, mb: 1 }}>
-            Are you sure you want to delete this proposal?
+            {t('researcher.grantsProposals.deleteDialog.confirm')}
           </Typography>
           <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'text.primary' }}>
             "{proposalToDelete?.title}"
@@ -1121,7 +1153,7 @@ function MyProposalsContent() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button onClick={() => { setDeleteDialog(false); setProposalToDelete(null); }}>
-            Cancel
+            {t('researcher.grantsProposals.common.cancel')}
           </Button>
           <Button 
             onClick={deleteProposal}
@@ -1129,7 +1161,7 @@ function MyProposalsContent() {
             color="error"
             startIcon={<DeleteIcon />}
           >
-            Delete Proposal
+            {t('researcher.grantsProposals.deleteDialog.delete')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1145,12 +1177,12 @@ function MyProposalsContent() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Edit Proposal Title</DialogTitle>
+        <DialogTitle>{t('researcher.grantsProposals.editTitleDialog.title')}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
-            label="Proposal Title"
+            label={t('researcher.grantsProposals.editTitleDialog.proposalTitle')}
             value={editedTitle}
             onChange={(e) => setEditedTitle(e.target.value)}
             sx={{ mt: 2 }}
@@ -1167,7 +1199,7 @@ function MyProposalsContent() {
             setEditingProposal(null);
             setEditedTitle('');
           }}>
-            Cancel
+            {t('researcher.grantsProposals.common.cancel')}
           </Button>
           <Button 
             onClick={updateProposalTitle}
@@ -1176,7 +1208,7 @@ function MyProposalsContent() {
             sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
             startIcon={<EditIcon />}
           >
-            Update Title
+            {t('researcher.grantsProposals.editTitleDialog.update')}
           </Button>
         </DialogActions>
       </Dialog>
