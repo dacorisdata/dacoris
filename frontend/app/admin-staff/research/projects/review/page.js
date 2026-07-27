@@ -4,15 +4,18 @@ import { useRouter } from 'next/navigation';
 import {
   Box, Typography, CircularProgress, useTheme, Button, Chip, Alert,
   Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Avatar, Tooltip, IconButton,
 } from '@mui/material';
 import {
   Grading as ReviewIcon, ArrowForward as ArrowIcon,
   Person as PersonIcon, AccountBalance as FunderIcon,
   CalendarToday as CalIcon, Groups as TeamIcon,
-  Refresh as RefreshIcon,
+  Refresh as RefreshIcon, PersonAdd as AssignIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../../contexts/AuthContext';
+import { useLanguage } from '../../../../../contexts/LanguageContext';
 import api from '../../../../../lib/api';
+import AssignReviewerDialog from '../../../../../components/AssignReviewerDialog';
 
 const ACCENT = '#16a699';
 
@@ -36,11 +39,14 @@ const fmtMoney = (amt, cur = 'KES') => {
 export default function AdminProjectReviewPage() {
   const router = useRouter();
   const { fetchUser } = useAuth();
+  const { t } = useLanguage();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState([]);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [assignTarget, setAssignTarget] = useState(null);
 
   useEffect(() => { init(); }, []);
 
@@ -125,6 +131,12 @@ export default function AdminProjectReviewPage() {
       {error && (
         <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError('')}>
           {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setSuccess('')}>
+          {success}
         </Alert>
       )}
 
@@ -297,11 +309,14 @@ export default function AdminProjectReviewPage() {
                     <TableCell sx={headCell} align="right">Budget</TableCell>
                     <TableCell sx={headCell}>Submitted</TableCell>
                     <TableCell sx={headCell}>Ethics</TableCell>
+                    <TableCell sx={headCell}>{t('reviewerAssignment.columnHeader')}</TableCell>
                     <TableCell sx={headCell} align="right">Action</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {reviewQueue.map(p => (
+                  {reviewQueue.map(p => {
+                    const activeAssignments = (p.reviewer_assignments || []).filter(a => a.status !== 'declined');
+                    return (
                     <TableRow
                       key={p.id}
                       hover
@@ -325,17 +340,60 @@ export default function AdminProjectReviewPage() {
                           sx={{ fontSize: 10, fontWeight: 700, height: 22 }}
                         />
                       </TableCell>
+                      <TableCell>
+                        {activeAssignments.length > 0 ? (
+                          <Tooltip title={activeAssignments.map(a => a.reviewer_name).join(', ')}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <Avatar sx={{ width: 24, height: 24, fontSize: 11, bgcolor: '#8b5cf6' }}>
+                                {activeAssignments[0].reviewer_name?.charAt(0) || '?'}
+                              </Avatar>
+                              {activeAssignments.length > 1 && (
+                                <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>+{activeAssignments.length - 1}</Typography>
+                              )}
+                            </Box>
+                          </Tooltip>
+                        ) : (
+                          <Typography sx={{ fontSize: 11, color: '#f59e0b', fontWeight: 600 }}>
+                            {t('reviewerAssignment.unassigned')}
+                          </Typography>
+                        )}
+                      </TableCell>
                       <TableCell align="right">
-                        <ArrowIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end', alignItems: 'center' }}>
+                          <Tooltip title={activeAssignments.length > 0 ? t('reviewerAssignment.addAnotherTooltip') : t('reviewerAssignment.assignTooltip')}>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => { e.stopPropagation(); setAssignTarget(p); }}
+                              sx={{ color: activeAssignments.length > 0 ? 'text.secondary' : '#f59e0b' }}
+                            >
+                              <AssignIcon sx={{ fontSize: 17 }} />
+                            </IconButton>
+                          </Tooltip>
+                          <ArrowIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                        </Box>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </TableContainer>
           </Paper>
         </>
       )}
+
+      <AssignReviewerDialog
+        open={!!assignTarget}
+        entityTitle={assignTarget?.title}
+        entitySubtitle={assignTarget?.project_code}
+        assignUrl={assignTarget ? `/research/projects/${assignTarget.id}/assign-reviewer` : ''}
+        reviewersUrl="/research/projects/reviewers/available"
+        onClose={() => setAssignTarget(null)}
+        onAssigned={async () => {
+          setSuccess(t('reviewerAssignment.successMessage'));
+          await loadReviews();
+        }}
+      />
     </Box>
   );
 }

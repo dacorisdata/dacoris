@@ -21,6 +21,7 @@ import {
   Psychology as SkillsIcon,
   Assignment as NeedsIcon,
   DynamicForm as FormsIcon,
+  RecordVoiceOver as QualitativeIcon,
   School as PgIcon,
   Timeline as JourneyIcon,
   SupervisedUserCircle as SupervisorIcon,
@@ -105,6 +106,7 @@ const NAV_SECTIONS = [
     items: [
       { icon: FormsIcon, labelKey: 'researcher.sidebar.dataImport', path: '/researcher/data/import' },
       { icon: Storage, labelKey: 'researcher.sidebar.dataLakes', path: '/researcher/data/lakes' },
+      { icon: QualitativeIcon, labelKey: 'researcher.sidebar.qualitativeData', path: '/researcher/data/qualitative' },
     ],
   },
   {

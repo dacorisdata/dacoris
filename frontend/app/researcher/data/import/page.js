@@ -41,6 +41,7 @@ import {
   Google as GoogleIcon,
   TableChart as ExcelIcon,
   DynamicForm as KoboIcon,
+  RecordVoiceOver as QualitativeIcon,
   ContentCopy as CopyIcon,
   Refresh as RefreshIcon,
   Delete as DeleteIcon,
@@ -50,8 +51,11 @@ import {
   OpenInNew as OpenInNewIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
+  InsertDriveFile as FileIcon,
 } from '@mui/icons-material';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useRouter } from 'next/navigation';
 
 const TiptapEditor = dynamic(() => import('@/components/TiptapEditor'), { ssr: false });
 
@@ -109,10 +113,23 @@ const SOURCE_TABS = [
     desc: 'Import from KoboToolbox / KoboCollect',
     steps: ['Connect KoboCollect', 'Configure', 'Review & Register'],
   },
+  {
+    id: 'qualitative',
+    label: 'Qualitative Data (KII/FGD)',
+    icon: QualitativeIcon,
+    color: '#8e44ad',
+    desc: 'Upload KII/FGD transcripts, audio or video',
+    steps: ['Upload File', 'Add Details', 'Review & Save'],
+  },
 ];
+
+const QUAL_ALLOWED_EXTENSIONS = ['.docx', '.doc', '.pdf', '.txt', '.mp3', '.wav', '.m4a', '.ogg', '.mp4', '.mov', '.avi', '.mkv', '.webm'];
+const QUAL_ACCEPT = QUAL_ALLOWED_EXTENSIONS.join(',');
 
 function DataImportContent() {
   const { user, token } = useAuth();
+  const { t } = useLanguage();
+  const router = useRouter();
   const searchParams = useSearchParams();
 
   const [activeSource, setActiveSource] = useState('google_sheets');
@@ -131,6 +148,19 @@ function DataImportContent() {
   const [koboToken, setKoboToken] = useState('');
   const [koboAssetUid, setKoboAssetUid] = useState('');
   const [koboShowToken, setKoboShowToken] = useState(false);
+
+  const [qualFile, setQualFile] = useState(null);
+  const [qualDragOver, setQualDragOver] = useState(false);
+  const qualFileInputRef = useRef(null);
+  const [qualDataType, setQualDataType] = useState('kii');
+  const [qualTitle, setQualTitle] = useState('');
+  const [qualDateConducted, setQualDateConducted] = useState('');
+  const [qualLocation, setQualLocation] = useState('');
+  const [qualLanguage, setQualLanguage] = useState('');
+  const [qualDescription, setQualDescription] = useState('');
+  const [qualSaving, setQualSaving] = useState(false);
+  const [qualResult, setQualResult] = useState(null);
+  const [qualError, setQualError] = useState('');
 
   const [importTag, setImportTag] = useState('');
   const [importDesc, setImportDesc] = useState('');
@@ -156,7 +186,8 @@ function DataImportContent() {
   const [versionInfo, setVersionInfo] = useState(null);
   const [versionLoading, setVersionLoading] = useState(false);
 
-  const currentTab = SOURCE_TABS.find(t => t.id === activeSource);
+  const currentTab = SOURCE_TABS.find(tab => tab.id === activeSource);
+  const isQualitative = activeSource === 'qualitative';
 
   const loadProjects = useCallback(async () => {
     if (!token) return;
@@ -282,6 +313,9 @@ function DataImportContent() {
     setAnalysisMode('self'); setExpectedVisuals('');
     setLabelManuallyEdited(false); setResolvedDisplayName('');
     setImportResult(null); setImportError('');
+    setQualFile(null); setQualDataType('kii'); setQualTitle('');
+    setQualDateConducted(''); setQualLocation(''); setQualLanguage(''); setQualDescription('');
+    setQualResult(null); setQualError('');
   };
 
   const resolveLabelFromSource = useCallback(async (overrides = {}) => {
@@ -344,7 +378,26 @@ function DataImportContent() {
     resolveLabelFromSource({ source_type: 'excel', file_name: file.name });
   };
 
+  const handleQualFileSelect = (file) => {
+    if (!file) return;
+    const ext = ('.' + file.name.toLowerCase().split('.').pop());
+    if (!QUAL_ALLOWED_EXTENSIONS.includes(ext)) {
+      setQualError(t('researcher.qualitativeData.errors.unsupportedFile'));
+      return;
+    }
+    setQualFile(file);
+    setQualError('');
+    if (!qualTitle) {
+      setQualTitle(file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '));
+    }
+  };
+
   const canProceed = () => {
+    if (isQualitative) {
+      if (activeStep === 0) return !!qualFile;
+      if (activeStep === 1) return qualTitle.trim().length > 0;
+      return true;
+    }
     if (activeStep === 0) {
       if (activeSource === 'google_sheets') return !!gsSheetId;
       if (activeSource === 'excel') return !!excelFile;
@@ -359,7 +412,7 @@ function DataImportContent() {
   };
 
   const handleNext = async () => {
-    if (activeStep === 0) {
+    if (!isQualitative && activeStep === 0) {
       if (activeSource === 'google_sheets' && gsSheetId) {
         await resolveLabelFromSource({ source_type: 'google_sheets', source_url: gsUrl });
       } else if (activeSource === 'kobo_collect' && koboToken && koboAssetUid) {
@@ -380,7 +433,51 @@ function DataImportContent() {
 
   const handleBack = () => setActiveStep(s => s - 1);
 
+  const handleQualitativeSave = async () => {
+    if (!qualFile) {
+      setQualError(t('researcher.qualitativeData.errors.fileRequired'));
+      return;
+    }
+    if (!qualTitle.trim()) {
+      setQualError(t('researcher.qualitativeData.errors.titleRequired'));
+      return;
+    }
+    setQualSaving(true);
+    setQualError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', qualFile);
+      fd.append('data_type', qualDataType);
+      fd.append('title', qualTitle.trim());
+      if (qualDescription) fd.append('description', qualDescription);
+      if (qualDateConducted) fd.append('date_conducted', qualDateConducted);
+      if (qualLocation) fd.append('location', qualLocation);
+      if (qualLanguage) fd.append('language', qualLanguage);
+      if (selectedProject) fd.append('project_id', selectedProject);
+
+      const res = await fetch('/api/research/qualitative-data', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.detail || t('researcher.qualitativeData.errors.uploadFailed'));
+      }
+      const result = await res.json();
+      setQualResult(result);
+    } catch (err) {
+      setQualError(err.message);
+    } finally {
+      setQualSaving(false);
+    }
+  };
+
   const handleImport = async () => {
+    if (isQualitative) {
+      await handleQualitativeSave();
+      return;
+    }
     if (!user?.primary_institution_id) {
       setImportError('No institution linked to your account');
       return;
@@ -516,6 +613,74 @@ function DataImportContent() {
   };
 
   const renderStep0 = () => {
+    if (isQualitative) {
+      return (
+        <Box sx={{ maxWidth: 580, mx: 'auto' }}>
+          <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+            {t('researcher.qualitativeData.upload.title')}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            {t('researcher.qualitativeData.upload.subtitle')}
+          </Typography>
+          <FormControl fullWidth sx={{ mb: 2.5 }}>
+            <InputLabel>{t('researcher.qualitativeData.upload.typeLabel')}</InputLabel>
+            <Select
+              value={qualDataType}
+              onChange={(e) => setQualDataType(e.target.value)}
+              label={t('researcher.qualitativeData.upload.typeLabel')}
+            >
+              <MenuItem value="kii">{t('researcher.qualitativeData.upload.typeKii')}</MenuItem>
+              <MenuItem value="fgd">{t('researcher.qualitativeData.upload.typeFgd')}</MenuItem>
+              <MenuItem value="other">{t('researcher.qualitativeData.upload.typeOther')}</MenuItem>
+            </Select>
+          </FormControl>
+          <Box
+            onDragOver={(e) => { e.preventDefault(); setQualDragOver(true); }}
+            onDragLeave={() => setQualDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault(); setQualDragOver(false);
+              const f = e.dataTransfer.files[0];
+              if (f) handleQualFileSelect(f);
+            }}
+            onClick={() => qualFileInputRef.current?.click()}
+            sx={{
+              border: `2px dashed ${qualDragOver ? ACCENT : '#e0e0e0'}`,
+              borderRadius: 3, p: 5, textAlign: 'center', cursor: 'pointer',
+              bgcolor: qualDragOver ? `${ACCENT}08` : 'background.paper',
+              transition: 'all 0.2s',
+              '&:hover': { borderColor: ACCENT, bgcolor: `${ACCENT}08` },
+            }}
+          >
+            <input
+              ref={qualFileInputRef}
+              type="file"
+              accept={QUAL_ACCEPT}
+              hidden
+              onChange={(e) => handleQualFileSelect(e.target.files[0])}
+            />
+            <FileIcon sx={{ fontSize: 48, color: qualFile ? '#8e44ad' : 'text.disabled', mb: 1.5 }} />
+            {qualFile ? (
+              <>
+                <Typography variant="body1" sx={{ fontWeight: 600, color: '#8e44ad' }}>{qualFile.name}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {(qualFile.size / 1024 / 1024).toFixed(2)} MB · {t('researcher.qualitativeData.upload.changeFile')}
+                </Typography>
+              </>
+            ) : (
+              <>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>{t('researcher.qualitativeData.upload.dropzoneTitle')}</Typography>
+                <Typography variant="caption" color="text.secondary">{t('researcher.qualitativeData.upload.dropzoneSubtitle')}</Typography>
+              </>
+            )}
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+            {t('researcher.qualitativeData.upload.dropzoneHint')}
+          </Typography>
+          {qualError && <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }}>{qualError}</Alert>}
+        </Box>
+      );
+    }
+
     if (activeSource === 'google_sheets') {
       return (
         <Box sx={{ maxWidth: 580, mx: 'auto' }}>
@@ -683,7 +848,72 @@ function DataImportContent() {
     );
   };
 
-  const renderStep1 = () => (
+  const renderQualitativeStep1 = () => (
+    <Box sx={{ maxWidth: 560, mx: 'auto' }}>
+      <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+        {t('researcher.qualitativeData.details.title')}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        {t('researcher.qualitativeData.details.subtitle')}
+      </Typography>
+      <TextField
+        fullWidth required
+        label={t('researcher.qualitativeData.details.titleLabel')}
+        value={qualTitle}
+        onChange={(e) => setQualTitle(e.target.value)}
+        helperText={t('researcher.qualitativeData.details.titleHelper')}
+        sx={{ mb: 2.5 }}
+      />
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2.5 }}>
+        <TextField
+          fullWidth
+          type="date"
+          label={t('researcher.qualitativeData.details.dateLabel')}
+          value={qualDateConducted}
+          onChange={(e) => setQualDateConducted(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+        />
+        <TextField
+          fullWidth
+          label={t('researcher.qualitativeData.details.locationLabel')}
+          value={qualLocation}
+          onChange={(e) => setQualLocation(e.target.value)}
+        />
+      </Box>
+      <TextField
+        fullWidth
+        label={t('researcher.qualitativeData.details.languageLabel')}
+        value={qualLanguage}
+        onChange={(e) => setQualLanguage(e.target.value)}
+        sx={{ mb: 2.5 }}
+      />
+      <TextField
+        fullWidth multiline rows={3}
+        label={t('researcher.qualitativeData.details.descriptionLabel')}
+        value={qualDescription}
+        onChange={(e) => setQualDescription(e.target.value)}
+        sx={{ mb: 2.5 }}
+      />
+      <FormControl fullWidth sx={{ mb: 1 }}>
+        <InputLabel>{t('researcher.qualitativeData.details.projectLabel')}</InputLabel>
+        <Select
+          value={selectedProject}
+          onChange={(e) => setSelectedProject(e.target.value)}
+          label={t('researcher.qualitativeData.details.projectLabel')}
+        >
+          <MenuItem value=""><em>{t('researcher.qualitativeData.details.projectNone')}</em></MenuItem>
+          {projects.map(p => (
+            <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      {qualError && <Alert severity="error" sx={{ mt: 1.5, borderRadius: 2 }}>{qualError}</Alert>}
+    </Box>
+  );
+
+  const renderStep1 = () => {
+    if (isQualitative) return renderQualitativeStep1();
+    return (
     <Box sx={{ maxWidth: 560, mx: 'auto' }}>
       <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>Configure Import</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
@@ -801,9 +1031,108 @@ function DataImportContent() {
         </Box>
       </Box>
     </Box>
-  );
+    );
+  };
+
+  const renderQualitativeStep2 = () => {
+    if (qualSaving) {
+      return (
+        <Box sx={{ textAlign: 'center', py: 5 }}>
+          <CircularProgress sx={{ color: '#8e44ad', mb: 2 }} size={48} />
+          <Typography variant="h6" sx={{ mb: 0.5 }}>{t('researcher.qualitativeData.review.saving')}</Typography>
+        </Box>
+      );
+    }
+
+    if (qualResult) {
+      return (
+        <Box sx={{ maxWidth: 520, mx: 'auto' }}>
+          <Alert severity="success" icon={<SuccessIcon />} sx={{ mb: 3, borderRadius: 2 }}>
+            <Typography variant="body1" sx={{ fontWeight: 600 }}>
+              {t('researcher.qualitativeData.review.successTitle')}
+            </Typography>
+            <Typography variant="caption">{t('researcher.qualitativeData.review.successHint')}</Typography>
+          </Alert>
+          <Box sx={{ display: 'flex', gap: 1.5 }}>
+            <Button
+              variant="contained" fullWidth
+              onClick={() => router.push('/researcher/data/qualitative')}
+              sx={{ bgcolor: '#8e44ad', '&:hover': { bgcolor: '#732d91' } }}
+            >
+              {t('researcher.qualitativeData.review.viewButton')}
+            </Button>
+            <Button variant="outlined" fullWidth onClick={resetWizard}>
+              {t('researcher.qualitativeData.review.anotherButton')}
+            </Button>
+          </Box>
+        </Box>
+      );
+    }
+
+    const project = projects.find(p => p.id === selectedProject);
+    return (
+      <Box sx={{ maxWidth: 560, mx: 'auto' }}>
+        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>{t('researcher.qualitativeData.review.title')}</Typography>
+        <Paper sx={{ p: 2.5, bgcolor: 'grey.50', borderRadius: 2, mb: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{t('researcher.qualitativeData.review.dataType')}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {qualDataType === 'kii'
+                  ? t('researcher.qualitativeData.upload.typeKii')
+                  : qualDataType === 'fgd'
+                    ? t('researcher.qualitativeData.upload.typeFgd')
+                    : t('researcher.qualitativeData.upload.typeOther')}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{t('researcher.qualitativeData.review.titleField')}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{qualTitle}</Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{t('researcher.qualitativeData.review.file')}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: 'break-all' }}>{qualFile?.name}</Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{t('researcher.qualitativeData.review.project')}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{project?.title || t('researcher.qualitativeData.review.none')}</Typography>
+            </Box>
+            {qualDateConducted && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">{t('researcher.qualitativeData.review.dateConducted')}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{qualDateConducted}</Typography>
+              </Box>
+            )}
+            {qualLocation && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">{t('researcher.qualitativeData.review.location')}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{qualLocation}</Typography>
+              </Box>
+            )}
+            {qualLanguage && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">{t('researcher.qualitativeData.review.language')}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{qualLanguage}</Typography>
+              </Box>
+            )}
+            {qualDescription && (
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <Typography variant="caption" color="text.secondary">{t('researcher.qualitativeData.details.descriptionLabel')}</Typography>
+                <Typography variant="body2">{qualDescription}</Typography>
+              </Box>
+            )}
+          </Box>
+        </Paper>
+        {qualError && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{qualError}</Alert>}
+        <Alert severity="info" sx={{ borderRadius: 2 }}>
+          <Typography variant="caption">{t('researcher.qualitativeData.review.storageNote')}</Typography>
+        </Alert>
+      </Box>
+    );
+  };
 
   const renderStep2 = () => {
+    if (isQualitative) return renderQualitativeStep2();
     if (importing) {
       return (
         <Box sx={{ textAlign: 'center', py: 5 }}>
@@ -952,27 +1281,31 @@ function DataImportContent() {
             onChange={(e) => handleSourceSwitch(e.target.value)}
             label="Select import method"
             renderValue={(value) => {
-              const tab = SOURCE_TABS.find(t => t.id === value);
+              const tab = SOURCE_TABS.find(s => s.id === value);
               if (!tab) return value;
               const Icon = tab.icon;
+              const label = tab.id === 'qualitative' ? t('researcher.qualitativeData.tabLabel') : tab.label;
+              const desc = tab.id === 'qualitative' ? t('researcher.qualitativeData.tabDescription') : tab.desc;
               return (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                   <Icon sx={{ fontSize: 20, color: tab.color }} />
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{tab.label}</Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>— {tab.desc}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{label}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>— {desc}</Typography>
                 </Box>
               );
             }}
           >
             {SOURCE_TABS.map(tab => {
               const Icon = tab.icon;
+              const label = tab.id === 'qualitative' ? t('researcher.qualitativeData.tabLabel') : tab.label;
+              const desc = tab.id === 'qualitative' ? t('researcher.qualitativeData.tabDescription') : tab.desc;
               return (
                 <MenuItem key={tab.id} value={tab.id}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.5 }}>
                     <Icon sx={{ fontSize: 22, color: tab.color }} />
                     <Box>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{tab.label}</Typography>
-                      <Typography variant="caption" color="text.secondary">{tab.desc}</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{label}</Typography>
+                      <Typography variant="caption" color="text.secondary">{desc}</Typography>
                     </Box>
                   </Box>
                 </MenuItem>
@@ -985,7 +1318,14 @@ function DataImportContent() {
       {/* Import Wizard */}
       <Paper sx={{ p: 3, mb: 4 }}>
         <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-          {currentTab.steps.map(label => (
+          {(isQualitative
+            ? [
+                t('researcher.qualitativeData.steps.upload'),
+                t('researcher.qualitativeData.steps.details'),
+                t('researcher.qualitativeData.steps.review'),
+              ]
+            : currentTab.steps
+          ).map(label => (
             <Step key={label}><StepLabel>{label}</StepLabel></Step>
           ))}
         </Stepper>
@@ -996,17 +1336,19 @@ function DataImportContent() {
           {activeStep === 2 && renderStep2()}
         </Box>
 
-        {!importResult && (
+        {!(isQualitative ? qualResult : importResult) && (
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-            <Button disabled={activeStep === 0 || importing} onClick={handleBack}>Back</Button>
+            <Button disabled={activeStep === 0 || (isQualitative ? qualSaving : importing)} onClick={handleBack}>Back</Button>
             <Button
               variant="contained"
               onClick={handleNext}
-              disabled={!canProceed() || importing}
-              sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#158f8a' } }}
+              disabled={!canProceed() || (isQualitative ? qualSaving : importing)}
+              sx={{ bgcolor: isQualitative ? '#8e44ad' : ACCENT, '&:hover': { bgcolor: isQualitative ? '#732d91' : '#158f8a' } }}
             >
               {activeStep === 2
-                ? (importing ? 'Registering...' : activeSource === 'excel' ? 'Upload & Register' : 'Register Import')
+                ? (isQualitative
+                    ? (qualSaving ? t('researcher.qualitativeData.review.saving') : t('researcher.qualitativeData.review.saveButton'))
+                    : (importing ? 'Registering...' : activeSource === 'excel' ? 'Upload & Register' : 'Register Import'))
                 : 'Next'}
             </Button>
           </Box>

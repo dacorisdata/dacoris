@@ -170,6 +170,40 @@ def _serialize_review(app: EthicsApplication) -> dict:
     return data
 
 
+def _serialize_reviewer_assignment(a: ReviewerAssignment) -> dict:
+    return {
+        "id": a.id,
+        "reviewer_id": a.reviewer_id,
+        "reviewer_name": a.reviewer.name if a.reviewer else a.invited_name,
+        "reviewer_email": a.reviewer.email if a.reviewer else a.invited_email,
+        "status": a.status.value if hasattr(a.status, "value") else a.status,
+        "notes": a.notes,
+        "assigned_at": a.assigned_at,
+    }
+
+
+async def _load_reviewer_assignments(
+    db: AsyncSession, review_type: ReviewType, entity_ids: list
+) -> dict:
+    """Fetch active (non-declined) reviewer assignments keyed by entity_id."""
+    if not entity_ids:
+        return {}
+    result = await db.execute(
+        select(ReviewerAssignment)
+        .where(
+            ReviewerAssignment.review_type == review_type,
+            ReviewerAssignment.entity_id.in_(entity_ids),
+            ReviewerAssignment.status != ReviewerAssignmentStatus.DECLINED,
+        )
+        .options(selectinload(ReviewerAssignment.reviewer))
+        .order_by(ReviewerAssignment.assigned_at.desc())
+    )
+    by_entity: dict = {}
+    for a in result.scalars().all():
+        by_entity.setdefault(a.entity_id, []).append(_serialize_reviewer_assignment(a))
+    return by_entity
+
+
 async def _get_institution_ethics_app(
     db: AsyncSession,
     app_id: str,
@@ -213,7 +247,16 @@ async def list_my_ethics_reviews(
         .options(*_ETHICS_LOAD)
         .order_by(EthicsApplication.submitted_at.desc().nullslast(), EthicsApplication.created_at.desc())
     )
-    return [_serialize_review(a) for a in result.scalars().all()]
+    apps = result.scalars().all()
+    assignments_by_app = await _load_reviewer_assignments(
+        db, ReviewType.ETHICS, [a.id for a in apps]
+    )
+    serialized = []
+    for a in apps:
+        data = _serialize_review(a)
+        data["reviewer_assignments"] = assignments_by_app.get(a.id, [])
+        serialized.append(data)
+    return serialized
 
 
 @router.get("/reviews/{app_id}")
@@ -230,7 +273,10 @@ async def get_ethics_review(
     if not current_user.primary_institution_id:
         raise HTTPException(400, "User must be associated with an institution")
     app = await _get_institution_ethics_app(db, app_id, current_user.primary_institution_id)
-    return _serialize_review(app)
+    data = _serialize_review(app)
+    assignments_by_app = await _load_reviewer_assignments(db, ReviewType.ETHICS, [app.id])
+    data["reviewer_assignments"] = assignments_by_app.get(app.id, [])
+    return data
 
 
 @router.get("/my")

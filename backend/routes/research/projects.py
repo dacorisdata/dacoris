@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, insert
 from sqlalchemy.orm import selectinload
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 from datetime import datetime, timezone
 import os, uuid, shutil, json, tempfile
@@ -11,12 +12,12 @@ from database import get_db
 from models import (ResearchProject, ProjectStatus, ProjectMember,
                     ProjectMilestone, ProjectTask, ProjectDocument,
                     ProjectTeam, ProjectTeamMember, ProjectDeliverable,
-                    ProjectBudgetLine,
+                    ProjectBudgetLine, ProjectPaymentRequest,
                     User, EthicsApplication, PrimaryAccountType, ReviewerAssignment,
                     ReviewType, ReviewerAssignmentStatus, UserStatus, user_roles)
 from auth import require_roles, ResearchRole
 from services.notifications import create_notification
-from services.file_upload import save_upload
+from services.file_upload import save_upload, get_file_path
 from services.reviewer_onboarding import get_or_create_reviewer_user
 from services.dmp_document_parser import parse_dmp_fields
 
@@ -24,6 +25,15 @@ router = APIRouter(prefix="/api/research/projects", tags=["research-projects"])
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/uploads/projects")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+MILESTONE_STATUSES = {"planned", "in_progress", "completed", "overdue"}
+DELIVERABLE_STATUSES = {"pending", "in_progress", "completed", "overdue"}
+PAYMENT_REQUEST_STATUSES = {"pending", "approved", "rejected", "paid", "cancelled"}
+EXECUTION_PROJECT_STATUSES = {
+    ProjectStatus.PROPOSED.value,
+    ProjectStatus.ACTIVE.value,
+    ProjectStatus.SUSPENDED.value,
+}
 
 # ─── Pydantic schemas ─────────────────────────────────────────────────────────
 
@@ -104,6 +114,24 @@ class BudgetLineUpdate(BaseModel):
     category: Optional[str] = None
     description: Optional[str] = None
     amount: Optional[int] = None
+    spent_to_date: Optional[int] = None
+
+
+class ExpenditureUpdate(BaseModel):
+    spent_to_date: int = Field(..., ge=0)
+
+
+class PaymentRequestCreate(BaseModel):
+    amount: int = Field(..., gt=0)
+    purpose: str
+    justification: Optional[str] = None
+    budget_line_id: Optional[str] = None
+    currency: Optional[str] = None
+
+
+class PaymentRequestUpdate(BaseModel):
+    status: Optional[str] = None
+    review_notes: Optional[str] = None
 
 
 class MemberInvite(BaseModel):
@@ -225,6 +253,8 @@ class DocumentOut(BaseModel):
     mime_type: Optional[str]
     uploaded_at: datetime
     uploaded_by_name: Optional[str] = None
+    milestone_id: Optional[str] = None
+    deliverable_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -285,6 +315,9 @@ _PROJECT_OPTS = [
     selectinload(ResearchProject.deliverables).selectinload(ProjectDeliverable.assignee_team).selectinload(ProjectTeam.members),
     selectinload(ResearchProject.budget_lines),
     selectinload(ResearchProject.project_documents).selectinload(ProjectDocument.uploaded_by),
+    selectinload(ResearchProject.payment_requests).selectinload(ProjectPaymentRequest.budget_line),
+    selectinload(ResearchProject.payment_requests).selectinload(ProjectPaymentRequest.requested_by),
+    selectinload(ResearchProject.payment_requests).selectinload(ProjectPaymentRequest.reviewed_by),
     selectinload(ResearchProject.ethics_applications),
 ]
 
@@ -351,6 +384,10 @@ async def _ensure_project_editable(project: ResearchProject) -> None:
         )
 
 
+def _project_status_value(project: ResearchProject) -> str:
+    return project.status.value if hasattr(project.status, "value") else project.status
+
+
 async def _ensure_project_owner(db: AsyncSession, project_id: str, user_id: str) -> ResearchProject:
     result = await db.execute(select(ResearchProject).where(ResearchProject.id == project_id))
     project = result.scalar_one_or_none()
@@ -363,6 +400,54 @@ async def _ensure_project_owner_editable(db: AsyncSession, project_id: str, user
     project = await _ensure_project_owner(db, project_id, user_id)
     await _ensure_project_editable(project)
     return project
+
+
+async def _ensure_project_owner_executable(db: AsyncSession, project_id: str, user_id: str) -> ResearchProject:
+    """Allow post-submit execution updates (status, expenditure, uploads, payment requests)."""
+    project = await _ensure_project_owner(db, project_id, user_id)
+    status = _project_status_value(project)
+    if status == ProjectStatus.DRAFT.value or status in EXECUTION_PROJECT_STATUSES:
+        return project
+    raise HTTPException(
+        status_code=403,
+        detail="This project can no longer be updated.",
+    )
+
+
+def _serialize_document(d: ProjectDocument) -> dict:
+    return {
+        "id": d.id,
+        "document_type": d.document_type,
+        "original_filename": d.original_filename,
+        "file_size_bytes": d.file_size_bytes,
+        "mime_type": d.mime_type,
+        "uploaded_at": d.uploaded_at,
+        "uploaded_by_name": d.uploaded_by.name if d.uploaded_by else None,
+        "milestone_id": d.milestone_id,
+        "deliverable_id": d.deliverable_id,
+    }
+
+
+def _serialize_payment_request(r: ProjectPaymentRequest) -> dict:
+    return {
+        "id": r.id,
+        "project_id": r.project_id,
+        "budget_line_id": r.budget_line_id,
+        "budget_line_category": r.budget_line.category if r.budget_line else None,
+        "amount": r.amount,
+        "currency": r.currency,
+        "purpose": r.purpose,
+        "justification": r.justification,
+        "status": r.status,
+        "requested_by_id": r.requested_by_id,
+        "requested_by_name": r.requested_by.name if r.requested_by else None,
+        "reviewed_by_id": r.reviewed_by_id,
+        "reviewed_by_name": r.reviewed_by.name if r.reviewed_by else None,
+        "reviewed_at": r.reviewed_at,
+        "review_notes": r.review_notes,
+        "created_at": r.created_at,
+        "updated_at": r.updated_at,
+    }
 
 
 async def _compute_responsible_label(
@@ -502,6 +587,40 @@ def _serialize_project(p: ResearchProject) -> dict:
     }
 
 
+def _serialize_reviewer_assignment(a: ReviewerAssignment) -> dict:
+    return {
+        "id": a.id,
+        "reviewer_id": a.reviewer_id,
+        "reviewer_name": a.reviewer.name if a.reviewer else a.invited_name,
+        "reviewer_email": a.reviewer.email if a.reviewer else a.invited_email,
+        "status": a.status.value if hasattr(a.status, "value") else a.status,
+        "notes": a.notes,
+        "assigned_at": a.assigned_at,
+    }
+
+
+async def _load_reviewer_assignments(
+    db: AsyncSession, review_type: ReviewType, entity_ids: list
+) -> dict:
+    """Fetch active (non-declined) reviewer assignments keyed by entity_id."""
+    if not entity_ids:
+        return {}
+    result = await db.execute(
+        select(ReviewerAssignment)
+        .where(
+            ReviewerAssignment.review_type == review_type,
+            ReviewerAssignment.entity_id.in_(entity_ids),
+            ReviewerAssignment.status != ReviewerAssignmentStatus.DECLINED,
+        )
+        .options(selectinload(ReviewerAssignment.reviewer))
+        .order_by(ReviewerAssignment.assigned_at.desc())
+    )
+    by_entity: dict = {}
+    for a in result.scalars().all():
+        by_entity.setdefault(a.entity_id, []).append(_serialize_reviewer_assignment(a))
+    return by_entity
+
+
 async def _generate_project_code(db: AsyncSession, institution_id: str) -> str:
     year = datetime.now().year
     result = await db.execute(
@@ -534,7 +653,16 @@ async def list_projects(
     if current_user.primary_account_type == PrimaryAccountType.RESEARCHER and not current_user.is_global_admin and not current_user.is_institution_admin:
         q = q.where(ResearchProject.pi_id == current_user.id)
     result = await db.execute(q.order_by(ResearchProject.created_at.desc()))
-    return [_serialize_project(p) for p in result.scalars().all()]
+    projects = result.scalars().all()
+    assignments_by_project = await _load_reviewer_assignments(
+        db, ReviewType.PROJECT, [p.id for p in projects]
+    )
+    serialized = []
+    for p in projects:
+        data = _serialize_project(p)
+        data["reviewer_assignments"] = assignments_by_project.get(p.id, [])
+        serialized.append(data)
+    return serialized
 
 
 @router.get("/my/dmp-documents")
@@ -762,6 +890,8 @@ async def get_project(
         raise HTTPException(404, "Project not found")
 
     data = _serialize_project(project)
+    assignments_by_project = await _load_reviewer_assignments(db, ReviewType.PROJECT, [project.id])
+    data["reviewer_assignments"] = assignments_by_project.get(project.id, [])
     data["members"] = [
         {
             "id": m.id, "role": m.role, "status": m.status,
@@ -783,12 +913,22 @@ async def get_project(
             "assigned_to_name": m.assigned_to.name if m.assigned_to else None,
             "task_count": len(m.tasks) if m.tasks else 0,
             "done_count": sum(1 for t in (m.tasks or []) if t.status == "done"),
+            "documents": [
+                _serialize_document(d) for d in (project.project_documents or [])
+                if d.milestone_id == m.id and not d.deliverable_id
+            ],
         }
         for m in sorted(project.milestones or [], key=lambda x: (x.due_date or datetime.max.replace(tzinfo=timezone.utc)))
     ]
     data["teams"] = [_serialize_team(t) for t in (project.teams or [])]
     data["deliverables"] = [
-        _serialize_deliverable(d)
+        {
+            **_serialize_deliverable(d),
+            "documents": [
+                _serialize_document(doc) for doc in (project.project_documents or [])
+                if doc.deliverable_id == d.id
+            ],
+        }
         for d in sorted(project.deliverables or [], key=lambda x: (x.item_order, x.created_at or datetime.min.replace(tzinfo=timezone.utc)))
     ]
     data["budget_lines"] = [
@@ -803,14 +943,15 @@ async def get_project(
         for bl in sorted(project.budget_lines or [], key=lambda x: (x.item_order, x.created_at or datetime.min.replace(tzinfo=timezone.utc)))
     ]
     data["documents"] = [
-        {
-            "id": d.id, "document_type": d.document_type,
-            "original_filename": d.original_filename,
-            "file_size_bytes": d.file_size_bytes,
-            "mime_type": d.mime_type, "uploaded_at": d.uploaded_at,
-            "uploaded_by_name": d.uploaded_by.name if d.uploaded_by else None,
-        }
-        for d in (project.project_documents or [])
+        _serialize_document(d) for d in (project.project_documents or [])
+    ]
+    data["payment_requests"] = [
+        _serialize_payment_request(r)
+        for r in sorted(
+            project.payment_requests or [],
+            key=lambda x: x.created_at or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
     ]
     data["ethics_applications"] = [
         {
@@ -1087,7 +1228,19 @@ async def update_milestone(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner_editable(db, project_id, current_user.id)
+    project = await _ensure_project_owner(db, project_id, current_user.id)
+    pstatus = _project_status_value(project)
+    updates = data.model_dump(exclude_unset=True)
+
+    if pstatus == ProjectStatus.DRAFT.value:
+        pass  # full edit allowed
+    elif pstatus in EXECUTION_PROJECT_STATUSES:
+        allowed = {"status", "completed_at"}
+        if set(updates.keys()) - allowed:
+            raise HTTPException(403, "Only milestone status can be updated after submission.")
+    else:
+        raise HTTPException(403, "This project can no longer be updated.")
+
     result = await db.execute(
         select(ProjectMilestone).where(
             ProjectMilestone.id == milestone_id,
@@ -1098,12 +1251,17 @@ async def update_milestone(
     if not milestone:
         raise HTTPException(404, "Milestone not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    if "status" in updates and updates["status"] not in MILESTONE_STATUSES:
+        raise HTTPException(400, f"Invalid status. Allowed: {', '.join(sorted(MILESTONE_STATUSES))}")
+
+    for field, value in updates.items():
         setattr(milestone, field, value)
-    if data.status == "completed" and not milestone.completed_at:
+    if updates.get("status") == "completed" and not milestone.completed_at:
         milestone.completed_at = datetime.now(timezone.utc)
+    elif updates.get("status") and updates["status"] != "completed":
+        milestone.completed_at = None
     await db.commit()
-    return {"id": milestone_id, "updated": True}
+    return {"id": milestone_id, "updated": True, "status": milestone.status}
 
 
 @router.delete("/{project_id}/milestones/{milestone_id}")
@@ -1339,7 +1497,18 @@ async def update_deliverable(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner_editable(db, project_id, current_user.id)
+    project = await _ensure_project_owner(db, project_id, current_user.id)
+    pstatus = _project_status_value(project)
+    updates = data.model_dump(exclude_unset=True)
+
+    if pstatus == ProjectStatus.DRAFT.value:
+        pass
+    elif pstatus in EXECUTION_PROJECT_STATUSES:
+        if set(updates.keys()) - {"status"}:
+            raise HTTPException(403, "Only deliverable status can be updated after submission.")
+    else:
+        raise HTTPException(403, "This project can no longer be updated.")
+
     result = await db.execute(
         select(ProjectDeliverable).where(
             ProjectDeliverable.id == deliverable_id,
@@ -1350,7 +1519,9 @@ async def update_deliverable(
     if not deliverable:
         raise HTTPException(404, "Deliverable not found")
 
-    updates = data.model_dump(exclude_unset=True)
+    if "status" in updates and updates["status"] not in DELIVERABLE_STATUSES:
+        raise HTTPException(400, f"Invalid status. Allowed: {', '.join(sorted(DELIVERABLE_STATUSES))}")
+
     if "name" in updates and updates["name"] is not None:
         updates["name"] = updates["name"].strip()
 
@@ -1368,7 +1539,7 @@ async def update_deliverable(
         )
 
     await db.commit()
-    return {"id": deliverable_id, "updated": True}
+    return {"id": deliverable_id, "updated": True, "status": deliverable.status}
 
 
 @router.delete("/{project_id}/deliverables/{deliverable_id}")
@@ -1437,7 +1608,18 @@ async def update_budget_line(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    await _ensure_project_owner_editable(db, project_id, current_user.id)
+    project = await _ensure_project_owner(db, project_id, current_user.id)
+    pstatus = _project_status_value(project)
+    updates = data.model_dump(exclude_unset=True)
+
+    if pstatus == ProjectStatus.DRAFT.value:
+        pass
+    elif pstatus in EXECUTION_PROJECT_STATUSES:
+        if set(updates.keys()) - {"spent_to_date"}:
+            raise HTTPException(403, "Only expenditure can be updated after submission.")
+    else:
+        raise HTTPException(403, "This project can no longer be updated.")
+
     result = await db.execute(
         select(ProjectBudgetLine).where(
             ProjectBudgetLine.id == line_id,
@@ -1448,13 +1630,49 @@ async def update_budget_line(
     if not line:
         raise HTTPException(404, "Budget line not found")
 
-    updates = data.model_dump(exclude_unset=True)
     if "category" in updates and updates["category"] is not None:
         updates["category"] = updates["category"].strip()
+    if "spent_to_date" in updates and updates["spent_to_date"] is not None and updates["spent_to_date"] < 0:
+        raise HTTPException(400, "spent_to_date cannot be negative")
+
     for field, value in updates.items():
         setattr(line, field, value)
     await db.commit()
-    return {"id": line_id, "updated": True}
+    return {
+        "id": line_id,
+        "updated": True,
+        "spent_to_date": line.spent_to_date,
+        "amount": line.amount,
+    }
+
+
+@router.patch("/{project_id}/budget-lines/{line_id}/expenditure")
+async def update_budget_line_expenditure(
+    project_id: str,
+    line_id: str,
+    data: ExpenditureUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
+):
+    await _ensure_project_owner_executable(db, project_id, current_user.id)
+    result = await db.execute(
+        select(ProjectBudgetLine).where(
+            ProjectBudgetLine.id == line_id,
+            ProjectBudgetLine.project_id == project_id,
+        )
+    )
+    line = result.scalar_one_or_none()
+    if not line:
+        raise HTTPException(404, "Budget line not found")
+
+    line.spent_to_date = data.spent_to_date
+    await db.commit()
+    return {
+        "id": line_id,
+        "updated": True,
+        "spent_to_date": line.spent_to_date,
+        "amount": line.amount,
+    }
 
 
 @router.delete("/{project_id}/budget-lines/{line_id}")
@@ -1497,44 +1715,274 @@ async def list_documents(
         .order_by(ProjectDocument.uploaded_at.desc())
     )
     docs = result.scalars().all()
-    return [
-        {
-            "id": d.id, "document_type": d.document_type,
-            "original_filename": d.original_filename,
-            "file_size_bytes": d.file_size_bytes,
-            "mime_type": d.mime_type, "uploaded_at": d.uploaded_at,
-            "uploaded_by_name": d.uploaded_by.name if d.uploaded_by else None,
-        }
-        for d in docs
-    ]
+    return [_serialize_document(d) for d in docs]
 
 
 @router.post("/{project_id}/documents", status_code=201)
 async def upload_document(
     project_id: str,
     document_type: str = Form("general"),
+    milestone_id: Optional[str] = Form(None),
+    deliverable_id: Optional[str] = Form(None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    result = await db.execute(select(ResearchProject).where(ResearchProject.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project or project.pi_id != current_user.id:
-        raise HTTPException(404, "Project not found")
+    project = await _ensure_project_owner_executable(db, project_id, current_user.id)
     if project.institution_id != current_user.primary_institution_id:
         raise HTTPException(404, "Project not found")
+
+    resolved_milestone_id = milestone_id or None
+    resolved_deliverable_id = deliverable_id or None
+
+    if resolved_deliverable_id:
+        result = await db.execute(
+            select(ProjectDeliverable).where(
+                ProjectDeliverable.id == resolved_deliverable_id,
+                ProjectDeliverable.project_id == project_id,
+            )
+        )
+        deliverable = result.scalar_one_or_none()
+        if not deliverable:
+            raise HTTPException(404, "Deliverable not found")
+        # Prefer deliverable link; also inherit milestone when present
+        if not resolved_milestone_id and deliverable.milestone_id:
+            resolved_milestone_id = deliverable.milestone_id
+        if not document_type or document_type == "general":
+            document_type = "deliverable_report"
+
+    if resolved_milestone_id:
+        result = await db.execute(
+            select(ProjectMilestone).where(
+                ProjectMilestone.id == resolved_milestone_id,
+                ProjectMilestone.project_id == project_id,
+            )
+        )
+        if not result.scalar_one_or_none():
+            raise HTTPException(404, "Milestone not found")
+        if (not document_type or document_type == "general") and not resolved_deliverable_id:
+            document_type = "milestone_report"
 
     file_info = await save_upload(file, subfolder="projects")
     doc = ProjectDocument(
         project_id=project_id,
         document_type=document_type,
         uploaded_by_id=current_user.id,
+        milestone_id=resolved_milestone_id,
+        deliverable_id=resolved_deliverable_id,
         **file_info,
     )
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
-    return {"id": doc.id, "original_filename": doc.original_filename}
+    return {
+        "id": doc.id,
+        "original_filename": doc.original_filename,
+        "document_type": doc.document_type,
+        "milestone_id": doc.milestone_id,
+        "deliverable_id": doc.deliverable_id,
+    }
+
+
+@router.get("/documents/{doc_id}/download")
+async def download_project_document(
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
+        ResearchRole.DATA_STEWARD,
+    ]))
+):
+    result = await db.execute(
+        select(ProjectDocument)
+        .where(ProjectDocument.id == doc_id)
+        .options(selectinload(ProjectDocument.project))
+    )
+    doc = result.scalar_one_or_none()
+    if not doc or not doc.project:
+        raise HTTPException(404, "Document not found")
+    if doc.project.institution_id != current_user.primary_institution_id:
+        raise HTTPException(403, "Access denied")
+    if (
+        current_user.primary_account_type == PrimaryAccountType.RESEARCHER
+        and not current_user.is_global_admin
+        and not current_user.is_institution_admin
+        and doc.project.pi_id != current_user.id
+    ):
+        raise HTTPException(403, "Access denied")
+
+    path = get_file_path(doc.stored_filename, subfolder="projects")
+    if not os.path.isfile(path):
+        raise HTTPException(404, "File not found on server")
+
+    return FileResponse(
+        path,
+        filename=doc.original_filename,
+        media_type=doc.mime_type or "application/octet-stream",
+    )
+
+
+# ─── PAYMENT REQUESTS ─────────────────────────────────────────────────────────
+
+@router.get("/{project_id}/payment-requests")
+async def list_payment_requests(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
+    ]))
+):
+    result = await db.execute(select(ResearchProject).where(ResearchProject.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project or project.institution_id != current_user.primary_institution_id:
+        raise HTTPException(404, "Project not found")
+
+    result = await db.execute(
+        select(ProjectPaymentRequest)
+        .where(ProjectPaymentRequest.project_id == project_id)
+        .options(
+            selectinload(ProjectPaymentRequest.budget_line),
+            selectinload(ProjectPaymentRequest.requested_by),
+            selectinload(ProjectPaymentRequest.reviewed_by),
+        )
+        .order_by(ProjectPaymentRequest.created_at.desc())
+    )
+    return [_serialize_payment_request(r) for r in result.scalars().all()]
+
+
+@router.post("/{project_id}/payment-requests", status_code=201)
+async def create_payment_request(
+    project_id: str,
+    data: PaymentRequestCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
+):
+    project = await _ensure_project_owner_executable(db, project_id, current_user.id)
+    purpose = (data.purpose or "").strip()
+    if not purpose:
+        raise HTTPException(400, "Purpose is required")
+
+    budget_line = None
+    if data.budget_line_id:
+        result = await db.execute(
+            select(ProjectBudgetLine).where(
+                ProjectBudgetLine.id == data.budget_line_id,
+                ProjectBudgetLine.project_id == project_id,
+            )
+        )
+        budget_line = result.scalar_one_or_none()
+        if not budget_line:
+            raise HTTPException(404, "Budget line not found")
+
+    req = ProjectPaymentRequest(
+        project_id=project_id,
+        budget_line_id=data.budget_line_id,
+        amount=data.amount,
+        currency=(data.currency or project.reporting_currency or "KES").upper(),
+        purpose=purpose,
+        justification=(data.justification or "").strip() or None,
+        status="pending",
+        requested_by_id=current_user.id,
+    )
+    db.add(req)
+    await db.commit()
+    await db.refresh(req)
+
+    result = await db.execute(
+        select(ProjectPaymentRequest)
+        .where(ProjectPaymentRequest.id == req.id)
+        .options(
+            selectinload(ProjectPaymentRequest.budget_line),
+            selectinload(ProjectPaymentRequest.requested_by),
+            selectinload(ProjectPaymentRequest.reviewed_by),
+        )
+    )
+    return _serialize_payment_request(result.scalar_one())
+
+
+@router.patch("/{project_id}/payment-requests/{request_id}")
+async def update_payment_request(
+    project_id: str,
+    request_id: str,
+    data: PaymentRequestUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([
+        ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER,
+    ]))
+):
+    result = await db.execute(
+        select(ProjectPaymentRequest)
+        .where(
+            ProjectPaymentRequest.id == request_id,
+            ProjectPaymentRequest.project_id == project_id,
+        )
+        .options(
+            selectinload(ProjectPaymentRequest.budget_line),
+            selectinload(ProjectPaymentRequest.requested_by),
+            selectinload(ProjectPaymentRequest.reviewed_by),
+            selectinload(ProjectPaymentRequest.project),
+        )
+    )
+    req = result.scalar_one_or_none()
+    if not req or not req.project or req.project.institution_id != current_user.primary_institution_id:
+        raise HTTPException(404, "Payment request not found")
+
+    updates = data.model_dump(exclude_unset=True)
+    is_pi = req.project.pi_id == current_user.id
+    officer_types = {
+        PrimaryAccountType.ADMIN_STAFF,
+        PrimaryAccountType.GRANT_MANAGER,
+        PrimaryAccountType.FINANCE_OFFICER,
+        PrimaryAccountType.INSTITUTIONAL_LEADERSHIP,
+    }
+    is_officer = (
+        current_user.is_global_admin
+        or current_user.is_institution_admin
+        or current_user.primary_account_type in officer_types
+    )
+
+    if "status" in updates:
+        new_status = updates["status"]
+        if new_status not in PAYMENT_REQUEST_STATUSES:
+            raise HTTPException(400, f"Invalid status. Allowed: {', '.join(sorted(PAYMENT_REQUEST_STATUSES))}")
+        # PI can cancel their own pending request; officers can approve/reject/paid
+        if new_status == "cancelled":
+            if not is_pi or req.status != "pending":
+                raise HTTPException(403, "Only the PI can cancel a pending request.")
+        elif new_status in {"approved", "rejected", "paid"}:
+            if not is_officer:
+                raise HTTPException(403, "Only grant officers can review payment requests.")
+            req.reviewed_by_id = current_user.id
+            req.reviewed_at = datetime.now(timezone.utc)
+            # When marked paid and linked to a budget line, bump expenditure
+            if new_status == "paid" and req.budget_line_id and req.status != "paid":
+                line_result = await db.execute(
+                    select(ProjectBudgetLine).where(ProjectBudgetLine.id == req.budget_line_id)
+                )
+                line = line_result.scalar_one_or_none()
+                if line:
+                    line.spent_to_date = (line.spent_to_date or 0) + (req.amount or 0)
+        else:
+            raise HTTPException(403, "Status transition not allowed.")
+        req.status = new_status
+
+    if "review_notes" in updates:
+        if not is_officer:
+            raise HTTPException(403, "Only grant officers can add review notes.")
+        req.review_notes = updates["review_notes"]
+
+    await db.commit()
+
+    result = await db.execute(
+        select(ProjectPaymentRequest)
+        .where(ProjectPaymentRequest.id == request_id)
+        .options(
+            selectinload(ProjectPaymentRequest.budget_line),
+            selectinload(ProjectPaymentRequest.requested_by),
+            selectinload(ProjectPaymentRequest.reviewed_by),
+        )
+    )
+    return _serialize_payment_request(result.scalar_one())
 
 
 # ─── Reviewer Assignment ─────────────────────────────────────────────────────

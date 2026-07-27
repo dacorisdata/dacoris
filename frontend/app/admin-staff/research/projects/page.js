@@ -92,11 +92,12 @@ export default function ResearchProjectsPage() {
               <TableCell>Start</TableCell>
               <TableCell>End</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell align="right">Tracking</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {filtered.length === 0 ? (
-              <TableRow><TableCell colSpan={6}>
+              <TableRow><TableCell colSpan={7}>
                 <Box sx={{ textAlign: 'center', py: 6 }}>
                   <FolderIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                   <Typography sx={{ color: 'text.secondary', fontWeight: 600 }}>No projects found</Typography>
@@ -106,7 +107,12 @@ export default function ResearchProjectsPage() {
             ) : filtered.map(p => {
               const sm = STATUS_META[p.status] || STATUS_META.proposed;
               return (
-                <TableRow key={p.id} hover sx={{ '&:last-child td': { borderBottom: 'none' }, '&:hover': { bgcolor: `${ACCENT}06` } }}>
+                <TableRow
+                  key={p.id}
+                  hover
+                  sx={{ '&:last-child td': { borderBottom: 'none' }, '&:hover': { bgcolor: `${ACCENT}06` }, cursor: 'pointer' }}
+                  onClick={() => router.push(`/admin-staff/research/projects/${p.id}`)}
+                >
                   <TableCell>
                     <Typography sx={{ fontWeight: 600, fontSize: 14, color: 'text.primary' }}>{p.title}</Typography>
                     {p.description && <Typography sx={{ color: 'text.secondary', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>{p.description}</Typography>}
@@ -119,6 +125,9 @@ export default function ResearchProjectsPage() {
                   <TableCell><Typography sx={{ fontSize: 13.5 }}>{fmtDate(p.start_date)}</Typography></TableCell>
                   <TableCell><Typography sx={{ fontSize: 13.5 }}>{fmtDate(p.end_date)}</Typography></TableCell>
                   <TableCell><Chip label={p.status} size="small" sx={{ bgcolor: sm.bg, color: sm.color, fontWeight: 600, fontSize: 11, textTransform: 'capitalize' }} /></TableCell>
+                  <TableCell align="right">
+                    <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: ACCENT }}>Open</Typography>
+                  </TableCell>
                 </TableRow>
               );
             })}

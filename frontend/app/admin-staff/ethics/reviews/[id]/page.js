@@ -4,15 +4,18 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   Box, Typography, CircularProgress, useTheme, Button, Chip, Paper, TextField,
+  Alert, Avatar,
 } from '@mui/material';
 import {
   ArrowBack as BackIcon, Gavel as EthicsIcon,
   Person as PersonIcon, Warning as RiskIcon,
-  CalendarToday as CalIcon, CheckCircle as ApproveIcon,
-  Cancel as RejectIcon, ChangeCircle as DeferIcon, Article as DocIcon,
+  CalendarToday as CalIcon, Article as DocIcon,
+  PersonAdd as AssignIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../../contexts/AuthContext';
+import { useLanguage } from '../../../../../contexts/LanguageContext';
 import api from '../../../../../lib/api';
+import AssignReviewerDialog from '../../../../../components/AssignReviewerDialog';
 
 const ACCENT = '#8b5cf6';
 
@@ -56,11 +59,14 @@ export default function EthicsReviewDetailPage() {
   const router = useRouter();
   const params = useParams();
   const { fetchUser } = useAuth();
+  const { t } = useLanguage();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
   const [loading, setLoading] = useState(true);
   const [review, setReview] = useState(null);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [assignOpen, setAssignOpen] = useState(false);
 
   useEffect(() => { init(); }, []);
 
@@ -109,6 +115,7 @@ export default function EthicsReviewDetailPage() {
   const sm = STATUS_META[review.status] || STATUS_META.submitted;
   const rm = RISK_COLORS[review.risk_level] || RISK_COLORS.Medium;
   const canReview = ['submitted', 'under_review', 'deferred'].includes(review.status);
+  const activeAssignments = (review.reviewer_assignments || []).filter((a) => a.status !== 'declined');
 
   return (
     <Box sx={{ p: { xs: 2, md: 4 } }}>
@@ -119,6 +126,12 @@ export default function EthicsReviewDetailPage() {
       >
         Back to Ethics Reviews
       </Button>
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setSuccess('')}>
+          {success}
+        </Alert>
+      )}
 
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <Box sx={{
@@ -229,45 +242,55 @@ export default function EthicsReviewDetailPage() {
             )}
           </Paper>
 
-          {canReview && (
-            <Paper elevation={0} variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
-              <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>Review Actions</Typography>
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2 }}>
-                Record decisions from the Applications page or use the actions below when workflow is enabled.
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  startIcon={<ApproveIcon />}
-                  onClick={() => router.push('/admin-staff/ethics/applications')}
-                  sx={{ textTransform: 'none', borderRadius: 2, bgcolor: '#10b981', '&:hover': { bgcolor: '#059669' } }}
-                >
-                  Go to Applications
-                </Button>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<DeferIcon />}
-                  onClick={() => router.push('/admin-staff/ethics/applications')}
-                  sx={{ textTransform: 'none', borderRadius: 2, borderColor: '#8b5cf6', color: '#8b5cf6' }}
-                >
-                  Record Decision
-                </Button>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<RejectIcon />}
-                  onClick={() => router.push('/admin-staff/ethics/applications')}
-                  sx={{ textTransform: 'none', borderRadius: 2, borderColor: '#ef4444', color: '#ef4444' }}
-                >
-                  View All Applications
-                </Button>
+          <Paper elevation={0} variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+            <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 2 }}>{t('reviewerAssignment.cardTitle')}</Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2 }}>
+              {t('reviewerAssignment.cardDescEthics')}
+            </Typography>
+            {activeAssignments.length > 0 ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
+                {activeAssignments.map((a) => (
+                  <Box key={a.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5, borderRadius: 2, border: `1px solid ${theme.palette.divider}` }}>
+                    <Avatar sx={{ width: 32, height: 32, bgcolor: ACCENT, fontSize: 12 }}>
+                      {a.reviewer_name?.charAt(0) || '?'}
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{a.reviewer_name}</Typography>
+                      <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{a.reviewer_email}</Typography>
+                    </Box>
+                  </Box>
+                ))}
               </Box>
-            </Paper>
-          )}
+            ) : (
+              <Typography sx={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, mb: 2 }}>
+                {t('reviewerAssignment.noReviewerYet')}
+              </Typography>
+            )}
+            {canReview && (
+              <Button
+                fullWidth size="small" variant="outlined" startIcon={<AssignIcon sx={{ fontSize: 16 }} />}
+                onClick={() => setAssignOpen(true)}
+                sx={{ textTransform: 'none', borderRadius: 2, borderColor: ACCENT, color: ACCENT, fontWeight: 600 }}
+              >
+                {t('reviewerAssignment.assignButton')}
+              </Button>
+            )}
+          </Paper>
         </Box>
       </Box>
+
+      <AssignReviewerDialog
+        open={assignOpen}
+        entityTitle={review.application_title}
+        entitySubtitle={review.ref}
+        assignUrl={`/research/ethics/${review.id}/assign-reviewer`}
+        reviewersUrl="/research/ethics/reviewers/available"
+        onClose={() => setAssignOpen(false)}
+        onAssigned={async () => {
+          setSuccess(t('reviewerAssignment.successMessage'));
+          await loadReview();
+        }}
+      />
     </Box>
   );
 }

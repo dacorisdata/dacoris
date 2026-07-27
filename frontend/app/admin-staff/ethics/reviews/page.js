@@ -6,14 +6,18 @@ import {
   Box, Typography, CircularProgress, useTheme, Button, Chip, Alert,
   Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   TextField, InputAdornment, FormControl, Select, MenuItem,
+  Avatar, Tooltip, IconButton,
 } from '@mui/material';
 import {
   Gavel as EthicsIcon, ArrowForward as ArrowIcon,
   Person as PersonIcon, CalendarToday as CalIcon,
   Refresh as RefreshIcon, Description as DocIcon,
+  PersonAdd as AssignIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
+import { useLanguage } from '../../../../contexts/LanguageContext';
 import api from '../../../../lib/api';
+import AssignReviewerDialog from '../../../../components/AssignReviewerDialog';
 
 const ACCENT = '#8b5cf6';
 
@@ -50,13 +54,16 @@ const typeLabel = t =>
 export default function EthicsReviewsPage() {
   const router = useRouter();
   const { fetchUser } = useAuth();
+  const { t } = useLanguage();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState([]);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [assignTarget, setAssignTarget] = useState(null);
 
   useEffect(() => { init(); }, []);
 
@@ -160,6 +167,12 @@ export default function EthicsReviewsPage() {
       {error && (
         <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError('')}>
           {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setSuccess('')}>
+          {success}
         </Alert>
       )}
 
@@ -348,6 +361,7 @@ export default function EthicsReviewsPage() {
                     <TableCell sx={headCell}>Risk</TableCell>
                     <TableCell sx={headCell}>Submitted</TableCell>
                     <TableCell sx={headCell}>Status</TableCell>
+                    <TableCell sx={headCell}>{t('reviewerAssignment.columnHeader')}</TableCell>
                     <TableCell sx={headCell} align="right">Action</TableCell>
                   </TableRow>
                 </TableHead>
@@ -355,6 +369,7 @@ export default function EthicsReviewsPage() {
                   {filtered.map(r => {
                     const sm = STATUS_META[r.status] || STATUS_META.submitted;
                     const rm = RISK_META[r.risk_level] || RISK_META.Medium;
+                    const activeAssignments = (r.reviewer_assignments || []).filter(a => a.status !== 'declined');
                     return (
                       <TableRow
                         key={r.id}
@@ -390,8 +405,37 @@ export default function EthicsReviewsPage() {
                         <TableCell>
                           <Chip label={sm.label} size="small" sx={{ fontSize: 10, fontWeight: 700, height: 22, bgcolor: sm.bg, color: sm.color }} />
                         </TableCell>
+                        <TableCell>
+                          {activeAssignments.length > 0 ? (
+                            <Tooltip title={activeAssignments.map(a => a.reviewer_name).join(', ')}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Avatar sx={{ width: 24, height: 24, fontSize: 11, bgcolor: '#8b5cf6' }}>
+                                  {activeAssignments[0].reviewer_name?.charAt(0) || '?'}
+                                </Avatar>
+                                {activeAssignments.length > 1 && (
+                                  <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>+{activeAssignments.length - 1}</Typography>
+                                )}
+                              </Box>
+                            </Tooltip>
+                          ) : (
+                            <Typography sx={{ fontSize: 11, color: '#f59e0b', fontWeight: 600 }}>
+                              {t('reviewerAssignment.unassigned')}
+                            </Typography>
+                          )}
+                        </TableCell>
                         <TableCell align="right">
-                          <ArrowIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <Tooltip title={activeAssignments.length > 0 ? t('reviewerAssignment.addAnotherTooltip') : t('reviewerAssignment.assignTooltip')}>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => { e.stopPropagation(); setAssignTarget(r); }}
+                                sx={{ color: activeAssignments.length > 0 ? 'text.secondary' : '#f59e0b' }}
+                              >
+                                <AssignIcon sx={{ fontSize: 17 }} />
+                              </IconButton>
+                            </Tooltip>
+                            <ArrowIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                          </Box>
                         </TableCell>
                       </TableRow>
                     );
@@ -402,6 +446,19 @@ export default function EthicsReviewsPage() {
           </Paper>
         </>
       )}
+
+      <AssignReviewerDialog
+        open={!!assignTarget}
+        entityTitle={assignTarget?.application_title || assignTarget?.title}
+        entitySubtitle={assignTarget?.ref}
+        assignUrl={assignTarget ? `/research/ethics/${assignTarget.id}/assign-reviewer` : ''}
+        reviewersUrl="/research/ethics/reviewers/available"
+        onClose={() => setAssignTarget(null)}
+        onAssigned={async () => {
+          setSuccess(t('reviewerAssignment.successMessage'));
+          await loadReviews();
+        }}
+      />
     </Box>
   );
 }

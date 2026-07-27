@@ -2,11 +2,13 @@
 Reviewer portal API — invitations, registration, and assignment management.
 """
 
+import os
 import secrets
 from datetime import datetime, timezone
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
@@ -15,10 +17,12 @@ from pydantic import BaseModel, EmailStr
 from database import get_db
 from models import (
     User, Institution, Proposal, ProposalReview, ResearchProject,
-    EthicsApplication, ReviewType, ReviewerAssignmentStatus,
+    EthicsApplication, EthicsDocument, ProjectDocument, ProposalDocument,
+    ProposalDocumentRequirement, ReviewType, ReviewerAssignmentStatus,
     ReviewerAssignment, PrimaryAccountType, AccountType, UserStatus,
     ResearchRole, user_roles, ReviewStatus,
 )
+from services.file_upload import get_file_path, UPLOAD_DIR
 from auth import (
     get_current_active_user, get_password_hash, create_access_token,
     create_refresh_token, ACCESS_TOKEN_EXPIRE_MINUTES, require_roles,
@@ -140,6 +144,177 @@ def _require_reviewer(user: User):
     if user.primary_account_type != PrimaryAccountType.EXTERNAL_REVIEWER:
         if not user.is_global_admin:
             raise HTTPException(403, "Reviewer access only")
+
+
+async def _get_reviewer_assignment(
+    db: AsyncSession,
+    assignment_id: str,
+    reviewer_id: str,
+) -> ReviewerAssignment:
+    assignment = await db.get(ReviewerAssignment, assignment_id)
+    if not assignment or assignment.reviewer_id != reviewer_id:
+        raise HTTPException(404, "Assignment not found")
+    return assignment
+
+
+def _serialize_reviewer_document(doc, label: Optional[str] = None) -> dict:
+    return {
+        "id": doc.id,
+        "label": label,
+        "document_type": getattr(doc, "document_type", None),
+        "original_filename": doc.original_filename,
+        "file_size_bytes": getattr(doc, "file_size_bytes", None),
+        "mime_type": getattr(doc, "mime_type", None),
+        "uploaded_at": doc.uploaded_at.isoformat() if getattr(doc, "uploaded_at", None) else None,
+    }
+
+
+async def _load_entity_for_reviewer(
+    db: AsyncSession,
+    assignment: ReviewerAssignment,
+) -> Optional[dict]:
+    if assignment.review_type == ReviewType.PROPOSAL:
+        result = await db.execute(
+            select(Proposal)
+            .options(
+                selectinload(Proposal.sections),
+                selectinload(Proposal.documents),
+                selectinload(Proposal.document_requirements).selectinload(
+                    ProposalDocumentRequirement.document
+                ),
+                selectinload(Proposal.lead_pi),
+                selectinload(Proposal.opportunity),
+            )
+            .where(Proposal.id == assignment.entity_id)
+        )
+        proposal = result.scalar_one_or_none()
+        if not proposal:
+            return None
+
+        sections = sorted(
+            proposal.sections or [],
+            key=lambda s: (s.section_order, s.id),
+        )
+        documents = []
+        seen_doc_ids = set()
+        for req in sorted(
+            proposal.document_requirements or [],
+            key=lambda r: (r.item_order, r.id),
+        ):
+            if req.document:
+                seen_doc_ids.add(req.document.id)
+                documents.append(
+                    _serialize_reviewer_document(req.document, label=req.label)
+                )
+        for doc in proposal.documents or []:
+            if doc.id not in seen_doc_ids:
+                documents.append(_serialize_reviewer_document(doc))
+
+        return {
+            "id": proposal.id,
+            "title": proposal.title,
+            "status": proposal.status.value if proposal.status else None,
+            "lead_pi_name": proposal.lead_pi.name if proposal.lead_pi else None,
+            "opportunity_title": (
+                proposal.opportunity.title if proposal.opportunity else None
+            ),
+            "sections": [
+                {
+                    "id": s.id,
+                    "title": s.title,
+                    "content_html": s.content_html or "",
+                    "word_count": s.word_count or 0,
+                    "section_order": s.section_order,
+                }
+                for s in sections
+            ],
+            "documents": documents,
+        }
+
+    if assignment.review_type == ReviewType.PROJECT:
+        result = await db.execute(
+            select(ResearchProject)
+            .options(selectinload(ResearchProject.project_documents))
+            .where(ResearchProject.id == assignment.entity_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            return None
+
+        return {
+            "id": project.id,
+            "title": project.title,
+            "status": project.status.value if project.status else None,
+            "description": project.description,
+            "project_abstract": project.project_abstract,
+            "background_rationale": project.background_rationale,
+            "problem_statement": project.problem_statement,
+            "research_methodology": project.research_methodology,
+            "research_design": project.research_design,
+            "target_population": project.target_population,
+            "research_objectives": project.research_objectives,
+            "research_keywords": project.research_keywords,
+            "project_type": project.project_type,
+            "research_area": project.research_area,
+            "department": project.department,
+            "lead_institution": project.lead_institution,
+            "pi_full_name": project.pi_full_name,
+            "pi_email": project.pi_email,
+            "pi_orcid": project.pi_orcid,
+            "start_date": (
+                project.start_date.isoformat() if project.start_date else None
+            ),
+            "end_date": (
+                project.end_date.isoformat() if project.end_date else None
+            ),
+            "involves_human_subjects": project.involves_human_subjects,
+            "involves_animal_subjects": project.involves_animal_subjects,
+            "involves_sensitive_data": project.involves_sensitive_data,
+            "is_clinical_trial": project.is_clinical_trial,
+            "documents": [
+                _serialize_reviewer_document(d)
+                for d in (project.project_documents or [])
+            ],
+        }
+
+    if assignment.review_type == ReviewType.ETHICS:
+        result = await db.execute(
+            select(EthicsApplication)
+            .options(
+                selectinload(EthicsApplication.documents),
+                selectinload(EthicsApplication.project),
+                selectinload(EthicsApplication.submitted_by),
+            )
+            .where(EthicsApplication.id == assignment.entity_id)
+        )
+        app = result.scalar_one_or_none()
+        if not app:
+            return None
+
+        project = app.project
+        return {
+            "id": app.id,
+            "title": app.title,
+            "application_type": app.application_type,
+            "status": app.status.value if app.status else None,
+            "lay_summary": app.lay_summary,
+            "methodology": app.methodology,
+            "risk_assessment": app.risk_assessment,
+            "data_handling": app.data_handling,
+            "submitted_at": (
+                app.submitted_at.isoformat() if app.submitted_at else None
+            ),
+            "submitted_by_name": (
+                app.submitted_by.name if app.submitted_by else None
+            ),
+            "project_title": project.title if project else None,
+            "project_id": app.project_id,
+            "documents": [
+                _serialize_reviewer_document(d) for d in (app.documents or [])
+            ],
+        }
+
+    return None
 
 
 # ─── Public invitation endpoints ───────────────────────────────────────────────
@@ -419,38 +594,7 @@ async def get_assignment(
         raise HTTPException(404, "Assignment not found")
 
     detail = _serialize_assignment(assignment)
-    detail["entity"] = None
-
-    if assignment.review_type == ReviewType.PROPOSAL:
-        proposal = await db.get(Proposal, assignment.entity_id)
-        if proposal:
-            detail["entity"] = {
-                "id": proposal.id,
-                "title": proposal.title,
-                "status": proposal.status.value if proposal.status else None,
-            }
-    elif assignment.review_type == ReviewType.PROJECT:
-        project = await db.get(ResearchProject, assignment.entity_id)
-        if project:
-            detail["entity"] = {
-                "id": project.id,
-                "title": project.title,
-                "description": project.description,
-                "status": project.status.value if project.status else None,
-                "project_abstract": project.project_abstract,
-            }
-    elif assignment.review_type == ReviewType.ETHICS:
-        app = await db.get(EthicsApplication, assignment.entity_id)
-        if app:
-            detail["entity"] = {
-                "id": app.id,
-                "title": app.title,
-                "application_type": app.application_type,
-                "status": app.status.value if app.status else None,
-                "lay_summary": app.lay_summary,
-                "methodology": app.methodology,
-                "risk_assessment": app.risk_assessment,
-            }
+    detail["entity"] = await _load_entity_for_reviewer(db, assignment)
 
     if assignment.entity_review_id:
         review = await db.get(ProposalReview, assignment.entity_review_id)
@@ -467,6 +611,82 @@ async def get_assignment(
             }
 
     return detail
+
+
+@router.get("/assignments/{assignment_id}/documents/{doc_id}")
+async def download_assignment_document(
+    assignment_id: str,
+    doc_id: str,
+    inline: bool = Query(False, description="Serve inline for browser preview"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Download or preview a document attached to the assigned entity."""
+    _require_reviewer(current_user)
+    assignment = await _get_reviewer_assignment(db, assignment_id, current_user.id)
+
+    path = None
+    filename = None
+    media_type = "application/octet-stream"
+
+    if assignment.review_type == ReviewType.PROPOSAL:
+        result = await db.execute(
+            select(ProposalDocument).where(
+                ProposalDocument.id == doc_id,
+                ProposalDocument.proposal_id == assignment.entity_id,
+            )
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        path = os.path.join(UPLOAD_DIR, "documents", doc.stored_filename)
+        filename = doc.original_filename or doc.stored_filename
+        media_type = doc.mime_type or media_type
+
+    elif assignment.review_type == ReviewType.PROJECT:
+        result = await db.execute(
+            select(ProjectDocument).where(
+                ProjectDocument.id == doc_id,
+                ProjectDocument.project_id == assignment.entity_id,
+            )
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        path = get_file_path(doc.stored_filename, subfolder="projects")
+        filename = doc.original_filename or doc.stored_filename
+        media_type = doc.mime_type or media_type
+
+    elif assignment.review_type == ReviewType.ETHICS:
+        result = await db.execute(
+            select(EthicsDocument).where(
+                EthicsDocument.id == doc_id,
+                EthicsDocument.ethics_application_id == assignment.entity_id,
+            )
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        path = (
+            doc.file_path
+            if doc.file_path and os.path.isfile(doc.file_path)
+            else os.path.join(UPLOAD_DIR, doc.stored_filename)
+        )
+        filename = doc.original_filename or doc.stored_filename
+        media_type = doc.mime_type or media_type
+    else:
+        raise HTTPException(404, "Document not found")
+
+    if not path or not os.path.isfile(path):
+        raise HTTPException(404, "File not found on server")
+
+    disposition = "inline" if inline else "attachment"
+    return FileResponse(
+        path,
+        filename=filename,
+        media_type=media_type,
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+    )
 
 
 @router.post("/assignments/{assignment_id}/start")

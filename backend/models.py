@@ -742,6 +742,8 @@ class ResearchProject(Base):
                                      foreign_keys="ProjectDocument.project_id")
     dmp_linked_document = relationship("ProjectDocument", foreign_keys=[dmp_linked_document_id],
                                        post_update=True)
+    payment_requests = relationship("ProjectPaymentRequest", back_populates="project",
+                                    cascade="all, delete-orphan")
     research_outputs = relationship("ResearchOutput", back_populates="project")
     manuscripts = relationship("Manuscript", back_populates="project")
 
@@ -1024,6 +1026,8 @@ class ProjectMilestone(Base):
                          cascade="all, delete-orphan")
     deliverables = relationship("ProjectDeliverable", back_populates="milestone",
                                 foreign_keys="ProjectDeliverable.milestone_id")
+    documents = relationship("ProjectDocument", back_populates="milestone",
+                             foreign_keys="ProjectDocument.milestone_id")
 
 
 class ProjectTeam(Base):
@@ -1085,6 +1089,8 @@ class ProjectDeliverable(Base):
     assignee_member = relationship("ProjectMember", foreign_keys=[assignee_member_id])
     assignee_team = relationship("ProjectTeam", back_populates="deliverable_assignments",
                                  foreign_keys=[assignee_team_id])
+    documents = relationship("ProjectDocument", back_populates="deliverable",
+                             foreign_keys="ProjectDocument.deliverable_id")
 
 
 class ProjectBudgetLine(Base):
@@ -1100,6 +1106,7 @@ class ProjectBudgetLine(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     project = relationship("ResearchProject", back_populates="budget_lines")
+    payment_requests = relationship("ProjectPaymentRequest", back_populates="budget_line")
 
 
 class ProjectTask(Base):
@@ -1130,10 +1137,40 @@ class ProjectDocument(Base):
     mime_type = Column(String(200))
     uploaded_by_id = Column(String, ForeignKey("users.id"))
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+    milestone_id = Column(String, ForeignKey("project_milestones.id"), nullable=True)
+    deliverable_id = Column(String, ForeignKey("project_deliverables.id"), nullable=True)
 
     project = relationship("ResearchProject", back_populates="project_documents",
                            foreign_keys=[project_id])
     uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+    milestone = relationship("ProjectMilestone", back_populates="documents",
+                             foreign_keys=[milestone_id])
+    deliverable = relationship("ProjectDeliverable", back_populates="documents",
+                               foreign_keys=[deliverable_id])
+
+
+class ProjectPaymentRequest(Base):
+    __tablename__ = "project_payment_requests"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=False)
+    budget_line_id = Column(String, ForeignKey("project_budget_lines.id"), nullable=True)
+    amount = Column(Integer, nullable=False)
+    currency = Column(String(10), default="KES")
+    purpose = Column(String(500), nullable=False)
+    justification = Column(Text, nullable=True)
+    status = Column(String(50), default="pending")  # pending | approved | rejected | paid | cancelled
+    requested_by_id = Column(String, ForeignKey("users.id"))
+    reviewed_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    review_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    project = relationship("ResearchProject", back_populates="payment_requests")
+    budget_line = relationship("ProjectBudgetLine", back_populates="payment_requests")
+    requested_by = relationship("User", foreign_keys=[requested_by_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
 
 
 class ResearchOutput(Base):
@@ -1717,6 +1754,54 @@ class DataImport(Base):
     project = relationship("ResearchProject")
     creator = relationship("User", foreign_keys=[created_by])
     supersedes = relationship("DataImport", remote_side=[id], foreign_keys=[supersedes_id])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUALITATIVE DATA (KII / FGD)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class QualitativeDataType(str, enum.Enum):
+    KII = "kii"
+    FGD = "fgd"
+    OTHER = "other"
+
+
+class QualitativeData(Base):
+    """
+    Qualitative research records (Key Informant Interviews, Focus Group Discussions, etc.).
+    Files (transcripts, audio, video) are stored on local disk under UPLOAD_DIR — these are
+    NOT ingested into the MinIO Bronze lakehouse pipeline used for quantitative DataImport.
+    """
+    __tablename__ = "qualitative_data"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    researcher_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    project_id = Column(String, ForeignKey("research_projects.id"), nullable=True, index=True)
+
+    data_type = Column(Enum(QualitativeDataType), nullable=False)
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    date_conducted = Column(DateTime(timezone=True), nullable=True)
+    location = Column(String(255), nullable=True)
+    language = Column(String(100), nullable=True)
+
+    original_filename = Column(String(255), nullable=True)
+    stored_filename = Column(String(255), nullable=True)
+    file_path = Column(Text, nullable=True)
+    file_format = Column(String(20), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    mime_type = Column(String(150), nullable=True)
+
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    institution = relationship("Institution")
+    researcher = relationship("User", foreign_keys=[researcher_id])
+    project = relationship("ResearchProject")
+    created_by = relationship("User", foreign_keys=[created_by_id])
 
 
 # ═══════════════════════════════════════════════════════════════════════════

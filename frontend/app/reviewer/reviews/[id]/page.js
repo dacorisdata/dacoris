@@ -15,6 +15,7 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import { useLanguage } from '../../../../contexts/LanguageContext';
 import { isReviewerUser } from '../../../../lib/authRouting';
 import api from '../../../../lib/api';
+import ReviewerMaterialsPanel from '../../../../components/ReviewerMaterialsPanel';
 
 const REVIEW_CRITERIA = [
   { id: 'innovation', weight: 25, max: 10 },
@@ -154,7 +155,7 @@ export default function ReviewerReviewDetailPage() {
 
   const isSubmitted = assignment.status === 'submitted';
   const isReadOnly = isSubmitted;
-  const entity = assignment.entity || {};
+  const entity = assignment.entity;
   const typeKey = TYPE_KEYS[assignment.review_type] || 'proposal';
 
   return (
@@ -205,62 +206,12 @@ export default function ReviewerReviewDetailPage() {
         </Alert>
       )}
 
-      <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
-        <Typography sx={{ fontWeight: 700, mb: 2, fontSize: 16 }}>
-          {t('reviewer.detail.materialsTitle')}
-        </Typography>
-        {assignment.review_type === 'proposal' && (
-          <>
-            {entity.status && (
-              <Typography sx={{ fontSize: 14 }}>
-                <strong>{t('reviewer.detail.statusLabel')}</strong> {entity.status}
-              </Typography>
-            )}
-          </>
-        )}
-        {assignment.review_type === 'project' && (
-          <>
-            {(entity.project_abstract || entity.description) && (
-              <Typography sx={{ fontSize: 14, lineHeight: 1.7, mb: 2 }}>
-                {entity.project_abstract || entity.description}
-              </Typography>
-            )}
-            {entity.status && (
-              <Typography sx={{ fontSize: 14 }}>
-                <strong>{t('reviewer.detail.statusLabel')}</strong> {entity.status}
-              </Typography>
-            )}
-          </>
-        )}
-        {assignment.review_type === 'ethics' && (
-          <>
-            {entity.lay_summary && (
-              <Box sx={{ mb: 2 }}>
-                <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-                  {t('reviewer.detail.laySummary')}
-                </Typography>
-                <Typography sx={{ fontSize: 14, lineHeight: 1.7 }}>{entity.lay_summary}</Typography>
-              </Box>
-            )}
-            {entity.methodology && (
-              <Box sx={{ mb: 2 }}>
-                <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-                  {t('reviewer.detail.methodology')}
-                </Typography>
-                <Typography sx={{ fontSize: 14, lineHeight: 1.7 }}>{entity.methodology}</Typography>
-              </Box>
-            )}
-            {entity.risk_assessment && (
-              <Box>
-                <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-                  {t('reviewer.detail.riskAssessment')}
-                </Typography>
-                <Typography sx={{ fontSize: 14, lineHeight: 1.7 }}>{entity.risk_assessment}</Typography>
-              </Box>
-            )}
-          </>
-        )}
-      </Paper>
+      <ReviewerMaterialsPanel
+        assignment={assignment}
+        entity={entity}
+        accent={ACCENT}
+        dark={dark}
+      />
 
       {!isReadOnly && (
         <>

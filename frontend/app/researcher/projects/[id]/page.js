@@ -26,6 +26,8 @@ import {
 import axios from 'axios';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLanguage } from '../../../../contexts/LanguageContext';
+import ProjectPlanTab from '../../../../components/ProjectPlanTab';
+import ProjectFinancialTab from '../../../../components/ProjectFinancialTab';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#1ca7a1';
@@ -101,14 +103,17 @@ function StatusChip({ status, t }) {
   );
 }
 
-function SectionCard({ icon: Icon, title, children }) {
+function SectionCard({ icon: Icon, title, children, action }) {
   return (
     <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, mb: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5, pb: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: `${ACCENT}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon sx={{ fontSize: 18, color: ACCENT }} />
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, mb: 2.5, pb: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+          <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: `${ACCENT}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Icon sx={{ fontSize: 18, color: ACCENT }} />
+          </Box>
+          <Typography sx={{ fontSize: 16, fontWeight: 700 }}>{title}</Typography>
         </Box>
-        <Typography sx={{ fontSize: 16, fontWeight: 700 }}>{title}</Typography>
+        {action}
       </Box>
       {children}
     </Paper>
@@ -215,9 +220,9 @@ export default function ProjectDetailsPage() {
     });
   }, [id]);
 
-  const loadProject = async () => {
+  const loadProject = async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError('');
       const token = localStorage.getItem('token');
       const res = await axios.get(`${API}/research/projects/${id}`, {
@@ -232,7 +237,7 @@ export default function ProjectDetailsPage() {
     } catch {
       setError(t(`${PD}.errorLoad`));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -258,8 +263,6 @@ export default function ProjectDetailsPage() {
   const milestonePct = project.milestone_count
     ? Math.round((project.done_milestone_count / project.milestone_count) * 100)
     : 0;
-  const budgetTotal = (project.budget_lines || []).reduce((s, l) => s + (Number(l.amount) || 0), 0);
-  const budgetSpent = (project.budget_lines || []).reduce((s, l) => s + (Number(l.spent_to_date) || 0), 0);
   const keywords = Array.isArray(project.research_keywords) ? project.research_keywords : [];
   const objectives = Array.isArray(project.research_objectives) ? project.research_objectives : [];
   const declarations = project.declaration_responses || {};
@@ -350,7 +353,7 @@ export default function ProjectDetailsPage() {
 
       {project.status !== 'draft' && (
         <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
-          {t(`${PD}.readOnlyAlert`)}
+          {t(`${PD}.executionAlert`)}
         </Alert>
       )}
 
@@ -503,64 +506,15 @@ export default function ProjectDetailsPage() {
           )}
 
           {tab === 3 && (
-            <>
-              <SectionCard icon={MilestoneIcon} title={t(`${PD}.sections.milestones`)}>
-                {(project.milestones || []).length === 0 ? (
-                  <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PD}.empty.noMilestones`)}</Typography>
-                ) : (
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.title`)}</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.due`)}</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.status`)}</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.assignee`)}</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.tasks`)}</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {(project.milestones || []).map((m) => (
-                        <TableRow key={m.id}>
-                          <TableCell sx={{ fontWeight: 600 }}>{m.title}</TableCell>
-                          <TableCell>{fmtDate(m.due_date, locale)}</TableCell>
-                          <TableCell sx={{ textTransform: 'capitalize' }}>{m.status?.replace(/_/g, ' ')}</TableCell>
-                          <TableCell>{m.assigned_to_name || '—'}</TableCell>
-                          <TableCell>{m.done_count}/{m.task_count}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </SectionCard>
-              <SectionCard icon={MilestoneIcon} title={t(`${PD}.sections.deliverables`)}>
-                {(project.deliverables || []).length === 0 ? (
-                  <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PD}.empty.noDeliverables`)}</Typography>
-                ) : (
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.deliverableName`)}</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.deliverableType`)}</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.due`)}</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.status`)}</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.responsible`)}</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {(project.deliverables || []).map((d) => (
-                        <TableRow key={d.id}>
-                          <TableCell sx={{ fontWeight: 600 }}>{d.name}</TableCell>
-                          <TableCell>{d.deliverable_type || '—'}</TableCell>
-                          <TableCell>{fmtDate(d.due_date, locale)}</TableCell>
-                          <TableCell sx={{ textTransform: 'capitalize' }}>{d.status?.replace(/_/g, ' ')}</TableCell>
-                          <TableCell>{d.responsible_label || '—'}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </SectionCard>
-            </>
+            <ProjectPlanTab
+              project={project}
+              projectId={id}
+              t={t}
+              locale={locale}
+              fmtDate={fmtDate}
+              onRefresh={() => loadProject({ silent: true })}
+              SectionCard={SectionCard}
+            />
           )}
 
           {tab === 4 && (
@@ -623,41 +577,16 @@ export default function ProjectDetailsPage() {
           )}
 
           {tab === 6 && (
-            <SectionCard icon={MoneyIcon} title={t(`${PD}.sections.budgetFinancial`)}>
-              <Grid container spacing={2.5} sx={{ mb: 2 }}>
-                <DetailField label={t(`${PD}.fields.reportingCurrency`)} value={project.reporting_currency} />
-                <DetailField label={t(`${PD}.fields.overheadRate`)} value={project.financial_overhead_rate} />
-                <DetailField label={t(`${PD}.fields.totalBudget`)} value={fmtMoney(budgetTotal, project.reporting_currency, locale)} />
-                <DetailField label={t(`${PD}.fields.spentToDate`)} value={fmtMoney(budgetSpent, project.reporting_currency, locale)} />
-              </Grid>
-              {project.financial_notes && (
-                <Typography sx={{ fontSize: 13, mb: 2, color: 'text.secondary' }}>{project.financial_notes}</Typography>
-              )}
-              {(project.budget_lines || []).length === 0 ? (
-                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{t(`${PD}.empty.noBudgetLines`)}</Typography>
-              ) : (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.category`)}</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>{t(`${PD}.table.description`)}</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }} align="right">{t(`${PD}.table.amount`)}</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }} align="right">{t(`${PD}.table.spent`)}</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {(project.budget_lines || []).map((bl) => (
-                      <TableRow key={bl.id}>
-                        <TableCell>{bl.category}</TableCell>
-                        <TableCell>{bl.description || '—'}</TableCell>
-                        <TableCell align="right">{fmtMoney(bl.amount, project.reporting_currency, locale)}</TableCell>
-                        <TableCell align="right">{fmtMoney(bl.spent_to_date, project.reporting_currency, locale)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </SectionCard>
+            <ProjectFinancialTab
+              project={project}
+              projectId={id}
+              t={t}
+              locale={locale}
+              fmtDate={fmtDate}
+              fmtMoney={fmtMoney}
+              onRefresh={() => loadProject({ silent: true })}
+              SectionCard={SectionCard}
+            />
           )}
 
           {tab === 7 && (

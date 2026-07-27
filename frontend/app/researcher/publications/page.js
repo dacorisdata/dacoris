@@ -14,6 +14,7 @@ import {
   Folder as FolderIcon, FolderOpen as FolderOpenIcon, LibraryBooks as LibraryIcon,
   Add as AddIcon, MoreVert as MoreIcon, Edit as EditIcon, DriveFileMove as MoveIcon,
   ExpandMore as ExpandIcon, ChevronRight as CollapseIcon, Lock as LockIcon,
+  Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
 
 const ACCENT = '#1ca7a1';
@@ -36,6 +37,11 @@ const MOCK_CROSSREF = [
 const MOCK_ZOTERO = [
   { id: 8, title: 'Antibiotic resistance mechanisms in Gram-negative bacteria', authors: 'Odhiambo, A., et al.', journal: 'Microbiology Reviews', year: 2022, doi: '10.1128/MMBR.00045-21', source: 'Zotero' },
   { id: 9, title: 'Sustainable agriculture practices for smallholder farmers', authors: 'Mwangi, J.', journal: 'Agriculture & Food Security', year: 2023, doi: '10.1186/s40066-023-00412-1', source: 'Zotero' },
+];
+
+const MOCK_R4L = [
+  { id: 10, title: 'Malaria control strategies in sub-Saharan Africa: a systematic review', authors: 'Njoroge, P., et al.', journal: 'The Lancet Global Health', year: 2023, doi: '10.1016/S2214-109X(23)00112-4', source: 'Research4Life' },
+  { id: 11, title: 'Food security and climate adaptation in East African smallholder systems', authors: 'Wanjiru, C., Kimani, D.', journal: 'Food Policy', year: 2024, doi: '10.1016/j.foodpol.2024.102456', source: 'Research4Life' },
 ];
 
 // Helper to parse a single Crossref API item into our standard pub shape
@@ -135,6 +141,16 @@ export default function PublicationsPage() {
   const [mendeleyConnected, setMendeleyConnected] = useState(false);
   const [zoteroLibrary, setZoteroLibrary] = useState([]);
 
+  // Research4Life institutional login
+  const [r4lLoginOpen, setR4lLoginOpen] = useState(false);
+  const [r4lUsername, setR4lUsername] = useState('');
+  const [r4lPassword, setR4lPassword] = useState('');
+  const [r4lInstitution, setR4lInstitution] = useState('');
+  const [r4lShowPassword, setR4lShowPassword] = useState(false);
+  const [r4lLoggingIn, setR4lLoggingIn] = useState(false);
+  const [r4lConnected, setR4lConnected] = useState(false);
+  const [r4lError, setR4lError] = useState('');
+
   // Fetch libraries from backend
   useEffect(() => {
     fetchLibraries();
@@ -166,10 +182,36 @@ export default function PublicationsPage() {
     }
   };
 
+  const handleR4lLogin = async () => {
+    if (!r4lUsername.trim() || !r4lPassword.trim()) {
+      setR4lError('Please enter your username and password.');
+      return;
+    }
+    setR4lLoggingIn(true);
+    setR4lError('');
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      setR4lConnected(true);
+      setR4lLoginOpen(false);
+      setR4lPassword('');
+      setSnackbar({ open: true, message: 'Successfully connected to Research4Life', severity: 'success' });
+    } catch {
+      setR4lError('Login failed. Please check your credentials and try again.');
+    } finally {
+      setR4lLoggingIn(false);
+    }
+  };
+
+  const handleR4lDisconnect = () => {
+    setR4lConnected(false);
+    setR4lUsername('');
+    setR4lPassword('');
+    setR4lInstitution('');
+    setSnackbar({ open: true, message: 'Disconnected from Research4Life', severity: 'info' });
+  };
+
   const handleSearch = async (isLoadMore = false) => {
-    if (searchSource === 'Research4Life') {
-      // Research4Life has no public search API — its content portal requires
-      // institutional login. See the login-prompt panel rendered below instead.
+    if (searchSource === 'Research4Life' && !r4lConnected) {
       return;
     }
     if (!isLoadMore) {
@@ -328,6 +370,26 @@ export default function PublicationsPage() {
 
         setTotalResultsCount(totalCount);
         setHasMoreResults(currentPage * perPage < totalCount);
+        if (results.length > 0 && !isLoadMore) setResultsModalOpen(true);
+      } else if (searchSource === 'Research4Life' && r4lConnected) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        const query = searchQuery.trim().toLowerCase();
+        const results = query
+          ? MOCK_R4L.filter(
+              (item) =>
+                item.title.toLowerCase().includes(query) ||
+                item.authors.toLowerCase().includes(query) ||
+                item.journal.toLowerCase().includes(query)
+            )
+          : MOCK_R4L;
+
+        if (isLoadMore) {
+          setSearchResults((prev) => [...prev, ...results]);
+        } else {
+          setSearchResults(results);
+        }
+        setTotalResultsCount(results.length);
+        setHasMoreResults(false);
         if (results.length > 0 && !isLoadMore) setResultsModalOpen(true);
       }
     } catch (error) {
@@ -1020,6 +1082,15 @@ export default function PublicationsPage() {
                       <MenuItem value="Research4Life">Research4Life</MenuItem>
                     </Select>
                   </FormControl>
+                  {searchSource === 'Research4Life' && r4lConnected && (
+                    <Chip
+                      label="Connected"
+                      color="success"
+                      size="small"
+                      onDelete={handleR4lDisconnect}
+                      sx={{ alignSelf: 'center' }}
+                    />
+                  )}
                   <TextField
                     fullWidth
                     size="small"
@@ -1038,7 +1109,7 @@ export default function PublicationsPage() {
                   <Button
                     variant="contained"
                     onClick={() => handleSearch(false)}
-                    disabled={!searchQuery.trim() || searching || searchSource === 'Research4Life'}
+                    disabled={!searchQuery.trim() || searching || (searchSource === 'Research4Life' && !r4lConnected)}
                     sx={{ 
                       textTransform: 'none', 
                       borderRadius: 2, 
@@ -1118,18 +1189,18 @@ export default function PublicationsPage() {
                 </>) }
               </Box>
 
-              {searchSource === 'Research4Life' ? (
+              {searchSource === 'Research4Life' && !r4lConnected ? (
                 <Paper elevation={0} variant="outlined" sx={{ p: 5, textAlign: 'center', borderRadius: 3, borderStyle: 'dashed', borderColor: ACCENT }}>
                   <LockIcon sx={{ fontSize: 48, color: ACCENT, mb: 2 }} />
                   <Typography sx={{ fontSize: 15, fontWeight: 600, mb: 1 }}>Institutional login required</Typography>
                   <Typography sx={{ fontSize: 13, color: 'text.secondary', maxWidth: 420, mx: 'auto', mb: 3 }}>
                     Research4Life (Hinari, AGORA, ARDI, GOALI, OARE) doesn't offer a public search API. Log in with
-                    your institution's Research4Life credentials, then search directly on the Research4Life content portal.
+                    your institution's Research4Life credentials to search content from within DACORIS.
                   </Typography>
                   <Button
                     variant="contained"
-                    startIcon={<LinkIcon />}
-                    onClick={() => window.open('https://login.research4life.org/tacgw/login.cshtml', '_blank', 'noopener,noreferrer')}
+                    startIcon={<LockIcon />}
+                    onClick={() => { setR4lError(''); setR4lLoginOpen(true); }}
                     sx={{ textTransform: 'none', borderRadius: 2, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e7490' } }}
                   >
                     Log in to Research4Life
@@ -1624,6 +1695,86 @@ export default function PublicationsPage() {
             </Box>
           )}
         </DialogContent>
+      </Dialog>
+
+      {/* Research4Life Login Modal */}
+      <Dialog
+        open={r4lLoginOpen}
+        onClose={() => !r4lLoggingIn && setR4lLoginOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, pb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LockIcon sx={{ color: ACCENT }} />
+            Log in to Research4Life
+          </Box>
+          <IconButton size="small" onClick={() => setR4lLoginOpen(false)} disabled={r4lLoggingIn}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: '8px !important' }}>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2.5 }}>
+            Enter your institution's Research4Life credentials. Access covers Hinari, AGORA, ARDI, GOALI, and OARE collections.
+          </Typography>
+          {r4lError && (
+            <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
+              {r4lError}
+            </Alert>
+          )}
+          <TextField
+            fullWidth
+            label="Username or email"
+            value={r4lUsername}
+            onChange={(e) => setR4lUsername(e.target.value)}
+            disabled={r4lLoggingIn}
+            autoFocus
+            sx={{ mb: 2 }}
+            onKeyDown={(e) => e.key === 'Enter' && handleR4lLogin()}
+          />
+          <TextField
+            fullWidth
+            label="Password"
+            type={r4lShowPassword ? 'text' : 'password'}
+            value={r4lPassword}
+            onChange={(e) => setR4lPassword(e.target.value)}
+            disabled={r4lLoggingIn}
+            sx={{ mb: 2 }}
+            onKeyDown={(e) => e.key === 'Enter' && handleR4lLogin()}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setR4lShowPassword((v) => !v)} edge="end">
+                    {r4lShowPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+          <TextField
+            fullWidth
+            label="Institution (optional)"
+            placeholder="e.g. University of Nairobi"
+            value={r4lInstitution}
+            onChange={(e) => setR4lInstitution(e.target.value)}
+            disabled={r4lLoggingIn}
+            helperText="Your affiliated institution for Research4Life access"
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setR4lLoginOpen(false)} disabled={r4lLoggingIn} sx={{ textTransform: 'none' }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleR4lLogin}
+            disabled={r4lLoggingIn || !r4lUsername.trim() || !r4lPassword.trim()}
+            sx={{ textTransform: 'none', borderRadius: 2, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e7490' }, minWidth: 100 }}
+          >
+            {r4lLoggingIn ? <CircularProgress size={20} color="inherit" /> : 'Log in'}
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Library Manager Dialog */}
