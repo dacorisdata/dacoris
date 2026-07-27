@@ -5,14 +5,14 @@ import { useRouter } from 'next/navigation';
 import {
   Box, Typography, CircularProgress, useTheme, TextField, MenuItem, Select,
   FormControl, InputLabel, Chip, Button, Alert, Tooltip, IconButton, Divider,
-  Pagination, FormControlLabel, Switch, Paper,
+  Pagination, FormControlLabel, Switch, Paper, Link,
 } from '@mui/material';
 import {
   Search as SearchIcon, Bookmark as SaveIcon, BookmarkBorder as SaveOutlineIcon,
   Send as ApplyIcon, FilterList as FilterIcon, CalendarToday as CalendarIcon,
   AccountBalance as SponsorIcon, AttachMoney as MoneyIcon, Category as CategoryIcon,
   Clear as ClearIcon, AutoAwesome as SparkleIcon, Close as CloseIcon,
-  CheckCircle as CheckCircleIcon, Psychology as AIIcon,
+  CheckCircle as CheckCircleIcon, Psychology as AIIcon, OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLanguage } from '../../../../contexts/LanguageContext';
@@ -131,6 +131,22 @@ function OpportunityCard({ opp, app, saved, onSave, onApply, onCompleteDraft, th
               {t('researcher.grantsDiscover.deadline', { date: fmtDate(opp.deadline, locale) })}
             </Typography>
           </Box>
+          {opp.application_url && (
+            <Link
+              href={opp.application_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              underline="hover"
+              onClick={e => e.stopPropagation()}
+              sx={{
+                display: 'flex', alignItems: 'center', gap: 0.5,
+                fontSize: 13, fontWeight: 600, color: ACCENT,
+              }}
+            >
+              {t('researcher.grantsDiscover.readMore')}
+              <OpenInNewIcon sx={{ fontSize: 14, transform: isRtl ? 'scaleX(-1)' : 'none' }} />
+            </Link>
+          )}
         </Box>
       </Box>
 

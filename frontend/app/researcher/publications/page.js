@@ -13,7 +13,7 @@ import {
   FilterList as FilterIcon, Delete as DeleteIcon,
   Folder as FolderIcon, FolderOpen as FolderOpenIcon, LibraryBooks as LibraryIcon,
   Add as AddIcon, MoreVert as MoreIcon, Edit as EditIcon, DriveFileMove as MoveIcon,
-  ExpandMore as ExpandIcon, ChevronRight as CollapseIcon,
+  ExpandMore as ExpandIcon, ChevronRight as CollapseIcon, Lock as LockIcon,
 } from '@mui/icons-material';
 
 const ACCENT = '#1ca7a1';
@@ -31,11 +31,6 @@ const MOCK_PUBMED = [
 const MOCK_CROSSREF = [
   { id: 4, title: 'CRISPR-Cas9 Gene Editing in Human Clinical Trials', authors: 'Zhang, F., Doudna, J.', journal: 'NEJM', year: 2021, doi: '10.1056/NEJMra2034289', source: 'Crossref' },
   { id: 5, title: 'Machine learning approaches in genomic medicine', authors: 'Kumar, S., et al.', journal: 'Nature Reviews Genetics', year: 2023, doi: '10.1038/s41576-023-00567-4', source: 'Crossref' },
-];
-
-const MOCK_OPENALEX = [
-  { id: 6, title: 'Climate change impacts on agricultural productivity in Sub-Saharan Africa', authors: 'Ochieng, J., et al.', journal: 'Environmental Research Letters', year: 2023, doi: '10.1088/1748-9326/abc123', source: 'OpenAlex' },
-  { id: 7, title: 'Digital health interventions for maternal care in low-resource settings', authors: 'Njoroge, G., Kamau, M.', journal: 'The Lancet Digital Health', year: 2024, doi: '10.1016/S2589-7500(24)00012-3', source: 'OpenAlex' },
 ];
 
 const MOCK_ZOTERO = [
@@ -63,6 +58,20 @@ const parseCrossrefItem = (item) => ({
   source: 'Crossref',
   abstract: item.abstract ? item.abstract.replace(/<[^>]+>/g, '').trim() : '',
   type: item.type || '',
+});
+
+// Helper to parse a single OpenAlex API work into our standard pub shape
+const parseOpenAlexItem = (item) => ({
+  id: `openalex_${(item.id || '').replace('https://openalex.org/', '') || item.doi || Math.random()}`,
+  title: item.display_name || item.title || 'No title',
+  authors: item.authorships?.length
+    ? item.authorships.slice(0, 3).map(a => a.author?.display_name).filter(Boolean).join(', ') + (item.authorships.length > 3 ? ', et al.' : '')
+    : 'Unknown',
+  journal: item.primary_location?.source?.display_name || item.host_venue?.display_name || 'Unknown',
+  year: item.publication_year ? String(item.publication_year) : 'N/A',
+  doi: item.doi ? item.doi.replace('https://doi.org/', '') : '',
+  source: 'OpenAlex',
+  abstract: '',
 });
 
 export default function PublicationsPage() {
@@ -158,6 +167,11 @@ export default function PublicationsPage() {
   };
 
   const handleSearch = async (isLoadMore = false) => {
+    if (searchSource === 'Research4Life') {
+      // Research4Life has no public search API — its content portal requires
+      // institutional login. See the login-prompt panel rendered below instead.
+      return;
+    }
     if (!isLoadMore) {
       setSearching(true);
       setSearchResults([]);
@@ -282,22 +296,46 @@ export default function PublicationsPage() {
           setHasMoreResults(currentOffset + results.length < totalCount);
           if (results.length > 0 && !isLoadMore) setResultsModalOpen(true);
         }
-      } else {
-        // Fallback to mock data for other sources (OpenAlex etc.)
-        let results = [];
-        if (searchSource === 'OpenAlex') results = MOCK_OPENALEX;
-        setSearchResults(results);
-        if (results.length > 0) {
-          setResultsModalOpen(true);
+      } else if (searchSource === 'OpenAlex') {
+        const perPage = 25;
+        const currentPage = isLoadMore ? Math.floor(searchResults.length / perPage) + 1 : 1;
+
+        const filterParts = [];
+        if (advancedFields.author) filterParts.push(`authorships.author.display_name.search:${advancedFields.author}`);
+        if (advancedFields.journal) filterParts.push(`primary_location.source.display_name.search:${advancedFields.journal}`);
+        if (advancedFields.yearFrom) filterParts.push(`from_publication_date:${advancedFields.yearFrom}-01-01`);
+        if (advancedFields.yearTo) filterParts.push(`to_publication_date:${advancedFields.yearTo}-12-31`);
+        if (advancedFields.openAccess) filterParts.push('is_oa:true');
+
+        let url = `https://api.openalex.org/works?per_page=${perPage}&page=${currentPage}`;
+        const searchTerms = [searchQuery.trim(), advancedFields.keywords].filter(Boolean).join(' ');
+        if (searchTerms) url += `&search=${encodeURIComponent(searchTerms)}`;
+        if (filterParts.length > 0) url += `&filter=${encodeURIComponent(filterParts.join(','))}`;
+
+        const openAlexRes = await fetch(url);
+        if (!openAlexRes.ok) throw new Error('OpenAlex request failed');
+        const openAlexData = await openAlexRes.json();
+
+        const totalCount = openAlexData.meta?.count || 0;
+        const items = openAlexData.results || [];
+        const results = items.map(parseOpenAlexItem);
+
+        if (isLoadMore) {
+          setSearchResults(prev => [...prev, ...results]);
+        } else {
+          setSearchResults(results);
         }
+
+        setTotalResultsCount(totalCount);
+        setHasMoreResults(currentPage * perPage < totalCount);
+        if (results.length > 0 && !isLoadMore) setResultsModalOpen(true);
       }
     } catch (error) {
       console.error('Search error:', error);
       if (!isLoadMore) {
-        // Fallback to mock data on error (Crossref uses live API, no mock fallback)
+        // Fallback to mock data on error (Crossref and OpenAlex use live APIs, no mock fallback)
         let results = [];
         if (searchSource === 'PubMed') results = MOCK_PUBMED;
-        else if (searchSource === 'OpenAlex') results = MOCK_OPENALEX;
         setSearchResults(results);
         setTotalResultsCount(results.length);
         setHasMoreResults(false);
@@ -427,6 +465,34 @@ export default function PublicationsPage() {
         const totalCount = crossrefData.message?.['total-results'] || 0;
         const items = crossrefData.message?.items || [];
         const results = items.map(parseCrossrefItem);
+
+        setSearchResults(results);
+        setTotalResultsCount(totalCount);
+        setHasMoreResults(results.length < totalCount);
+      } else if (searchSource === 'OpenAlex') {
+        const perPage = 25;
+
+        const filterParts = [];
+        const authorQuery = [advancedFields.author, resultsFilter.author].filter(Boolean).join(' ');
+        if (authorQuery) filterParts.push(`authorships.author.display_name.search:${authorQuery}`);
+        if (advancedFields.journal) filterParts.push(`primary_location.source.display_name.search:${advancedFields.journal}`);
+        if (advancedFields.yearFrom) filterParts.push(`from_publication_date:${advancedFields.yearFrom}-01-01`);
+        if (advancedFields.yearTo) filterParts.push(`to_publication_date:${advancedFields.yearTo}-12-31`);
+        if (resultsFilter.year) filterParts.push(`from_publication_date:${resultsFilter.year}-01-01,to_publication_date:${resultsFilter.year}-12-31`);
+        if (advancedFields.openAccess) filterParts.push('is_oa:true');
+
+        const searchTerms = [searchQuery.trim(), resultsFilter.keyword, resultsFilter.title].filter(Boolean).join(' ');
+        let url = `https://api.openalex.org/works?per_page=${perPage}&page=1`;
+        if (searchTerms) url += `&search=${encodeURIComponent(searchTerms)}`;
+        if (filterParts.length > 0) url += `&filter=${encodeURIComponent(filterParts.join(','))}`;
+
+        const openAlexRes = await fetch(url);
+        if (!openAlexRes.ok) throw new Error('OpenAlex request failed');
+        const openAlexData = await openAlexRes.json();
+
+        const totalCount = openAlexData.meta?.count || 0;
+        const items = openAlexData.results || [];
+        const results = items.map(parseOpenAlexItem);
 
         setSearchResults(results);
         setTotalResultsCount(totalCount);
@@ -951,6 +1017,7 @@ export default function PublicationsPage() {
                       <MenuItem value="PubMed">PubMed</MenuItem>
                       <MenuItem value="Crossref">Crossref</MenuItem>
                       <MenuItem value="OpenAlex">OpenAlex</MenuItem>
+                      <MenuItem value="Research4Life">Research4Life</MenuItem>
                     </Select>
                   </FormControl>
                   <TextField
@@ -971,7 +1038,7 @@ export default function PublicationsPage() {
                   <Button
                     variant="contained"
                     onClick={() => handleSearch(false)}
-                    disabled={!searchQuery.trim() || searching}
+                    disabled={!searchQuery.trim() || searching || searchSource === 'Research4Life'}
                     sx={{ 
                       textTransform: 'none', 
                       borderRadius: 2, 
@@ -1051,7 +1118,24 @@ export default function PublicationsPage() {
                 </>) }
               </Box>
 
-              {searching ? (
+              {searchSource === 'Research4Life' ? (
+                <Paper elevation={0} variant="outlined" sx={{ p: 5, textAlign: 'center', borderRadius: 3, borderStyle: 'dashed', borderColor: ACCENT }}>
+                  <LockIcon sx={{ fontSize: 48, color: ACCENT, mb: 2 }} />
+                  <Typography sx={{ fontSize: 15, fontWeight: 600, mb: 1 }}>Institutional login required</Typography>
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary', maxWidth: 420, mx: 'auto', mb: 3 }}>
+                    Research4Life (Hinari, AGORA, ARDI, GOALI, OARE) doesn't offer a public search API. Log in with
+                    your institution's Research4Life credentials, then search directly on the Research4Life content portal.
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    startIcon={<LinkIcon />}
+                    onClick={() => window.open('https://login.research4life.org/tacgw/login.cshtml', '_blank', 'noopener,noreferrer')}
+                    sx={{ textTransform: 'none', borderRadius: 2, bgcolor: ACCENT, '&:hover': { bgcolor: '#0e7490' } }}
+                  >
+                    Log in to Research4Life
+                  </Button>
+                </Paper>
+              ) : searching ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 8 }}>
                   <CircularProgress size={48} sx={{ color: ACCENT, mb: 3 }} />
                   <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'text.primary', mb: 1 }}>

@@ -1098,6 +1098,7 @@ const en = {
       completeDraft: 'Complete Draft',
       applied: 'Applied',
       apply: 'Apply',
+      readMore: 'Read more',
       applyTooltipOpen: 'Start your application',
       applyTooltipClosed: 'Applications only available for Open opportunities (Status: {status})',
       application: {

@@ -1014,6 +1014,7 @@ const ar = {
       completeDraft: 'إكمال المسودة',
       applied: 'تم التقديم',
       apply: 'تقديم',
+      readMore: 'اقرأ المزيد',
       applyTooltipOpen: 'ابدأ تقديمك',
       applyTooltipClosed: 'التقديم متاح فقط للفرص المفتوحة (الحالة: {status})',
       application: {

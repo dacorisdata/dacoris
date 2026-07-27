@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 from datetime import datetime, date
+from pathlib import Path
 import pandas as pd
 import io
 import httpx
@@ -14,6 +15,31 @@ from auth import require_roles, ResearchRole, get_current_user
 from services.opportunity_import import OpportunityImportService
 
 router = APIRouter(prefix="/api/grants/opportunities", tags=["opportunities"])
+
+# Live-synced source for the simplified researcher-facing opportunities register.
+# Replacing this file (same path/name) is enough to update the Discover page --
+# no manual re-import step required. Only re-parsed when the file's mtime changes.
+_SIMPLE_OPPS_FILE = Path(__file__).parent.parent.parent / "data" / "opportunities_.xlsx"
+_simple_sync_state: Dict[str, Optional[float]] = {"mtime": None}
+
+
+async def _maybe_sync_simple_opportunities(db: AsyncSession) -> None:
+    try:
+        if not _SIMPLE_OPPS_FILE.exists():
+            return
+        mtime = _SIMPLE_OPPS_FILE.stat().st_mtime
+        if _simple_sync_state["mtime"] == mtime:
+            return
+        created, updated, errors = await OpportunityImportService.sync_simple_opportunities(
+            db, str(_SIMPLE_OPPS_FILE)
+        )
+        if errors:
+            print(f"[WARN] simple opportunities sync had {len(errors)} row errors: {errors[:5]}")
+        print(f"[INFO] simple opportunities sync: {created} created, {updated} updated")
+        _simple_sync_state["mtime"] = mtime
+    except Exception as e:
+        # Never let a bad source file break the Discover page
+        print(f"[WARN] Failed to sync simple opportunities excel: {e}")
 
 
 class OpportunityCreate(BaseModel):
@@ -56,6 +82,7 @@ class OpportunityOut(BaseModel):
     created_at: datetime
     categories: List[CategoryBrief] = []
     application_count: int = 0
+    application_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -64,7 +91,6 @@ class OpportunityOut(BaseModel):
 class OpportunityDetailOut(OpportunityOut):
     eligibility: Optional[str] = None
     criteria: Optional[str] = None
-    application_url: Optional[str] = None
     contact_email: Optional[str] = None
     source_system: Optional[str] = None
 
@@ -163,24 +189,30 @@ async def _query_visible_opportunities(
     if is_global_or_inst_admin:
         query = select(GrantOpportunity)
     else:
+        # Opportunities with no category assigned at all (e.g. rows synced from the
+        # simplified researcher-facing register, which carries no category data) are
+        # treated as institution-agnostic and shown to every researcher.
+        uncategorized = ~GrantOpportunity.category_assignments.any()
+
         if not current_user.primary_institution_id:
-            return []
-
-        inst_categories_result = await db.execute(
-            select(InstitutionCategory.category_id).where(
-                InstitutionCategory.institution_id == current_user.primary_institution_id
+            query = select(GrantOpportunity).where(uncategorized)
+        else:
+            inst_categories_result = await db.execute(
+                select(InstitutionCategory.category_id).where(
+                    InstitutionCategory.institution_id == current_user.primary_institution_id
+                )
             )
-        )
-        institution_category_ids = [row[0] for row in inst_categories_result.fetchall()]
-        if not institution_category_ids:
-            return []
+            institution_category_ids = [row[0] for row in inst_categories_result.fetchall()]
 
-        query = (
-            select(GrantOpportunity)
-            .join(OpportunityCategories, GrantOpportunity.id == OpportunityCategories.opportunity_id)
-            .where(OpportunityCategories.category_id.in_(institution_category_ids))
-            .distinct()
-        )
+            if institution_category_ids:
+                matched_ids = select(OpportunityCategories.opportunity_id).where(
+                    OpportunityCategories.category_id.in_(institution_category_ids)
+                )
+                query = select(GrantOpportunity).where(
+                    or_(GrantOpportunity.id.in_(matched_ids), uncategorized)
+                )
+            else:
+                query = select(GrantOpportunity).where(uncategorized)
 
     if status:
         query = query.where(GrantOpportunity.status == status)
@@ -215,12 +247,12 @@ def _serialize_opportunity(
         "created_at": opp.created_at,
         "categories": categories,
         "application_count": application_count,
+        "application_url": opp.application_url,
     }
     if include_details:
         payload.update({
             "eligibility": opp.eligibility,
             "criteria": opp.criteria,
-            "application_url": opp.application_url,
             "contact_email": opp.contact_email,
             "source_system": opp.source_system,
         })
@@ -238,7 +270,9 @@ async def list_opportunities(
     List grant opportunities from database.
     - Global/Institution admins see all opportunities
     - Admin-staff and researchers see only opportunities matching their institution's categories
+      (plus any uncategorized opportunities, which are visible to everyone)
     """
+    await _maybe_sync_simple_opportunities(db)
     opportunities = await _query_visible_opportunities(db, current_user, status, curated_only)
     if not opportunities:
         return []

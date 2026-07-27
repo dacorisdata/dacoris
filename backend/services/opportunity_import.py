@@ -3,11 +3,14 @@ Grant Opportunity Import Service
 Handles importing opportunities from Excel files and external sources
 """
 import pandas as pd
+import re
+import warnings
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import hashlib
 from difflib import SequenceMatcher
+from dateutil import parser as dateutil_parser
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from models import GrantOpportunity, User, OpportunityCategory, OpportunityCategories
@@ -317,3 +320,164 @@ class OpportunityImportService:
         
         await db.commit()
         return created_count, skipped_count, errors
+
+    # ------------------------------------------------------------------
+    # Simplified researcher-facing register:
+    # OPPORTUNITY ID | Opportunities | Issued by | Deadline of Application | Value | Application Link
+    # ------------------------------------------------------------------
+
+    SIMPLE_SOURCE_SYSTEM = "simple_excel_import"
+
+    @staticmethod
+    def _parse_flexible_deadline(raw_value: Any) -> Tuple[Optional[date], Optional[str]]:
+        """
+        Best-effort parser for the free-text "Deadline of Application" column,
+        which mixes real datetimes with prose like "Applications reviewed on a
+        rolling basis" or "Not Listed". Returns (parsed_date_or_None, raw_text_or_None).
+        """
+        if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
+            return None, None
+        if pd.isna(raw_value):
+            return None, None
+
+        if isinstance(raw_value, (datetime, pd.Timestamp)):
+            return raw_value.date(), None
+        if isinstance(raw_value, date):
+            return raw_value, None
+
+        text = str(raw_value).strip()
+        if not text:
+            return None, None
+
+        # Normalize narrow/non-breaking spaces some spreadsheet tools insert
+        normalized = text.replace(' ', ' ').replace('\xa0', ' ').replace('‎', '').strip()
+
+        # No point attempting to parse prose with no digits at all
+        if not re.search(r'\d', normalized):
+            return None, normalized
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                parsed = dateutil_parser.parse(normalized, fuzzy=True, default=datetime(2026, 1, 1))
+            return parsed.date(), normalized
+        except (ValueError, OverflowError):
+            return None, normalized
+
+    @staticmethod
+    def parse_simple_excel_file(file_path: str) -> List[Dict[str, Any]]:
+        """
+        Parse the simplified opportunities register (single header row):
+        OPPORTUNITY ID, Opportunities, Issued by, Deadline of Application, Value, Application Link
+        """
+        df = pd.read_excel(file_path)
+
+        required_cols = {'OPPORTUNITY ID', 'Opportunities', 'Issued by', 'Deadline of Application', 'Value', 'Application Link'}
+        if not required_cols.issubset(set(df.columns)):
+            raise ValueError(
+                f"Simple opportunities file is missing expected columns. "
+                f"Found: {list(df.columns)}"
+            )
+
+        today = date.today()
+        opportunities = []
+        for _, row in df.iterrows():
+            raw_id = row.get('OPPORTUNITY ID')
+            title = row.get('Opportunities')
+            if pd.isna(raw_id) or pd.isna(title) or not str(title).strip():
+                continue
+
+            deadline, deadline_text = OpportunityImportService._parse_flexible_deadline(
+                row.get('Deadline of Application')
+            )
+            opp_status = 'closed' if deadline and deadline < today else 'open'
+
+            value_text = str(row.get('Value')).strip() if pd.notna(row.get('Value')) else None
+            if deadline is None:
+                note = 'Rolling basis / no fixed deadline'
+                description = f"{value_text} • {note}" if value_text else note
+            else:
+                description = value_text
+
+            opportunities.append({
+                'source_id': str(raw_id).strip(),
+                'source_system': OpportunityImportService.SIMPLE_SOURCE_SYSTEM,
+                'title': str(title).strip(),
+                'sponsor': str(row.get('Issued by')).strip() if pd.notna(row.get('Issued by')) else None,
+                'description': description,
+                'deadline': deadline,
+                'application_url': str(row.get('Application Link')).strip() if pd.notna(row.get('Application Link')) else None,
+                'status': opp_status,
+            })
+
+        return opportunities
+
+    @staticmethod
+    async def sync_simple_opportunities(
+        db: AsyncSession,
+        file_path: str,
+    ) -> Tuple[int, int, List[str]]:
+        """
+        Read the simplified 6-column opportunities workbook and upsert rows into
+        grant_opportunities, keyed by (source_system='simple_excel_import', source_id).
+        Opportunities from other sources are left untouched.
+
+        Returns (created_count, updated_count, errors).
+        """
+        parsed = OpportunityImportService.parse_simple_excel_file(file_path)
+        if not parsed:
+            return 0, 0, []
+
+        creator_result = await db.execute(
+            select(User).where(User.is_global_admin == True).order_by(User.created_at).limit(1)
+        )
+        creator_user = creator_result.scalar_one_or_none()
+        if not creator_user:
+            fallback_result = await db.execute(select(User).order_by(User.created_at).limit(1))
+            creator_user = fallback_result.scalar_one_or_none()
+        if not creator_user:
+            return 0, 0, ["No users exist to attribute the import to; sync skipped."]
+
+        created_count = 0
+        updated_count = 0
+        errors: List[str] = []
+
+        for row in parsed:
+            try:
+                existing_result = await db.execute(
+                    select(GrantOpportunity).where(
+                        GrantOpportunity.source_system == OpportunityImportService.SIMPLE_SOURCE_SYSTEM,
+                        GrantOpportunity.source_id == row['source_id'],
+                    )
+                )
+                opp = existing_result.scalar_one_or_none()
+
+                if opp:
+                    opp.title = row['title']
+                    opp.sponsor = row['sponsor']
+                    opp.description = row['description']
+                    opp.deadline = row['deadline']
+                    opp.application_url = row['application_url']
+                    opp.status = row['status']
+                    opp.is_curated = True
+                    opp.updated_at = datetime.utcnow()
+                    updated_count += 1
+                else:
+                    db.add(GrantOpportunity(
+                        source_system=OpportunityImportService.SIMPLE_SOURCE_SYSTEM,
+                        source_id=row['source_id'],
+                        title=row['title'],
+                        sponsor=row['sponsor'],
+                        description=row['description'],
+                        deadline=row['deadline'],
+                        application_url=row['application_url'],
+                        status=row['status'],
+                        is_curated=True,
+                        created_by_id=creator_user.id,
+                    ))
+                    created_count += 1
+            except Exception as e:
+                errors.append(f"{row.get('source_id')}: {e}")
+
+        await db.commit()
+        return created_count, updated_count, errors

@@ -28,7 +28,6 @@ import {
   ExpandMore as ExpandIcon,
   ExpandLess as CollapseIcon,
   ImportContacts as ImportIcon,
-  Checklist as RequirementsIcon,
   ReportProblem as ChallengesIcon,
   RateReview as FeedbackIcon,
   WorkspacePremium as GraduationIcon,
@@ -137,8 +136,6 @@ function buildPgNavSection(user) {
   if (student) {
     items.push(
       { icon: JourneyIcon, labelKey: 'researcher.sidebar.myPgJourney', path: '/researcher/postgraduate/journey' },
-      { icon: RequirementsIcon, labelKey: 'researcher.sidebar.requirements', path: '/researcher/postgraduate/requirements' },
-      { icon: NeedsIcon, labelKey: 'researcher.sidebar.progressLogs', path: '/researcher/postgraduate/progress' },
       { icon: ChallengesIcon, labelKey: 'researcher.sidebar.reportChallenges', path: '/researcher/postgraduate/challenges' },
       { icon: FeedbackIcon, labelKey: 'researcher.sidebar.supervisionFeedback', path: '/researcher/postgraduate/feedback' },
       { icon: GraduationIcon, labelKey: 'researcher.sidebar.graduationReadiness', path: '/researcher/postgraduate/graduation' },

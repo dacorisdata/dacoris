@@ -9,7 +9,7 @@ services:
     stdin_open: true
     tty: true
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-d6xvCEiRaBMmOwWqg69Np67pqcYWhqTF}@host.docker.internal:54321/dacoris
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-d6xvCEiRaBMmOwWqg69Np67pqcYWhqTF}@host.docker.internal:15432/dacoris
       - FRONTEND_URL=http://192.168.0.110
       - JWT_SECRET_KEY=f61375a0bb2981f19a4391c3e294b49a
       - JWT_ALGORITHM=HS256

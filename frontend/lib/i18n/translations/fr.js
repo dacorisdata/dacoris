@@ -1012,6 +1012,7 @@ const fr = {
       completeDraft: 'Finaliser le brouillon',
       applied: 'Candidature envoyée',
       apply: 'Postuler',
+      readMore: 'En savoir plus',
       applyTooltipOpen: 'Commencer votre candidature',
       applyTooltipClosed: 'Les candidatures ne sont possibles que pour les opportunités ouvertes (Statut : {status})',
       application: {

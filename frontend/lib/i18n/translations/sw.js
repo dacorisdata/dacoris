@@ -916,6 +916,7 @@ const sw = {
       completeDraft: 'Kamilisha Rasimu',
       applied: 'Imewasilishwa',
       apply: 'Omba',
+      readMore: 'Soma zaidi',
       applyTooltipOpen: 'Anza ombi lako',
       applyTooltipClosed: 'Maombi yanapatikana tu kwa fursa Wazi (Hali: {status})',
       application: {
