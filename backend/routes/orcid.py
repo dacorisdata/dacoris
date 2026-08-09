@@ -531,3 +531,42 @@ async def lookup_orcid_user(
         return {"registered": False, **public_profile}
 
     return {"registered": False, "orcid": normalized, "name": "", "given_name": "", "family_name": ""}
+
+
+@router.get("/activities")
+async def get_orcid_activities(
+    current_user: User = Depends(get_current_user),
+):
+    """Fetch live ORCID profile data: publications, reviews, affiliations, and keywords."""
+    orcid_id = _normalize_orcid_id(current_user.orcid_id or "")
+    if not orcid_id or not _is_valid_orcid_id(orcid_id):
+        return {
+            "orcid_id": orcid_id or None,
+            "publications": [],
+            "peer_reviews": [],
+            "employments": [],
+            "educations": [],
+            "keywords": [],
+            "scopus": None,
+            "source": None,
+        }
+
+    access_token = current_user.orcid_access_token
+    publications = await OrcidSyncService.fetch_works(orcid_id, access_token)
+    peer_reviews = await OrcidSyncService.fetch_peer_reviews(orcid_id, access_token)
+    scopus = await OrcidSyncService.fetch_scopus_author_id(orcid_id, access_token)
+    employments = await OrcidSyncService.fetch_employments(orcid_id, access_token)
+    educations = await OrcidSyncService.fetch_educations(orcid_id, access_token)
+    keywords = await OrcidSyncService.fetch_keywords(orcid_id, access_token)
+
+    return {
+        "orcid_id": orcid_id,
+        "publications": publications,
+        "peer_reviews": peer_reviews,
+        "employments": employments,
+        "educations": educations,
+        "keywords": keywords,
+        "scopus": scopus,
+        "source": "orcid",
+        "profile_url": f"https://orcid.org/{orcid_id}",
+    }

@@ -17,6 +17,7 @@ import {
   MenuItem,
   Tab,
   Tabs,
+  Pagination,
   useTheme,
 } from '@mui/material';
 import {
@@ -35,8 +36,6 @@ import {
   FolderOpen as FolderOpenIcon,
   TaskAlt as TaskAltIcon,
   Description as DescriptionIcon,
-  Gavel as GavelIcon,
-  EmojiEvents as EmojiEventsIcon,
   MenuBook as MenuBookIcon,
   School as SchoolIcon,
   RateReview as RateReviewIcon,
@@ -48,6 +47,7 @@ import pgApi from '../../../lib/postgraduateApi';
 import { isSupervisorAccount } from '../../../lib/institutionTypes';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
+const RESEARCH_PAGE_SIZE = 20;
 const normalize = (s) => (s || '').toLowerCase();
 
 const EXPERTISE_SUGGESTIONS = [
@@ -133,7 +133,29 @@ const StatTile = ({ icon: Icon, label, value, color, theme, dark, loading }) => 
   </Box>
 );
 
-const WorkItem = ({ title, meta, href, theme, dark }) => {
+const tabSx = {
+  minHeight: 40,
+  '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, minHeight: 40, fontSize: 13 },
+  '& .Mui-selected': { color: '#1ca7a1' },
+  '& .MuiTabs-indicator': { bgcolor: '#1ca7a1' },
+};
+
+const nestedTabSx = (dark) => ({
+  mb: 2,
+  minHeight: 36,
+  bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+  borderRadius: 2,
+  p: 0.5,
+  '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, minHeight: 34, fontSize: 12, borderRadius: 1.5, py: 0.75, px: 2 },
+  '& .Mui-selected': {
+    color: '#1ca7a1',
+    bgcolor: 'background.paper',
+    boxShadow: dark ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
+  },
+  '& .MuiTabs-indicator': { display: 'none' },
+});
+
+const WorkItem = ({ title, meta, href, external, theme, dark, badge }) => {
   const content = (
     <Box
       sx={{
@@ -152,6 +174,9 @@ const WorkItem = ({ title, meta, href, theme, dark }) => {
       <Typography sx={{ color: 'text.primary', fontSize: 14, fontWeight: 600, lineHeight: 1.35 }}>
         {title}
       </Typography>
+      {badge && (
+        <Chip label={badge} size="small" sx={{ height: 20, fontSize: 10, mt: 0.5, alignSelf: 'flex-start' }} />
+      )}
       {meta && (
         <Typography sx={{ color: 'text.secondary', fontSize: 12, mt: 0.35 }}>
           {meta}
@@ -159,12 +184,258 @@ const WorkItem = ({ title, meta, href, theme, dark }) => {
       )}
     </Box>
   );
-  return href ? <Box component={Link} href={href} sx={{ textDecoration: 'none' }}>{content}</Box> : content;
+  if (!href) return content;
+  const externalHref = safeExternalHref(href);
+  if (external || externalHref) {
+    return (
+      <Box
+        component="a"
+        href={externalHref || href}
+        target="_blank"
+        rel="noopener noreferrer"
+        sx={{ textDecoration: 'none' }}
+      >
+        {content}
+      </Box>
+    );
+  }
+  return <Box component={Link} href={href} sx={{ textDecoration: 'none' }}>{content}</Box>;
 };
 
 const EmptyWork = ({ message }) => (
   <Typography sx={{ color: 'text.disabled', fontSize: 13, py: 1 }}>{message}</Typography>
 );
+
+function paginateItems(items, page, pageSize = RESEARCH_PAGE_SIZE) {
+  const list = Array.isArray(items) ? items : [];
+  const start = page * pageSize;
+  return list.slice(start, start + pageSize);
+}
+
+const ListPagination = ({ totalItems, page, onPageChange, theme }) => {
+  const totalPages = Math.ceil(totalItems / RESEARCH_PAGE_SIZE);
+  if (totalPages <= 1) return null;
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1, mt: 2, pt: 1.5, borderTop: `1px solid ${theme.palette.divider}` }}>
+      <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+        {page * RESEARCH_PAGE_SIZE + 1}–{Math.min((page + 1) * RESEARCH_PAGE_SIZE, totalItems)} of {totalItems}
+      </Typography>
+      <Pagination
+        count={totalPages}
+        page={page + 1}
+        onChange={(_, p) => onPageChange(p - 1)}
+        size="small"
+        shape="rounded"
+        sx={{ '& .Mui-selected': { bgcolor: 'rgba(28,167,161,0.15) !important', color: '#1ca7a1' } }}
+      />
+    </Box>
+  );
+};
+
+function formatOrcidWorkType(type) {
+  if (!type) return '';
+  return String(type).replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatAffiliationDate(dateStr) {
+  if (!dateStr) return '';
+  const parts = String(dateStr).split('-').map((p) => parseInt(p, 10));
+  const [year, month, day] = parts;
+  if (!year) return '';
+  const d = new Date(year, (month || 1) - 1, day || 1);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  if (month && day) return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+  if (month) return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+  return String(year);
+}
+
+function formatAffiliationPeriod(item, presentLabel) {
+  const start = formatAffiliationDate(item.start_date);
+  const end = item.is_current || !item.end_date
+    ? presentLabel
+    : formatAffiliationDate(item.end_date);
+  if (start && end) return `${start} – ${end}`;
+  return start || end || '';
+}
+
+function mergeProfileKeywords(localKeywords, orcidKeywords) {
+  const seen = new Set((localKeywords || []).map((k) => k.toLowerCase()));
+  const merged = [...(localKeywords || [])];
+  for (const kw of orcidKeywords || []) {
+    const key = kw.toLowerCase();
+    if (!seen.has(key)) {
+      merged.push(kw);
+      seen.add(key);
+    }
+  }
+  return merged;
+}
+
+function isOrcidKeyword(keyword, orcidKeywords) {
+  return (orcidKeywords || []).some((k) => k.toLowerCase() === keyword.toLowerCase());
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function safeText(value, fallback = '') {
+  if (value === null || value === undefined) return fallback;
+  return String(value);
+}
+
+function safeExternalHref(url) {
+  if (!url || typeof url !== 'string') return undefined;
+  const trimmed = url.trim();
+  return trimmed.startsWith('http') ? trimmed : undefined;
+}
+
+function safeFormatDate(iso) {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
+  } catch {
+    return null;
+  }
+}
+
+const ReviewCard = ({
+  headline,
+  source,
+  sourceColor = '#1ca7a1',
+  chips = [],
+  detail,
+  subject,
+  subjectLabel,
+  href,
+  theme,
+  dark,
+}) => {
+  const inner = (
+    <Box
+      sx={{
+        py: 1.5,
+        px: 1.75,
+        borderRadius: 2,
+        border: `1px solid ${theme.palette.divider}`,
+        bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)',
+        transition: 'background-color 0.15s',
+        '&:hover': href ? { bgcolor: dark ? 'rgba(28,167,161,0.08)' : 'rgba(28,167,161,0.06)' } : undefined,
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.5, mb: 1 }}>
+        <Typography sx={{ color: 'text.primary', fontSize: 14, fontWeight: 600, lineHeight: 1.4, flex: 1 }}>
+          {safeText(headline)}
+        </Typography>
+        {source && (
+          <Chip
+            label={source}
+            size="small"
+            sx={{ height: 22, fontSize: 10, fontWeight: 700, bgcolor: `${sourceColor}18`, color: sourceColor, flexShrink: 0 }}
+          />
+        )}
+      </Box>
+      {chips.length > 0 && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: detail || subject ? 0.75 : 0 }}>
+          {chips.map((chip, idx) => (
+            <Chip
+              key={`${chip}-${idx}`}
+              label={chip}
+              size="small"
+              variant="outlined"
+              sx={{ height: 22, fontSize: 11, borderColor: theme.palette.divider }}
+            />
+          ))}
+        </Box>
+      )}
+      {subject && (
+        <Typography sx={{ color: 'text.secondary', fontSize: 12, mb: detail ? 0.5 : 0 }}>
+          {subjectLabel}: {safeText(subject)}
+        </Typography>
+      )}
+      {detail && (
+        <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
+          {safeText(detail)}
+        </Typography>
+      )}
+    </Box>
+  );
+  const externalHref = safeExternalHref(href);
+  if (externalHref) {
+    return (
+      <Box component="a" href={externalHref} target="_blank" rel="noopener noreferrer" sx={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
+        {inner}
+      </Box>
+    );
+  }
+  if (typeof href === 'string' && href.startsWith('/')) {
+    return <Box component={Link} href={href} sx={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{inner}</Box>;
+  }
+  return inner;
+};
+
+const PublicationCard = ({ pub, theme, dark, untitled }) => {
+  const meta = [pub.journal, pub.publication_date, formatOrcidWorkType(pub.type)].filter(Boolean).join(' · ');
+  return (
+    <WorkItem
+      title={pub.title || untitled}
+      meta={meta}
+      href={pub.url || undefined}
+      external
+      badge={pub.doi ? 'DOI' : undefined}
+      theme={theme}
+      dark={dark}
+    />
+  );
+};
+
+const AffiliationItem = ({ item, presentLabel, theme, dark }) => {
+  const title = item.role_title || item.organization || presentLabel;
+  const period = formatAffiliationPeriod(item, presentLabel);
+  const meta = [
+    item.role_title && item.organization ? item.organization : null,
+    item.department,
+    item.location,
+    period,
+  ].filter(Boolean).join(' · ');
+
+  const content = (
+    <Box
+      sx={{
+        py: 1.25,
+        px: 1.5,
+        borderRadius: 2,
+        border: `1px solid ${theme.palette.divider}`,
+        borderLeft: `3px solid ${item.is_current ? '#10b981' : '#1ca7a1'}`,
+        bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)',
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.35 }}>
+        <Typography sx={{ color: 'text.primary', fontSize: 14, fontWeight: 600, lineHeight: 1.35 }}>
+          {title}
+        </Typography>
+        {item.is_current && (
+          <Chip label={presentLabel} size="small" sx={{ height: 20, fontSize: 10, bgcolor: 'rgba(16,185,129,0.12)', color: '#10b981' }} />
+        )}
+      </Box>
+      {meta && (
+        <Typography sx={{ color: 'text.secondary', fontSize: 12, mt: 0.35 }}>
+          {meta}
+        </Typography>
+      )}
+    </Box>
+  );
+
+  if (item.url) {
+    return (
+      <Box component="a" href={item.url} target="_blank" rel="noopener noreferrer" sx={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
+        {content}
+      </Box>
+    );
+  }
+  return content;
+};
 
 function parseKeywords(raw) {
   if (!raw) return [];
@@ -179,6 +450,31 @@ function parseKeywords(raw) {
 function formatStatus(status) {
   if (!status) return '';
   return String(status).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function orcidProfileUrl(orcidId) {
+  const id = (orcidId || '').replace(/^https?:\/\/(sandbox\.)?orcid\.org\//, '');
+  return id ? `https://orcid.org/${id}` : '';
+}
+
+function ScopusIcon({ size = 16, sx }) {
+  return (
+    <Box
+      component="img"
+      src="/icons/scopus.svg"
+      alt=""
+      sx={{ width: size, height: size, display: 'block', flexShrink: 0, ...sx }}
+    />
+  );
+}
+
+function OrcidIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <circle cx="128" cy="128" r="128" fill="#A6CE39" />
+      <path d="M86.3 186.2H70.9V79.1h15.4v107.1zM108.9 79.1h41.6c39.6 0 57 28.3 57 53.6 0 27.5-21.5 53.6-56.8 53.6h-41.8V79.1zm15.4 93.3h24.5c34.9 0 42.9-26.5 42.9-39.7C191.7 111.2 178 93 148 93h-23.7v79.4zM88.7 56.8c0 5.5-4.5 9.9-10 9.9s-10-4.4-10-9.9c0-5.5 4.5-9.9 10-9.9s10 4.4 10 9.9z" fill="#fff" />
+    </svg>
+  );
 }
 
 export default function ResearcherProfile() {
@@ -207,6 +503,8 @@ export default function ResearcherProfile() {
   const [metricsLoading, setMetricsLoading] = useState(true);
   const [workLoading, setWorkLoading] = useState(true);
   const [pastWorkTab, setPastWorkTab] = useState(0);
+  const [researchSubTab, setResearchSubTab] = useState(0);
+  const [researchPage, setResearchPage] = useState(0);
   const [projects, setProjects] = useState([]);
   const [proposals, setProposals] = useState([]);
   const [manuscripts, setManuscripts] = useState([]);
@@ -214,6 +512,13 @@ export default function ResearcherProfile() {
   const [awards, setAwards] = useState([]);
   const [supervisees, setSupervisees] = useState([]);
   const [reviews, setReviews] = useState([]);
+  const [orcidPublications, setOrcidPublications] = useState([]);
+  const [orcidPeerReviews, setOrcidPeerReviews] = useState([]);
+  const [scopusProfile, setScopusProfile] = useState(null);
+  const [orcidEmployments, setOrcidEmployments] = useState([]);
+  const [orcidEducations, setOrcidEducations] = useState([]);
+  const [orcidKeywords, setOrcidKeywords] = useState([]);
+  const [orcidLoading, setOrcidLoading] = useState(false);
 
   const setField = useCallback((field) => (e) => {
     const value = e?.target ? e.target.value : e;
@@ -221,6 +526,10 @@ export default function ResearcherProfile() {
   }, []);
 
   useEffect(() => { checkAuth(); }, []);
+
+  useEffect(() => {
+    setResearchPage(0);
+  }, [researchSubTab]);
 
   const checkAuth = async () => {
     const userData = await fetchUser();
@@ -287,6 +596,36 @@ export default function ResearcherProfile() {
       setAwards(Array.isArray(awardsRes.data) ? awardsRes.data : []);
       setManuscripts(Array.isArray(manuscriptsRes.data) ? manuscriptsRes.data : []);
       setReviews(Array.isArray(reviewsRes.data) ? reviewsRes.data : []);
+
+      if (userData?.orcid_id) {
+        setOrcidLoading(true);
+        try {
+          const orcidRes = await researcherAPI.getOrcidActivities();
+          setOrcidPublications(asArray(orcidRes.data?.publications));
+          setOrcidPeerReviews(asArray(orcidRes.data?.peer_reviews));
+          setScopusProfile(orcidRes.data?.scopus || null);
+          setOrcidEmployments(asArray(orcidRes.data?.employments));
+          setOrcidEducations(asArray(orcidRes.data?.educations));
+          setOrcidKeywords(asArray(orcidRes.data?.keywords));
+        } catch {
+          setOrcidPublications([]);
+          setOrcidPeerReviews([]);
+          setScopusProfile(null);
+          setOrcidEmployments([]);
+          setOrcidEducations([]);
+          setOrcidKeywords([]);
+        } finally {
+          setOrcidLoading(false);
+        }
+      } else {
+        setOrcidPublications([]);
+        setOrcidPeerReviews([]);
+        setScopusProfile(null);
+        setOrcidEmployments([]);
+        setOrcidEducations([]);
+        setOrcidKeywords([]);
+        setOrcidLoading(false);
+      }
 
       if (isSupervisorAccount(userData) || userData?.primary_account_type === 'RESEARCHER') {
         try {
@@ -372,6 +711,14 @@ export default function ResearcherProfile() {
     return Array.from(set);
   }, [departments, form.department]);
 
+  const profileKeywords = useMemo(() => parseKeywords(user?.expertise_keywords), [user?.expertise_keywords]);
+  const allDisplayKeywords = useMemo(
+    () => mergeProfileKeywords(profileKeywords, orcidKeywords),
+    [profileKeywords, orcidKeywords],
+  );
+  const dacorisReviews = useMemo(() => asArray(reviews), [reviews]);
+  const orcidReviews = useMemo(() => asArray(orcidPeerReviews), [orcidPeerReviews]);
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
@@ -382,7 +729,8 @@ export default function ResearcherProfile() {
 
   const initials = user?.name?.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2) || 'R';
   const notSet = t('researcher.profile.notSet');
-  const displayKeywords = parseKeywords(user?.expertise_keywords);
+  const presentLabel = t('researcher.profile.orcidAffiliations.present');
+  const hasOrcidAffiliations = orcidEmployments.length > 0 || orcidEducations.length > 0;
 
   return (
     <Box sx={{ p: { xs: 2, md: 4 }, width: '100%' }}>
@@ -447,9 +795,38 @@ export default function ResearcherProfile() {
             )}
             {user?.orcid_id && (
               <Chip
+                component="a"
+                href={orcidProfileUrl(user.orcid_id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                clickable
+                icon={<OrcidIcon size={14} />}
                 label={t('researcher.profile.orcid', { id: user.orcid_id })}
                 size="small"
-                sx={{ bgcolor: 'rgba(166,124,0,0.1)', color: '#a6a600' }}
+                sx={{
+                  bgcolor: 'rgba(166,124,0,0.1)',
+                  color: '#a6a600',
+                  textDecoration: 'none',
+                  '& .MuiChip-icon': { ml: 0.75 },
+                }}
+              />
+            )}
+            {scopusProfile?.author_id && (
+              <Chip
+                component="a"
+                href={scopusProfile.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                clickable
+                icon={<ScopusIcon size={14} />}
+                label={t('researcher.profile.scopus', { id: scopusProfile.author_id })}
+                size="small"
+                sx={{
+                  bgcolor: 'rgba(233,113,28,0.12)',
+                  color: '#c45f10',
+                  textDecoration: 'none',
+                  '& .MuiChip-icon': { ml: 0.75 },
+                }}
               />
             )}
             <Chip label={t('researcher.profile.fallbackRole')} size="small" sx={{ bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1' }} />
@@ -457,6 +834,7 @@ export default function ResearcherProfile() {
         </Box>
       </Box>
 
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 3, mb: 0 }}>
       <Card
         overline={t('researcher.profile.overline')}
         title={t('researcher.profile.sections.activity.title')}
@@ -464,106 +842,199 @@ export default function ResearcherProfile() {
         theme={theme}
         dark={dark}
       >
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 1.5 }}>
           <StatTile icon={ScienceIcon} label={t('researcher.profile.metrics.activeProjects')} value={metrics.activeProjects} color="#10b981" theme={theme} dark={dark} loading={metricsLoading} />
           <StatTile icon={TaskAltIcon} label={t('researcher.profile.metrics.completedProjects')} value={metrics.completedProjects} color="#0ea5e9" theme={theme} dark={dark} loading={metricsLoading} />
           <StatTile icon={FolderOpenIcon} label={t('researcher.profile.metrics.totalProjects')} value={metrics.totalProjects} color="#1ca7a1" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={MenuBookIcon} label={t('researcher.profile.pastWork.publications')} value={orcidPublications.length} color="#0ea5e9" theme={theme} dark={dark} loading={metricsLoading || orcidLoading} />
           <StatTile icon={DescriptionIcon} label={t('researcher.profile.metrics.grantProposals')} value={metrics.proposals} color="#f59e0b" theme={theme} dark={dark} loading={metricsLoading} />
-          <StatTile icon={GavelIcon} label={t('researcher.profile.metrics.ethicsApplications')} value={metrics.ethicsApps} color="#8b5cf6" theme={theme} dark={dark} loading={metricsLoading} />
-          <StatTile icon={EmojiEventsIcon} label={t('researcher.profile.metrics.grantAwards')} value={metrics.awards} color="#a67c00" theme={theme} dark={dark} loading={metricsLoading} />
+          <StatTile icon={RateReviewIcon} label={t('researcher.profile.pastWork.tabs.reviews')} value={dacorisReviews.length + orcidReviews.length} color="#f97316" theme={theme} dark={dark} loading={metricsLoading || orcidLoading} />
         </Box>
       </Card>
 
       <Card
         overline={t('researcher.profile.overline')}
-        title={t('researcher.profile.sections.personal.title')}
-        subtitle={t('researcher.profile.sections.personal.subtitle')}
+        title={t('researcher.profile.sections.profileDetails.title')}
+        subtitle={t('researcher.profile.sections.profileDetails.subtitle')}
         theme={theme}
         dark={dark}
       >
-        <Row icon={PersonIcon} label={t('researcher.profile.fields.fullName')} theme={theme} dark={dark}>
-          {editing ? (
-            <TextField
-              fullWidth
-              size="small"
-              value={form.name}
-              onChange={setField('name')}
-              placeholder={t('researcher.profile.placeholders.fullName')}
-              inputProps={{ 'aria-label': t('researcher.profile.fields.fullName') }}
-            />
-          ) : (
-            <Typography sx={{ color: user?.name ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.name || notSet}</Typography>
-          )}
-        </Row>
-        <Row icon={EmailIcon} label={t('researcher.profile.fields.emailAddress')} theme={theme} dark={dark}>
-          <Typography sx={{ color: user?.email ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.email || notSet}</Typography>
-        </Row>
-        <Row icon={PhoneIcon} label={t('researcher.profile.fields.phoneNumber')} theme={theme} dark={dark}>
-          {editing ? (
-            <TextField
-              fullWidth
-              size="small"
-              value={form.phone}
-              onChange={setField('phone')}
-              placeholder={t('researcher.profile.placeholders.phone')}
-              inputProps={{ 'aria-label': t('researcher.profile.fields.phoneNumber') }}
-            />
-          ) : (
-            <Typography sx={{ color: user?.phone ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.phone || notSet}</Typography>
-          )}
-        </Row>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: { xs: 0, md: 2 } }}>
+          <Box>
+            <Row icon={PersonIcon} label={t('researcher.profile.fields.fullName')} theme={theme} dark={dark}>
+              {editing ? (
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={form.name}
+                  onChange={setField('name')}
+                  placeholder={t('researcher.profile.placeholders.fullName')}
+                  inputProps={{ 'aria-label': t('researcher.profile.fields.fullName') }}
+                />
+              ) : (
+                <Typography sx={{ color: user?.name ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.name || notSet}</Typography>
+              )}
+            </Row>
+            <Row icon={EmailIcon} label={t('researcher.profile.fields.emailAddress')} theme={theme} dark={dark}>
+              <Typography sx={{ color: user?.email ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.email || notSet}</Typography>
+            </Row>
+            <Row icon={PhoneIcon} label={t('researcher.profile.fields.phoneNumber')} theme={theme} dark={dark}>
+              {editing ? (
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={form.phone}
+                  onChange={setField('phone')}
+                  placeholder={t('researcher.profile.placeholders.phone')}
+                  inputProps={{ 'aria-label': t('researcher.profile.fields.phoneNumber') }}
+                />
+              ) : (
+                <Typography sx={{ color: user?.phone ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.phone || notSet}</Typography>
+              )}
+            </Row>
+          </Box>
+          <Box>
+            <Row icon={BadgeIcon} label={t('researcher.profile.fields.jobTitle')} theme={theme} dark={dark}>
+              {editing ? (
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={form.job_title}
+                  onChange={setField('job_title')}
+                  placeholder={t('researcher.profile.placeholders.jobTitle')}
+                  inputProps={{ 'aria-label': t('researcher.profile.fields.jobTitle') }}
+                />
+              ) : (
+                <Typography sx={{ color: user?.job_title ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.job_title || notSet}</Typography>
+              )}
+            </Row>
+            <Row icon={BusinessIcon} label={t('researcher.profile.fields.department')} theme={theme} dark={dark}>
+              {editing ? (
+                <TextField
+                  select
+                  fullWidth
+                  size="small"
+                  value={form.department || ''}
+                  onChange={setField('department')}
+                  disabled={departmentsLoading}
+                  helperText={departmentsLoading ? t('researcher.profile.placeholders.loadingDepartments') : undefined}
+                  inputProps={{ 'aria-label': t('researcher.profile.fields.department') }}
+                >
+                  <MenuItem value="">
+                    <em>{t('researcher.profile.placeholders.selectDepartment')}</em>
+                  </MenuItem>
+                  {departmentOptions.map((dept) => (
+                    <MenuItem key={dept} value={dept}>{dept}</MenuItem>
+                  ))}
+                </TextField>
+              ) : (
+                <Typography sx={{ color: user?.department ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.department || notSet}</Typography>
+              )}
+            </Row>
+            {user?.orcid_id && (
+              <Row icon={ScienceIcon} label={t('researcher.profile.fields.orcidId')} theme={theme} dark={dark}>
+                <Typography
+                  component="a"
+                  href={orcidProfileUrl(user.orcid_id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{ color: '#1ca7a1', fontSize: 14, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                >
+                  {user.orcid_id}
+                </Typography>
+              </Row>
+            )}
+            {scopusProfile?.author_id && (
+              <Row icon={ScopusIcon} label={t('researcher.profile.fields.scopusId')} theme={theme} dark={dark}>
+                <Box
+                  component="a"
+                  href={scopusProfile.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    color: '#c45f10',
+                    fontSize: 14,
+                    textDecoration: 'none',
+                    '&:hover': { textDecoration: 'underline' },
+                  }}
+                >
+                  <ScopusIcon size={18} />
+                  {scopusProfile.author_id}
+                </Box>
+              </Row>
+            )}
+          </Box>
+        </Box>
       </Card>
+      </Box>
 
-      <Card
-        overline={t('researcher.profile.overline')}
-        title={t('researcher.profile.sections.professional.title')}
-        subtitle={t('researcher.profile.sections.professional.subtitle')}
-        theme={theme}
-        dark={dark}
-      >
-        <Row icon={BadgeIcon} label={t('researcher.profile.fields.jobTitle')} theme={theme} dark={dark}>
-          {editing ? (
-            <TextField
-              fullWidth
-              size="small"
-              value={form.job_title}
-              onChange={setField('job_title')}
-              placeholder={t('researcher.profile.placeholders.jobTitle')}
-              inputProps={{ 'aria-label': t('researcher.profile.fields.jobTitle') }}
-            />
+      {(user?.orcid_id && (orcidLoading || hasOrcidAffiliations)) && (
+        <Card
+          overline={t('researcher.profile.overline')}
+          title={t('researcher.profile.sections.orcidAffiliations.title')}
+          subtitle={t('researcher.profile.sections.orcidAffiliations.subtitle')}
+          theme={theme}
+          dark={dark}
+        >
+          {orcidLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
           ) : (
-            <Typography sx={{ color: user?.job_title ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.job_title || notSet}</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 3 }}>
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                  <BusinessIcon sx={{ fontSize: 18, color: '#1ca7a1' }} />
+                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary' }}>
+                    {t('researcher.profile.orcidAffiliations.work')} ({orcidEmployments.length})
+                  </Typography>
+                  <Chip label={t('researcher.profile.pastWork.viaOrcid')} size="small" sx={{ height: 20, fontSize: 10, bgcolor: 'rgba(166,124,0,0.1)', color: '#a67c00' }} />
+                </Box>
+                {orcidEmployments.length === 0 ? (
+                  <EmptyWork message={t('researcher.profile.orcidAffiliations.emptyWork')} />
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {orcidEmployments.map((item) => (
+                      <AffiliationItem
+                        key={item.put_code || `${item.organization}-${item.start_date}`}
+                        item={item}
+                        presentLabel={presentLabel}
+                        theme={theme}
+                        dark={dark}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </Box>
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                  <SchoolIcon sx={{ fontSize: 18, color: '#0ea5e9' }} />
+                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary' }}>
+                    {t('researcher.profile.orcidAffiliations.education')} ({orcidEducations.length})
+                  </Typography>
+                  <Chip label={t('researcher.profile.pastWork.viaOrcid')} size="small" sx={{ height: 20, fontSize: 10, bgcolor: 'rgba(166,124,0,0.1)', color: '#a67c00' }} />
+                </Box>
+                {orcidEducations.length === 0 ? (
+                  <EmptyWork message={t('researcher.profile.orcidAffiliations.emptyEducation')} />
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {orcidEducations.map((item) => (
+                      <AffiliationItem
+                        key={item.put_code || `${item.organization}-${item.start_date}`}
+                        item={item}
+                        presentLabel={presentLabel}
+                        theme={theme}
+                        dark={dark}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            </Box>
           )}
-        </Row>
-        <Row icon={BusinessIcon} label={t('researcher.profile.fields.department')} theme={theme} dark={dark}>
-          {editing ? (
-            <TextField
-              select
-              fullWidth
-              size="small"
-              value={form.department || ''}
-              onChange={setField('department')}
-              disabled={departmentsLoading}
-              helperText={departmentsLoading ? t('researcher.profile.placeholders.loadingDepartments') : undefined}
-              inputProps={{ 'aria-label': t('researcher.profile.fields.department') }}
-            >
-              <MenuItem value="">
-                <em>{t('researcher.profile.placeholders.selectDepartment')}</em>
-              </MenuItem>
-              {departmentOptions.map((dept) => (
-                <MenuItem key={dept} value={dept}>{dept}</MenuItem>
-              ))}
-            </TextField>
-          ) : (
-            <Typography sx={{ color: user?.department ? 'text.primary' : 'text.disabled', fontSize: 14 }}>{user?.department || notSet}</Typography>
-          )}
-        </Row>
-        {user?.orcid_id && (
-          <Row icon={ScienceIcon} label={t('researcher.profile.fields.orcidId')} theme={theme} dark={dark}>
-            <Typography sx={{ color: 'text.primary', fontSize: 14 }}>{user.orcid_id}</Typography>
-          </Row>
-        )}
-      </Card>
+        </Card>
+      )}
 
       <Card
         overline={t('researcher.profile.overline')}
@@ -640,14 +1111,48 @@ export default function ResearcherProfile() {
                 <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>{t('researcher.profile.noKeywordsYet')}</Typography>
               )}
             </Box>
+            {orcidKeywords.length > 0 && (
+              <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
+                <Typography sx={{ color: 'text.secondary', fontSize: 12, mb: 1 }}>
+                  {t('researcher.profile.orcidKeywordsHint')}
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {orcidKeywords.map((kw) => (
+                    <Chip
+                      key={kw}
+                      label={kw}
+                      size="small"
+                      sx={{ bgcolor: 'rgba(166,124,0,0.1)', color: '#a67c00' }}
+                    />
+                  ))}
+                </Box>
+              </Box>
+            )}
           </Box>
         ) : (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            {displayKeywords.length > 0
-              ? displayKeywords.map((kw) => (
-                <Chip key={kw} label={kw} size="small" sx={{ bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1' }} />
-              ))
-              : <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>{t('researcher.profile.noExpertiseKeywords')}</Typography>}
+          <Box>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {allDisplayKeywords.length > 0
+                ? allDisplayKeywords.map((kw) => {
+                  const fromOrcid = isOrcidKeyword(kw, orcidKeywords);
+                  return (
+                    <Chip
+                      key={kw}
+                      label={kw}
+                      size="small"
+                      sx={fromOrcid
+                        ? { bgcolor: 'rgba(166,124,0,0.1)', color: '#a67c00' }
+                        : { bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1' }}
+                    />
+                  );
+                })
+                : <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>{t('researcher.profile.noExpertiseKeywords')}</Typography>}
+            </Box>
+            {orcidKeywords.length > 0 && (
+              <Typography sx={{ color: 'text.secondary', fontSize: 12, mt: 1.5 }}>
+                {t('researcher.profile.orcidKeywordsLegend')}
+              </Typography>
+            )}
           </Box>
         )}
       </Card>
@@ -664,13 +1169,7 @@ export default function ResearcherProfile() {
           onChange={(_, v) => setPastWorkTab(v)}
           variant="scrollable"
           scrollButtons="auto"
-          sx={{
-            mb: 2.5,
-            minHeight: 40,
-            '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, minHeight: 40, fontSize: 13 },
-            '& .Mui-selected': { color: '#1ca7a1' },
-            '& .MuiTabs-indicator': { bgcolor: '#1ca7a1' },
-          }}
+          sx={{ ...tabSx, mb: 2.5 }}
         >
           <Tab icon={<ScienceIcon sx={{ fontSize: 18 }} />} iconPosition="start" label={t('researcher.profile.pastWork.tabs.research')} />
           <Tab icon={<SchoolIcon sx={{ fontSize: 18 }} />} iconPosition="start" label={t('researcher.profile.pastWork.tabs.supervision')} />
@@ -680,81 +1179,116 @@ export default function ResearcherProfile() {
         {workLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
         ) : pastWorkTab === 0 ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <FolderOpenIcon sx={{ fontSize: 18, color: '#1ca7a1' }} />
-                <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary' }}>
-                  {t('researcher.profile.pastWork.projects')} ({projects.length})
-                </Typography>
-              </Box>
-              {projects.length === 0 ? (
-                <EmptyWork message={t('researcher.profile.pastWork.emptyProjects')} />
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {projects.map((p) => (
-                    <WorkItem
-                      key={p.id}
-                      title={p.title || p.short_title || t('researcher.profile.pastWork.untitled')}
-                      meta={formatStatus(p.status)}
-                      href={p.id ? `/researcher/projects/${p.id}` : undefined}
-                      theme={theme}
-                      dark={dark}
-                    />
-                  ))}
-                </Box>
-              )}
-            </Box>
+          <Box>
+            <Tabs
+              value={researchSubTab}
+              onChange={(_, v) => setResearchSubTab(v)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={nestedTabSx(dark)}
+            >
+              <Tab label={`${t('researcher.profile.pastWork.publications')} (${orcidPublications.length})`} />
+              <Tab label={`${t('researcher.profile.pastWork.manuscripts')} (${manuscripts.length})`} />
+              <Tab label={`${t('researcher.profile.pastWork.projects')} (${projects.length})`} />
+            </Tabs>
 
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <DescriptionIcon sx={{ fontSize: 18, color: '#f59e0b' }} />
-                <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary' }}>
-                  {t('researcher.profile.pastWork.proposals')} ({proposals.length})
-                </Typography>
-              </Box>
-              {proposals.length === 0 ? (
-                <EmptyWork message={t('researcher.profile.pastWork.emptyProposals')} />
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {proposals.map((p) => (
-                    <WorkItem
-                      key={p.id}
-                      title={p.title || p.proposal_title || t('researcher.profile.pastWork.untitled')}
-                      meta={formatStatus(p.status)}
-                      href={p.id ? `/researcher/grants/proposals/${p.id}` : undefined}
-                      theme={theme}
-                      dark={dark}
+            {researchSubTab === 0 && (
+              <>
+                {user?.orcid_id && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <Chip
+                      label={t('researcher.profile.pastWork.viaOrcid')}
+                      size="small"
+                      sx={{ height: 22, fontSize: 11, bgcolor: 'rgba(166,124,0,0.1)', color: '#a67c00' }}
                     />
-                  ))}
-                </Box>
-              )}
-            </Box>
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                      {t('researcher.profile.pastWork.publicationsHint')}
+                    </Typography>
+                  </Box>
+                )}
+                {orcidLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={22} /></Box>
+                ) : !user?.orcid_id ? (
+                  <EmptyWork message={t('researcher.profile.pastWork.noOrcidLinked')} />
+                ) : orcidPublications.length === 0 ? (
+                  <EmptyWork message={t('researcher.profile.pastWork.emptyPublications')} />
+                ) : (
+                  <>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      {paginateItems(orcidPublications, researchPage).map((pub) => (
+                        <PublicationCard
+                          key={pub.put_code || pub.title}
+                          pub={pub}
+                          theme={theme}
+                          dark={dark}
+                          untitled={t('researcher.profile.pastWork.untitled')}
+                        />
+                      ))}
+                    </Box>
+                    <ListPagination
+                      totalItems={orcidPublications.length}
+                      page={researchPage}
+                      onPageChange={setResearchPage}
+                      theme={theme}
+                    />
+                  </>
+                )}
+              </>
+            )}
 
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <MenuBookIcon sx={{ fontSize: 18, color: '#8b5cf6' }} />
-                <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary' }}>
-                  {t('researcher.profile.pastWork.manuscripts')} ({manuscripts.length})
-                </Typography>
-              </Box>
-              {manuscripts.length === 0 ? (
+            {researchSubTab === 1 && (
+              manuscripts.length === 0 ? (
                 <EmptyWork message={t('researcher.profile.pastWork.emptyManuscripts')} />
               ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {manuscripts.map((m) => (
-                    <WorkItem
-                      key={m.id}
-                      title={m.title || t('researcher.profile.pastWork.untitled')}
-                      meta={formatStatus(m.status)}
-                      href={m.id ? `/researcher/manuscripts/${m.id}/editor` : '/researcher/manuscripts'}
-                      theme={theme}
-                      dark={dark}
-                    />
-                  ))}
-                </Box>
-              )}
-            </Box>
+                <>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {paginateItems(manuscripts, researchPage).map((m) => (
+                      <WorkItem
+                        key={m.id}
+                        title={m.title || t('researcher.profile.pastWork.untitled')}
+                        meta={formatStatus(m.status)}
+                        href={m.id ? `/researcher/manuscripts/${m.id}/editor` : '/researcher/manuscripts'}
+                        theme={theme}
+                        dark={dark}
+                      />
+                    ))}
+                  </Box>
+                  <ListPagination
+                    totalItems={manuscripts.length}
+                    page={researchPage}
+                    onPageChange={setResearchPage}
+                    theme={theme}
+                  />
+                </>
+              )
+            )}
+
+            {researchSubTab === 2 && (
+              projects.length === 0 ? (
+                <EmptyWork message={t('researcher.profile.pastWork.emptyProjects')} />
+              ) : (
+                <>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {paginateItems(projects, researchPage).map((p) => (
+                      <WorkItem
+                        key={p.id}
+                        title={p.title || p.short_title || t('researcher.profile.pastWork.untitled')}
+                        meta={formatStatus(p.status)}
+                        href={p.id ? `/researcher/projects/${p.id}` : undefined}
+                        theme={theme}
+                        dark={dark}
+                      />
+                    ))}
+                  </Box>
+                  <ListPagination
+                    totalItems={projects.length}
+                    page={researchPage}
+                    onPageChange={setResearchPage}
+                    theme={theme}
+                  />
+                </>
+              )
+            )}
           </Box>
         ) : pastWorkTab === 1 ? (
           <Box>
@@ -790,34 +1324,70 @@ export default function ResearcherProfile() {
             )}
           </Box>
         ) : (
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-              <RateReviewIcon sx={{ fontSize: 18, color: '#f97316' }} />
-              <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.primary' }}>
-                {t('researcher.profile.pastWork.pastReviews')} ({reviews.length})
-              </Typography>
-            </Box>
-            {reviews.length === 0 ? (
-              <EmptyWork message={t('researcher.profile.pastWork.emptyReviews')} />
-            ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {reviews.map((r) => {
-                  const meta = [
-                    formatStatus(r.review_type),
-                    formatStatus(r.status),
-                    r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : null,
-                  ].filter(Boolean).join(' · ');
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {(dacorisReviews.length > 0 || orcidReviews.length > 0) ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                {dacorisReviews.map((r, idx) => {
+                  if (!r || typeof r !== 'object') return null;
+                  const submitted = safeFormatDate(r.submitted_at);
+                  const assigned = safeFormatDate(r.assigned_at);
+                  const dateLabel = submitted
+                    ? t('researcher.profile.pastWork.submittedOn', { date: submitted })
+                    : assigned
+                      ? t('researcher.profile.pastWork.assignedOn', { date: assigned })
+                      : null;
+                  const chips = [
+                    r.review_type ? formatStatus(r.review_type) : null,
+                    r.status ? formatStatus(r.status) : null,
+                  ].filter(Boolean);
                   return (
-                    <WorkItem
-                      key={r.id}
-                      title={r.entity_title || t('researcher.profile.pastWork.untitled')}
-                      meta={meta}
+                    <ReviewCard
+                      key={r.id || `dacoris-review-${idx}`}
+                      headline={t('researcher.profile.pastWork.reviewOf', { title: safeText(r.entity_title, t('researcher.profile.pastWork.untitled')) })}
+                      source={t('researcher.profile.pastWork.sourceDacoris')}
+                      sourceColor="#1ca7a1"
+                      chips={chips}
+                      detail={dateLabel}
+                      theme={theme}
+                      dark={dark}
+                    />
+                  );
+                })}
+                {orcidReviews.map((r, idx) => {
+                  if (!r || typeof r !== 'object') return null;
+                  const venue = safeText(r.venue || r.organization);
+                  const headline = venue
+                    ? t('researcher.profile.pastWork.reviewActivityFor', { venue })
+                    : t('researcher.profile.pastWork.peerReview');
+                  const chips = [
+                    r.role ? formatStatus(r.role) : null,
+                    r.review_type ? formatStatus(r.review_type) : null,
+                  ].filter(Boolean);
+                  const detailParts = [
+                    r.completion_date ? t('researcher.profile.pastWork.completedOn', { date: safeText(r.completion_date) }) : null,
+                    r.organization && safeText(r.organization) !== venue ? safeText(r.organization) : null,
+                  ].filter(Boolean);
+                  return (
+                    <ReviewCard
+                      key={r.put_code || `orcid-review-${idx}`}
+                      headline={headline}
+                      source={t('researcher.profile.pastWork.viaOrcid')}
+                      sourceColor="#a67c00"
+                      chips={chips}
+                      subject={r.subject_title ? safeText(r.subject_title) : undefined}
+                      subjectLabel={t('researcher.profile.pastWork.reviewSubject')}
+                      detail={detailParts.join(' · ')}
+                      href={safeExternalHref(r.url)}
                       theme={theme}
                       dark={dark}
                     />
                   );
                 })}
               </Box>
+            ) : orcidLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={22} /></Box>
+            ) : (
+              <EmptyWork message={t('researcher.profile.pastWork.emptyReviews')} />
             )}
           </Box>
         )}

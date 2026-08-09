@@ -216,6 +216,7 @@ export const institutionAdminAPI = {
 export const researcherAPI = {
   getProfile: () => api.get('/auth/me'),
   updateProfile: (data) => api.put('/auth/me', data),
+  getOrcidActivities: () => api.get('/auth/orcid/activities'),
 };
 
 // Training & Capacity Building endpoints
