@@ -10,7 +10,7 @@ import httpx
 import os
 
 from database import get_db
-from models import User, AccountType, UserStatus, PrimaryAccountType, Institution
+from models import User, AccountType, UserStatus, PrimaryAccountType, Institution, user_roles
 from typing import Optional, List
 import sys
 sys.path.append('..')
@@ -47,7 +47,7 @@ DEMO_ROLE_MAP = {
 }
 
 
-def _build_user_response(user_with_institution: User) -> dict:
+def _build_user_response(user_with_institution: User, roles: Optional[List[str]] = None) -> dict:
     institution_types: List[str] = []
     if user_with_institution.institution:
         institution_types = institution_types_as_strings(user_with_institution.institution)
@@ -62,6 +62,7 @@ def _build_user_response(user_with_institution: User) -> dict:
         "status": user_with_institution.status.value,
         "institution_id": user_with_institution.primary_institution_id,
         "primary_account_type": user_with_institution.primary_account_type.value if user_with_institution.primary_account_type else None,
+        "roles": roles or [],
         "department": user_with_institution.department,
         "job_title": user_with_institution.job_title,
         "phone": user_with_institution.phone,
@@ -73,6 +74,14 @@ def _build_user_response(user_with_institution: User) -> dict:
         "institution_types": institution_types,
         "staff_id": user_with_institution.staff_id,
     }
+
+
+async def _fetch_user_roles(db: AsyncSession, user_id: str) -> List[str]:
+    roles_result = await db.execute(
+        select(user_roles.c.role).where(user_roles.c.user_id == user_id)
+    )
+    return [row[0].value for row in roles_result.fetchall()]
+
 
 class UserRegister(BaseModel):
     email: EmailStr
@@ -89,6 +98,7 @@ class UserResponse(BaseModel):
     status: str
     institution_id: str | None = None
     primary_account_type: str | None = None
+    roles: List[str] = []
     department: str | None = None
     job_title: str | None = None
     phone: str | None = None
@@ -298,7 +308,8 @@ async def get_current_user_info(
         .where(User.id == current_user.id)
     )
     user_with_institution = result.scalar_one()
-    return _build_user_response(user_with_institution)
+    roles = await _fetch_user_roles(db, user_with_institution.id)
+    return _build_user_response(user_with_institution, roles)
 
 
 @router.post("/demo/switch-role", response_model=UserResponse)
@@ -332,7 +343,8 @@ async def switch_demo_role(
         .where(User.id == current_user.id)
     )
     user_with_institution = result.scalar_one()
-    return _build_user_response(user_with_institution)
+    roles = await _fetch_user_roles(db, user_with_institution.id)
+    return _build_user_response(user_with_institution, roles)
 
 
 @router.put("/me", response_model=UserResponse)

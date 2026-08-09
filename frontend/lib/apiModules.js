@@ -28,6 +28,16 @@ export const grantsAPI = {
     api.patch(`/grants/proposals/${proposalId}/status`, null, { 
       params: { target_status: targetStatus } 
     }),
+  updateFundingStatus: (proposalId, data) =>
+    api.patch(`/grants/proposals/${proposalId}/funding-status`, data),
+  uploadAwardDocument: (proposalId, file, documentType = 'funding_award') => {
+    const formData = new FormData();
+    formData.append('document_type', documentType);
+    formData.append('file', file);
+    return api.post(`/grants/proposals/${proposalId}/documents`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 
   // Reviews
   assignReviewer: (proposalId, reviewerId) => 

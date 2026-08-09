@@ -1,664 +1,253 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Box, Typography, Button, CircularProgress, Alert, Chip,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, TextField, Dialog, DialogTitle, DialogContent, DialogActions,
-  MenuItem, Select, FormControl, InputLabel, useTheme, Menu, ListItemIcon, ListItemText, Checkbox, Autocomplete, IconButton, TablePagination,
+  Box, Typography, Button, CircularProgress, Alert, Chip, Paper, Dialog, DialogTitle,
+  DialogContent, DialogActions, TextField, MenuItem, Select, FormControl, InputLabel,
+  useTheme, Autocomplete,
 } from '@mui/material';
-import { Add as AddIcon, Search as SearchIcon, Assignment as AssignmentIcon, ExpandMore as ExpandIcon,
-  Edit as ManualIcon, UploadFile as ExcelIcon, CloudDownload as APIIcon, GetApp as DownloadIcon, Delete as DeleteIcon, Visibility as ViewIcon,
-  ArrowUpward as ArrowUpIcon, ArrowDownward as ArrowDownIcon, CheckCircle as PublishedIcon, Unpublished as UnpublishedIcon } from '@mui/icons-material';
+import {
+  Add as AddIcon, UploadFile as ExcelIcon, CloudDownload as APIIcon, GetApp as DownloadIcon,
+  CheckCircle as PublishedIcon, Unpublished as UnpublishedIcon, ExpandMore as ExpandIcon,
+} from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
+import { useLanguage } from '../../../../contexts/LanguageContext';
 import api from '../../../../lib/api';
-
-const STATUS_COLORS = {
-  open:     { bg: 'rgba(16,185,129,0.12)', color: '#10b981' },
-  upcoming: { bg: 'rgba(59,130,246,0.12)', color: '#3b82f6' },
-  closed:   { bg: 'rgba(100,116,139,0.12)', color: '#64748b' },
-  archived: { bg: 'rgba(100,116,139,0.08)', color: '#94a3b8' },
-};
+import { canRecommendGrantOpportunities } from '../../../../lib/adminStaffRoles';
+import OpportunityDiscoverBoard from '../../../../components/grants/OpportunityDiscoverBoard';
 
 const ACCENT = '#16a699';
 
 export default function GrantOpportunitiesPage() {
-  const router  = useRouter();
+  const router = useRouter();
   const { fetchUser } = useAuth();
-  const theme   = useTheme();
-  const dark    = theme.palette.mode === 'dark';
+  const { t, locale, dir } = useLanguage();
+  const theme = useTheme();
+  const dark = theme.palette.mode === 'dark';
 
-  const [loading, setLoading]   = useState(true);
-  const [opps, setOpps]         = useState([]);
-  const [filtered, setFiltered] = useState([]);
-  const [search, setSearch]     = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [fundingAreas, setFundingAreas] = useState([]);
-  const [error, setError]       = useState('');
-  const [success, setSuccess]   = useState('');
+  const [loading, setLoading] = useState(true);
+  const [opportunities, setOpportunities] = useState([]);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [canRecommend, setCanRecommend] = useState(false);
+  const [selected, setSelected] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showExcel, setShowExcel] = useState(false);
   const [showAPI, setShowAPI] = useState(false);
-  const [anchorEl, setAnchorEl] = useState(null);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [excelFile, setExcelFile] = useState(null);
   const [apiUrl, setApiUrl] = useState('http://localhost:8000/api/grants/opportunities/mock/external-opportunities');
-  const [form, setForm] = useState({ 
-    title: '', sponsor: '', description: '', categories: [], funding_type: '', 
-    currency: 'KES', amount_min: '', amount_max: '', deadline: '', 
-    eligibility: '', criteria: '', contact_email: '' 
+  const [form, setForm] = useState({
+    title: '', sponsor: '', description: '', categories: [], funding_type: '',
+    currency: 'KES', amount_min: '', amount_max: '', deadline: '',
+    eligibility: '', criteria: '', contact_email: '',
   });
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [selected, setSelected] = useState([]);
-  const [sortBy, setSortBy] = useState(null);
-  const [sortOrder, setSortOrder] = useState('asc');
 
   useEffect(() => { checkAuth(); }, []);
-  useEffect(() => { applyFilter(); }, [opps, search, statusFilter, categoryFilter, sortBy, sortOrder]);
-  useEffect(() => { setPage(0); }, [filtered]);
 
   const checkAuth = async () => {
     const u = await fetchUser();
     if (!u) { router.push('/login'); return; }
-    if (u.is_global_admin)      { router.push('/global-admin/dashboard'); return; }
+    if (u.is_global_admin) { router.push('/global-admin/dashboard'); return; }
     if (u.is_institution_admin) { router.push('/institution-admin/dashboard'); return; }
-    await loadOpps();
+    setCanRecommend(canRecommendGrantOpportunities(u));
+    await loadOpportunities();
     setLoading(false);
   };
 
-  const loadOpps = async () => {
+  const loadOpportunities = async () => {
     try {
-      const [oppsRes, areasRes] = await Promise.all([
-        api.get('/grants/opportunities'),
-        api.get('/grants/opportunities/funding-by-area').catch(() => ({ data: [] })),
-      ]);
-      const oppsWithCuration = (oppsRes.data || []).map(o => ({ ...o, is_curated: o.is_curated || false }));
-      setOpps(oppsWithCuration);
-      setFundingAreas(areasRes.data || []);
+      const res = await api.get('/grants/opportunities');
+      setOpportunities((res.data || []).map(o => ({ ...o, is_curated: o.is_curated || false })));
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to load opportunities');
+      setError(e.response?.data?.detail || t('researcher.grantsDiscover.errorLoad'));
     }
   };
 
-  const getOppCategories = (opp) => {
-    if (opp.categories?.length) return opp.categories;
-    if (opp.category) return opp.category.split(',').map(n => ({ name: n.trim() })).filter(c => c.name);
-    return [];
+  const handleRecommendSave = async (oppId, { researcherIds, recommendAll, note }) => {
+    const res = await api.post(`/grants/opportunities/${oppId}/recommendations/bulk`, {
+      researcher_ids: researcherIds,
+      recommend_all: recommendAll,
+      note,
+    });
+    const created = res.data?.created ?? 0;
+    const skipped = res.data?.skipped ?? 0;
+    let msg = t('researcher.grantsDiscover.recommendDialog.success');
+    if (recommendAll) {
+      msg = t('researcher.grantsDiscover.recommendDialog.successAll', { count: created });
+    } else if (created > 1) {
+      msg = t('researcher.grantsDiscover.recommendDialog.successMultiple', { count: created });
+    }
+    if (skipped > 0 && created === 0) {
+      msg = t('researcher.grantsDiscover.recommendDialog.alreadyAllRecommended');
+    }
+    setSuccess(msg);
+    setTimeout(() => setSuccess(''), 3000);
+    await loadOpportunities();
   };
 
-  const categoryOptions = useMemo(() => {
-    const names = new Set();
-    opps.forEach(o => getOppCategories(o).forEach(c => names.add(c.name)));
-    fundingAreas.forEach(a => names.add(a.category_name));
-    return Array.from(names).sort();
-  }, [opps, fundingAreas]);
+  const handleRecommendRemove = async (oppId, researcherId) => {
+    if (!confirm(t('researcher.grantsDiscover.recommendDialog.removeConfirm'))) return;
+    await api.delete(`/grants/opportunities/${oppId}/recommendations/${researcherId}`);
+    setSuccess(t('researcher.grantsDiscover.recommendDialog.removed'));
+    setTimeout(() => setSuccess(''), 3000);
+    await loadOpportunities();
+  };
 
-  const applyFilter = () => {
-    let data = [...opps];
-    if (statusFilter !== 'all') data = data.filter(o => o.status === statusFilter);
-    if (categoryFilter !== 'all') {
-      data = data.filter(o => getOppCategories(o).some(c => c.name === categoryFilter));
+  const handleSelect = (id, checked) => {
+    setSelected(prev => checked ? [...prev, id] : prev.filter(x => x !== id));
+  };
+
+  const handleCurateSelected = async (curate) => {
+    if (selected.length === 0) return;
+    try {
+      await api.post('/grants/opportunities/bulk-curate', selected, { params: { curate } });
+      setSuccess(curate
+        ? t('adminStaff.grantsOpportunities.publishSuccess', { count: selected.length })
+        : t('adminStaff.grantsOpportunities.unpublishSuccess', { count: selected.length }));
+      setSelected([]);
+      await loadOpportunities();
+    } catch {
+      setError(t('adminStaff.grantsOpportunities.curationError'));
     }
-    if (search) data = data.filter(o => o.title?.toLowerCase().includes(search.toLowerCase()) || o.sponsor?.toLowerCase().includes(search.toLowerCase()));
-    
-    // Apply sorting
-    if (sortBy) {
-      data.sort((a, b) => {
-        let aVal, bVal;
-        if (sortBy === 'deadline') {
-          aVal = a.deadline ? new Date(a.deadline).getTime() : 0;
-          bVal = b.deadline ? new Date(b.deadline).getTime() : 0;
-        } else if (sortBy === 'status') {
-          const statusOrder = { open: 1, upcoming: 2, closed: 3, archived: 4 };
-          aVal = statusOrder[a.status] || 99;
-          bVal = statusOrder[b.status] || 99;
-        }
-        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
-      });
-    }
-    
-    setFiltered(data);
   };
 
   const handleCreate = async () => {
     if (!form.title) { setError('Title is required'); return; }
-    setCreating(true); setError('');
+    setCreating(true);
     try {
-      const payload = {
+      await api.post('/grants/opportunities', {
         ...form,
         category: form.categories.join(', '),
         amount_min: form.amount_min ? parseFloat(form.amount_min) : null,
         amount_max: form.amount_max ? parseFloat(form.amount_max) : null,
         deadline: form.deadline || null,
-      };
-      await api.post('/grants/opportunities', payload);
+      });
       setShowCreate(false);
-      setForm({ title: '', sponsor: '', description: '', categories: [], funding_type: '', currency: 'KES', amount_min: '', amount_max: '', deadline: '', eligibility: '', criteria: '', contact_email: '' });
-      setSuccess('Opportunity created successfully');
-      setTimeout(() => setSuccess(''), 3000);
-      await loadOpps();
+      setSuccess(t('adminStaff.grantsOpportunities.createSuccess'));
+      await loadOpportunities();
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to create opportunity');
-    } finally { setCreating(false); }
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleExcelImport = async () => {
-    if (!excelFile) { setError('Please select an Excel file'); return; }
-    setImporting(true); setError('');
+    if (!excelFile) return;
+    setImporting(true);
     try {
       const formData = new FormData();
       formData.append('file', excelFile);
       const res = await api.post('/grants/opportunities/import/excel', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       setShowExcel(false);
       setExcelFile(null);
-      setSuccess(`Successfully imported ${res.data.imported_count} of ${res.data.total_rows} opportunities`);
-      setTimeout(() => setSuccess(''), 5000);
-      await loadOpps();
+      setSuccess(t('adminStaff.grantsOpportunities.importSuccess', { count: res.data.created_count || res.data.imported_count || 0 }));
+      await loadOpportunities();
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to import Excel file');
-    } finally { setImporting(false); }
-  };
-
-  const handleDelete = async (id, title) => {
-    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
-    try {
-      await api.delete(`/grants/opportunities/${id}`);
-      setSuccess('Opportunity deleted successfully');
-      setTimeout(() => setSuccess(''), 3000);
-      await loadOpps();
-    } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to delete opportunity');
+      setError(e.response?.data?.detail || 'Import failed');
+    } finally {
+      setImporting(false);
     }
   };
 
-  const handleBatchDelete = async () => {
-    if (selected.length === 0) return;
-    if (!confirm(`Are you sure you want to delete ${selected.length} selected opportunities?`)) return;
-    try {
-      await Promise.all(selected.map(id => api.delete(`/grants/opportunities/${id}`)));
-      setSuccess(`Successfully deleted ${selected.length} opportunities`);
-      setTimeout(() => setSuccess(''), 3000);
-      setSelected([]);
-      await loadOpps();
-    } catch (e) {
-      setError('Failed to delete some opportunities');
-    }
-  };
+  if (loading) {
+    return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><CircularProgress /></Box>;
+  }
 
-  const handleAPIImport = async () => {
-    if (!apiUrl) { setError('API URL is required'); return; }
-    setImporting(true); setError('');
-    try {
-      const res = await api.post('/grants/opportunities/import/api', { api_url: apiUrl });
-      setShowAPI(false);
-      setSuccess(`Successfully imported ${res.data.imported_count} opportunities from external API`);
-      setTimeout(() => setSuccess(''), 5000);
-      await loadOpps();
-    } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to import from API');
-    } finally { setImporting(false); }
-  };
+  const headerExtra = (
+    <>
+      <Box sx={{ mb: 3, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+        <Box>
+          <Typography sx={{ fontSize: 24, fontWeight: 800, color: 'text.primary' }}>
+            {t('adminStaff.grantsOpportunities.title')}
+          </Typography>
+          <Typography sx={{ fontSize: 14, color: 'text.secondary', mt: 0.4 }}>
+            {t('adminStaff.grantsOpportunities.subtitle')}
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setShowCreate(true)}
+            sx={{ textTransform: 'none', borderRadius: 2, fontWeight: 600 }}>{t('adminStaff.grantsOpportunities.addManual')}</Button>
+          <Button variant="outlined" startIcon={<ExcelIcon />} onClick={() => setShowExcel(true)}
+            sx={{ textTransform: 'none', borderRadius: 2, fontWeight: 600 }}>{t('adminStaff.grantsOpportunities.importExcel')}</Button>
+        </Box>
+      </Box>
 
-  const downloadTemplate = async () => {
-    try {
-      const res = await api.get('/grants/opportunities/template/excel', { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'grant_opportunities_template.xlsx');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (e) {
-      setError('Failed to download template');
-    }
-  };
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
-  const handleSort = (column) => {
-    if (sortBy === column) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(column);
-      setSortOrder('asc');
-    }
-  };
+      <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
+        <Chip label={t('researcher.grantsDiscover.summary.total', { count: opportunities.length })} sx={{ bgcolor: `${ACCENT}18`, color: ACCENT, fontWeight: 600 }} />
+        <Chip label={t('researcher.grantsDiscover.summary.published', { count: opportunities.filter(o => o.is_curated).length })} sx={{ bgcolor: 'rgba(16,185,129,0.12)', color: '#10b981', fontWeight: 600 }} />
+        <Chip label={t('researcher.grantsDiscover.summary.open', { count: opportunities.filter(o => o.status === 'open').length })} sx={{ bgcolor: 'rgba(59,130,246,0.12)', color: '#3b82f6', fontWeight: 600 }} />
+      </Box>
+    </>
+  );
 
-  const paginatedOpps = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-  const isSelected = (id) => selected.indexOf(id) !== -1;
-
-  const handleSelectAll = (event) => {
-    if (event.target.checked) {
-      setSelected(paginatedOpps.map(o => o.id));
-    } else {
-      setSelected([]);
-    }
-  };
-
-  const handleSelectOne = (event, id) => {
-    event.stopPropagation();
-    const selectedIndex = selected.indexOf(id);
-    let newSelected = [];
-    if (selectedIndex === -1) {
-      newSelected = newSelected.concat(selected, id);
-    } else if (selectedIndex === 0) {
-      newSelected = newSelected.concat(selected.slice(1));
-    } else if (selectedIndex === selected.length - 1) {
-      newSelected = newSelected.concat(selected.slice(0, -1));
-    } else if (selectedIndex > 0) {
-      newSelected = newSelected.concat(
-        selected.slice(0, selectedIndex),
-        selected.slice(selectedIndex + 1)
-      );
-    }
-    setSelected(newSelected);
-  };
-
-  const handleCurateSelected = async () => {
-    try {
-      await api.post('/grants/opportunities/bulk-curate', selected, {
-        params: { curate: true }
-      });
-      setSuccess(`${selected.length} opportunity(ies) published to researchers`);
-      setTimeout(() => setSuccess(''), 3000);
-      setSelected([]);
-      await loadOpps();
-    } catch (e) {
-      setError('Failed to publish opportunities');
-    }
-  };
-
-  const handleUncurateSelected = async () => {
-    try {
-      await api.post('/grants/opportunities/bulk-curate', selected, {
-        params: { curate: false }
-      });
-      setSuccess(`${selected.length} opportunity(ies) unpublished from researchers`);
-      setTimeout(() => setSuccess(''), 3000);
-      setSelected([]);
-      await loadOpps();
-    } catch (e) {
-      setError('Failed to unpublish opportunities');
-    }
-  };
-
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
-  const fmtMoney = (o) => {
-    if (!o.amount_min && !o.amount_max) return '—';
-    const fmt = (n) => n >= 1_000_000 ? `${(n/1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n/1000).toFixed(0)}K` : n;
-    if (o.amount_min && o.amount_max) return `${o.currency} ${fmt(o.amount_min)} – ${fmt(o.amount_max)}`;
-    return `${o.currency} ${fmt(o.amount_min || o.amount_max)}`;
-  };
-
-  const fmtFundingRange = (min, max, currencies = []) => {
-    if (!min && !max) return '—';
-    const fmt = (n) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}K` : n;
-    const curr = currencies.length === 1 ? `${currencies[0]} ` : '';
-    if (min && max) return `${curr}${fmt(min)} – ${fmt(max)}`;
-    return `${curr}${fmt(min || max)}`;
-  };
-
-  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><CircularProgress /></Box>;
+  const bulkActions = selected.length > 0 ? (
+    <Paper elevation={0} sx={{ mb: 3, p: 2, borderRadius: 2, border: `1px solid ${ACCENT}40`, bgcolor: `${ACCENT}08`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+      <Typography sx={{ fontWeight: 600 }}>{t('adminStaff.grantsOpportunities.selected', { count: selected.length })}</Typography>
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        <Button variant="contained" size="small" startIcon={<PublishedIcon />} onClick={() => handleCurateSelected(true)}
+          sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2 }}>{t('adminStaff.grantsOpportunities.publish')}</Button>
+        <Button variant="outlined" size="small" startIcon={<UnpublishedIcon />} onClick={() => handleCurateSelected(false)}
+          sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 2 }}>{t('adminStaff.grantsOpportunities.unpublish')}</Button>
+      </Box>
+    </Paper>
+  ) : null;
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
-      {/* Header */}
-      <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, mb: 0.5 }}>Grant Opportunities</Typography>
-          <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>
-            Browse funding opportunities from external sources • Data refreshed from Excel repository
-          </Typography>
-        </Box>
-        <Chip 
-          label={`${opps.length} Opportunities Available`}
-          sx={{ bgcolor: `${ACCENT}18`, color: ACCENT, fontWeight: 600, fontSize: 13, px: 1 }}
-        />
-      </Box>
+    <Box sx={{ px: { xs: 1.5, md: 2 }, py: { xs: 1.5, md: 2 }, width: '100%' }}>
+      <OpportunityDiscoverBoard
+        mode="admin"
+        opportunities={opportunities}
+        canRecommend={canRecommend}
+        api={api}
+        onRecommendSave={handleRecommendSave}
+        onRecommendRemove={handleRecommendRemove}
+        onView={(opp) => router.push(`/admin-staff/grants/opportunities/${opp.id}`)}
+        selectedIds={selected}
+        onSelect={handleSelect}
+        bulkActions={bulkActions}
+        t={t}
+        locale={locale}
+        dir={dir}
+        theme={theme}
+        dark={dark}
+        headerExtra={headerExtra}
+      />
 
-      {error   && <Alert severity="error"   sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 3 }}>{success}</Alert>}
-
-      {/* Filters */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <TextField size="small" placeholder="Search by title or sponsor…" value={search} onChange={e => setSearch(e.target.value)}
-          InputProps={{ startAdornment: <SearchIcon sx={{ color: 'text.disabled', mr: 1, fontSize: 18 }} /> }}
-          sx={{ flex: '1 1 240px', '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Status</InputLabel>
-          <Select value={statusFilter} label="Status" onChange={e => setStatusFilter(e.target.value)} sx={{ borderRadius: 2 }}>
-            <MenuItem value="all">All Statuses</MenuItem>
-            <MenuItem value="open">Open</MenuItem>
-            <MenuItem value="upcoming">Upcoming</MenuItem>
-            <MenuItem value="closed">Closed</MenuItem>
-            <MenuItem value="archived">Archived</MenuItem>
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Funding Area</InputLabel>
-          <Select value={categoryFilter} label="Funding Area" onChange={e => setCategoryFilter(e.target.value)} sx={{ borderRadius: 2 }}>
-            <MenuItem value="all">All Areas</MenuItem>
-            {categoryOptions.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-          </Select>
-        </FormControl>
-      </Box>
-
-      {/* Funding by Research Area */}
-      {fundingAreas.length > 0 && (
-        <Box sx={{ mb: 3 }}>
-          <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary', mb: 1.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Funding by Research Area
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            {fundingAreas.map(area => (
-              <Paper key={area.category_id || area.category_name} elevation={0}
-                onClick={() => setCategoryFilter(area.category_name === categoryFilter ? 'all' : area.category_name)}
-                sx={{
-                  flex: '1 1 200px', maxWidth: 280, p: 2, borderRadius: 3, cursor: 'pointer',
-                  border: `1px solid ${categoryFilter === area.category_name ? area.color : theme.palette.divider}`,
-                  bgcolor: categoryFilter === area.category_name ? `${area.color}10` : 'background.paper',
-                  transition: 'border-color 0.15s, background-color 0.15s',
-                  '&:hover': { borderColor: area.color, bgcolor: `${area.color}08` },
-                }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: area.color, flexShrink: 0 }} />
-                  <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'text.primary' }}>{area.category_name}</Typography>
-                </Box>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 0.5 }}>
-                  {area.opportunity_count} opportunit{area.opportunity_count === 1 ? 'y' : 'ies'} · {area.open_count} open
-                </Typography>
-                <Typography sx={{ fontSize: 13, fontWeight: 600, color: ACCENT, mb: 0.5 }}>
-                  {fmtFundingRange(area.total_funding_min, area.total_funding_max, area.currencies)}
-                </Typography>
-                <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>
-                  {area.application_count} application{area.application_count === 1 ? '' : 's'}
-                </Typography>
-              </Paper>
-            ))}
-          </Box>
-        </Box>
-      )}
-
-      {/* Curation Actions */}
-      {selected.length > 0 && (
-        <Box sx={{ mb: 3, p: 2, bgcolor: `${ACCENT}08`, border: `1px solid ${ACCENT}40`, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'text.primary' }}>
-            {selected.length} opportunity(ies) selected
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button variant="contained" size="small" startIcon={<PublishedIcon />} onClick={handleCurateSelected}
-              sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2, '&:hover': { bgcolor: '#14958a' } }}>
-              Publish to Researchers
-            </Button>
-            <Button variant="outlined" size="small" startIcon={<UnpublishedIcon />} onClick={handleUncurateSelected}
-              sx={{ borderColor: 'text.secondary', color: 'text.secondary', textTransform: 'none', fontWeight: 600, borderRadius: 2 }}>
-              Unpublish
-            </Button>
-          </Box>
-        </Box>
-      )}
-
-      {/* Summary chips */}
-      <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
-        {['open', 'upcoming', 'closed'].map(s => {
-          const count = opps.filter(o => o.status === s).length;
-          const c = STATUS_COLORS[s] || STATUS_COLORS.closed;
-          return <Chip key={s} label={`${count} ${s.charAt(0).toUpperCase() + s.slice(1)}`} size="small"
-            sx={{ bgcolor: c.bg, color: c.color, fontWeight: 600, fontSize: 12 }} />;
-        })}
-        <Chip label={`${opps.filter(o => o.is_curated).length} Published`} size="small" 
-          sx={{ bgcolor: `${ACCENT}18`, color: ACCENT, fontWeight: 600, fontSize: 12 }} />
-        <Chip label={`${opps.length} Total`} size="small" sx={{ bgcolor: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', color: 'text.secondary', fontWeight: 600 }} />
-      </Box>
-
-      {/* Table */}
-      <TableContainer component={Paper} elevation={0} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 3, bgcolor: 'background.paper' }}>
-        <Table>
-          <TableHead>
-            <TableRow sx={{ '& th': { fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'text.secondary', bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderBottom: `1px solid ${theme.palette.divider}` } }}>
-              <TableCell padding="checkbox">
-                <Checkbox
-                  indeterminate={selected.length > 0 && selected.length < paginatedOpps.length}
-                  checked={paginatedOpps.length > 0 && selected.length === paginatedOpps.length}
-                  onChange={handleSelectAll}
-                  sx={{ color: 'text.secondary', '&.Mui-checked': { color: ACCENT } }}
-                />
-              </TableCell>
-              <TableCell>Title</TableCell>
-              <TableCell>Funding Area</TableCell>
-              <TableCell>Sponsor</TableCell>
-              <TableCell>Funding Range</TableCell>
-              <TableCell 
-                onClick={() => handleSort('deadline')}
-                sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  Deadline
-                  {sortBy === 'deadline' && (
-                    sortOrder === 'asc' ? <ArrowUpIcon sx={{ fontSize: 14 }} /> : <ArrowDownIcon sx={{ fontSize: 14 }} />
-                  )}
-                </Box>
-              </TableCell>
-              <TableCell 
-                onClick={() => handleSort('status')}
-                sx={{ cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  Status
-                  {sortBy === 'status' && (
-                    sortOrder === 'asc' ? <ArrowUpIcon sx={{ fontSize: 14 }} /> : <ArrowDownIcon sx={{ fontSize: 14 }} />
-                  )}
-                </Box>
-              </TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8}>
-                  <Box sx={{ textAlign: 'center', py: 6 }}>
-                    <AssignmentIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
-                    <Typography sx={{ color: 'text.secondary', fontWeight: 600 }}>No opportunities found</Typography>
-                    <Typography sx={{ color: 'text.disabled', fontSize: 13 }}>Create your first funding opportunity to get started.</Typography>
-                  </Box>
-                </TableCell>
-              </TableRow>
-            ) : paginatedOpps.map(opp => {
-              const sc = STATUS_COLORS[opp.status] || STATUS_COLORS.closed;
-              const isItemSelected = isSelected(opp.id);
-              return (
-                <TableRow key={opp.id} hover sx={{ '&:last-child td': { borderBottom: 'none' }, '&:hover': { bgcolor: `${ACCENT}06` }, cursor: 'pointer', bgcolor: isItemSelected ? `${ACCENT}08` : 'transparent' }}
-                  onClick={() => router.push(`/admin-staff/grants/opportunities/${opp.id}`)}>
-                  <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={isItemSelected}
-                      onChange={(event) => handleSelectOne(event, opp.id)}
-                      sx={{ color: 'text.secondary', '&.Mui-checked': { color: ACCENT } }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography sx={{ fontWeight: 600, fontSize: 14, color: 'text.primary' }}>{opp.title}</Typography>
-                      </Box>
-                      {opp.is_curated && (
-                        <PublishedIcon sx={{ fontSize: 16, color: ACCENT }} titleAccess="Published to researchers" />
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {getOppCategories(opp).length > 0 ? getOppCategories(opp).map(c => (
-                        <Chip key={c.id || c.name} label={c.name} size="small"
-                          sx={{ fontSize: 10, fontWeight: 600, bgcolor: `${c.color || ACCENT}18`, color: c.color || ACCENT, height: 22 }} />
-                      )) : (
-                        <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>—</Typography>
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell><Typography sx={{ fontSize: 13.5 }}>{opp.sponsor || '—'}</Typography></TableCell>
-                  <TableCell><Typography sx={{ fontSize: 13.5 }}>{fmtMoney(opp)}</Typography></TableCell>
-                  <TableCell>
-                    <Typography sx={{ fontSize: 13.5, color: opp.deadline && new Date(opp.deadline) < new Date() ? '#ef4444' : 'text.primary' }}>
-                      {fmtDate(opp.deadline)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={opp.status?.charAt(0).toUpperCase() + opp.status?.slice(1)} size="small"
-                      sx={{ bgcolor: sc.bg, color: sc.color, fontWeight: 600, fontSize: 11 }} />
-                  </TableCell>
-                  <TableCell align="right">
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
-                      {opp.application_count > 0 && (
-                        <Chip label={`${opp.application_count} app${opp.application_count === 1 ? '' : 's'}`} size="small"
-                          sx={{ fontSize: 10, fontWeight: 600, bgcolor: 'rgba(59,130,246,0.12)', color: '#3b82f6', height: 22, mr: 0.5 }} />
-                      )}
-                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); router.push(`/admin-staff/grants/opportunities/${opp.id}`); }} sx={{ color: ACCENT }}>
-                        <ViewIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-        <TablePagination
-          component="div"
-          count={filtered.length}
-          page={page}
-          onPageChange={(e, newPage) => setPage(newPage)}
-          rowsPerPage={rowsPerPage}
-          onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
-          rowsPerPageOptions={[5, 10, 25, 50]}
-          sx={{ borderTop: `1px solid ${theme.palette.divider}` }}
-        />
-      </TableContainer>
-
-      {/* Create Dialog */}
-      <Dialog open={showCreate} onClose={() => setShowCreate(false)} maxWidth="sm" fullWidth disableScrollLock
-        PaperProps={{ sx: { borderRadius: 3, bgcolor: 'background.paper' } }}>
-        <DialogTitle sx={{ fontWeight: 700, fontSize: 18 }}>New Grant Opportunity</DialogTitle>
+      <Dialog open={showCreate} onClose={() => setShowCreate(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>{t('adminStaff.grantsOpportunities.createTitle')}</DialogTitle>
         <DialogContent dividers>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             <TextField label="Title *" fullWidth size="small" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
-            <TextField label="Sponsor / Funder" fullWidth size="small" value={form.sponsor} onChange={e => setForm(f => ({ ...f, sponsor: e.target.value }))} />
+            <TextField label="Sponsor" fullWidth size="small" value={form.sponsor} onChange={e => setForm(f => ({ ...f, sponsor: e.target.value }))} />
             <TextField label="Description" fullWidth multiline rows={3} size="small" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
-            <Autocomplete
-              multiple
-              freeSolo
-              options={['Health', 'Agriculture', 'Environment', 'Technology', 'STEM', 'Education', 'Social Sciences', 'Engineering', 'Multi-disciplinary']}
-              value={form.categories}
-              onChange={(e, newValue) => setForm(f => ({ ...f, categories: newValue }))}
-              renderInput={(params) => <TextField {...params} label="Categories" size="small" placeholder="Select or type custom categories" />}
-              renderTags={(value, getTagProps) =>
-                value.map((option, index) => (
-                  <Chip label={option} size="small" {...getTagProps({ index })} />
-                ))
-              }
-            />
-            <TextField label="Funding Type" fullWidth size="small" value={form.funding_type} onChange={e => setForm(f => ({ ...f, funding_type: e.target.value }))} placeholder="e.g. Grant, Contract, Fellowship" />
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField label="Min Amount" fullWidth size="small" type="number" value={form.amount_min} onChange={e => setForm(f => ({ ...f, amount_min: e.target.value }))} />
-              <TextField label="Max Amount" fullWidth size="small" type="number" value={form.amount_max} onChange={e => setForm(f => ({ ...f, amount_max: e.target.value }))} />
-              <FormControl size="small" sx={{ minWidth: 90 }}>
-                <InputLabel>Currency</InputLabel>
-                <Select value={form.currency} label="Currency" onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
-                  {['KES','USD','GBP','EUR'].map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Box>
-            <TextField label="Application Deadline" fullWidth size="small" type="date" value={form.deadline}
-              onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} InputLabelProps={{ shrink: true }} />
-            <TextField label="Eligibility Criteria" fullWidth multiline rows={2} size="small" value={form.criteria}
-              onChange={e => setForm(f => ({ ...f, criteria: e.target.value }))} placeholder="Who can apply? e.g., Universities, NGOs, Research institutions" />
-            <TextField label="Detailed Requirements" fullWidth multiline rows={2} size="small" value={form.eligibility}
-              onChange={e => setForm(f => ({ ...f, eligibility: e.target.value }))} placeholder="Additional eligibility details" />
-            <TextField label="Contact Email" fullWidth size="small" type="email" value={form.contact_email}
-              onChange={e => setForm(f => ({ ...f, contact_email: e.target.value }))} placeholder="grants@example.org" />
+            <Autocomplete multiple freeSolo options={['Health', 'Agriculture', 'Environment', 'Technology', 'STEM']}
+              value={form.categories} onChange={(_, v) => setForm(f => ({ ...f, categories: v }))}
+              renderInput={(params) => <TextField {...params} label="Categories" size="small" />} />
           </Box>
         </DialogContent>
-        <DialogActions sx={{ p: 2.5, gap: 1 }}>
-          <Button onClick={() => setShowCreate(false)} sx={{ textTransform: 'none', borderRadius: 2, fontWeight: 600 }}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={creating}
-            startIcon={creating ? <CircularProgress size={16} color="inherit" /> : <AddIcon />}
-            sx={{ bgcolor: ACCENT, textTransform: 'none', borderRadius: 2, fontWeight: 600, '&:hover': { bgcolor: '#7c3aed' } }}>
-            Create Opportunity
-          </Button>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowCreate(false)} sx={{ textTransform: 'none' }}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreate} disabled={creating} sx={{ bgcolor: ACCENT, textTransform: 'none' }}>Create</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Excel Import Dialog */}
-      <Dialog open={showExcel} onClose={() => setShowExcel(false)} maxWidth="sm" fullWidth disableScrollLock
-        PaperProps={{ sx: { borderRadius: 3, bgcolor: 'background.paper' } }}>
-        <DialogTitle sx={{ fontWeight: 700, fontSize: 18 }}>Import from Excel</DialogTitle>
+      <Dialog open={showExcel} onClose={() => setShowExcel(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>{t('adminStaff.grantsOpportunities.importExcel')}</DialogTitle>
         <DialogContent dividers>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-            <Alert severity="info" sx={{ fontSize: 13 }}>
-              Upload an Excel file (.xlsx or .xls) with grant opportunities. Download the template below to see the required format.
-            </Alert>
-            <Button variant="outlined" startIcon={<DownloadIcon />} onClick={downloadTemplate}
-              sx={{ textTransform: 'none', borderRadius: 2, fontWeight: 600, borderColor: '#10b981', color: '#10b981', '&:hover': { borderColor: '#059669', bgcolor: 'rgba(16,185,129,0.04)' } }}>
-              Download Excel Template
-            </Button>
-            <Box sx={{ border: `2px dashed ${theme.palette.divider}`, borderRadius: 2, p: 3, textAlign: 'center', bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
-              <input type="file" accept=".xlsx,.xls" onChange={(e) => setExcelFile(e.target.files[0])}
-                style={{ display: 'none' }} id="excel-upload" />
-              <label htmlFor="excel-upload">
-                <Button component="span" variant="contained" startIcon={<ExcelIcon />}
-                  sx={{ bgcolor: '#10b981', textTransform: 'none', borderRadius: 2, fontWeight: 600, '&:hover': { bgcolor: '#059669' } }}>
-                  Select Excel File
-                </Button>
-              </label>
-              {excelFile && <Typography sx={{ mt: 2, fontSize: 13, color: 'text.secondary' }}>Selected: {excelFile.name}</Typography>}
-            </Box>
-          </Box>
+          <input type="file" accept=".xlsx,.xls" onChange={(e) => setExcelFile(e.target.files?.[0])} style={{ marginTop: 16 }} />
         </DialogContent>
-        <DialogActions sx={{ p: 2.5, gap: 1 }}>
-          <Button onClick={() => { setShowExcel(false); setExcelFile(null); }} sx={{ textTransform: 'none', borderRadius: 2, fontWeight: 600 }}>Cancel</Button>
-          <Button variant="contained" onClick={handleExcelImport} disabled={importing || !excelFile}
-            startIcon={importing ? <CircularProgress size={16} color="inherit" /> : <ExcelIcon />}
-            sx={{ bgcolor: '#10b981', textTransform: 'none', borderRadius: 2, fontWeight: 600, '&:hover': { bgcolor: '#059669' } }}>
-            {importing ? 'Importing...' : 'Import Opportunities'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* API Import Dialog */}
-      <Dialog open={showAPI} onClose={() => setShowAPI(false)} maxWidth="sm" fullWidth disableScrollLock
-        PaperProps={{ sx: { borderRadius: 3, bgcolor: 'background.paper' } }}>
-        <DialogTitle sx={{ fontWeight: 700, fontSize: 18 }}>Import from External API</DialogTitle>
-        <DialogContent dividers>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-            <Alert severity="info" sx={{ fontSize: 13 }}>
-              Connect to external grant databases like Grants.gov, Research Professional, or custom APIs. The mock API demonstrates integration capability.
-            </Alert>
-            <TextField label="API Endpoint URL" fullWidth size="small" value={apiUrl}
-              onChange={e => setApiUrl(e.target.value)}
-              placeholder="http://localhost:8000/api/grants/opportunities/mock/external-opportunities"
-              helperText="Default: Mock external grant opportunities API" />
-            <Box sx={{ bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderRadius: 2, p: 2 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', mb: 1 }}>MOCK API PREVIEW</Typography>
-              <Typography sx={{ fontSize: 11, color: 'text.disabled', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                GET {apiUrl}
-              </Typography>
-              <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 1 }}>
-                Returns 6 sample opportunities from Wellcome Trust, Gates Foundation, AfDB, USAID, UNESCO, and EDCTP
-              </Typography>
-            </Box>
-          </Box>
-        </DialogContent>
-        <DialogActions sx={{ p: 2.5, gap: 1 }}>
-          <Button onClick={() => setShowAPI(false)} sx={{ textTransform: 'none', borderRadius: 2, fontWeight: 600 }}>Cancel</Button>
-          <Button variant="contained" onClick={handleAPIImport} disabled={importing}
-            startIcon={importing ? <CircularProgress size={16} color="inherit" /> : <APIIcon />}
-            sx={{ bgcolor: '#0ea5e9', textTransform: 'none', borderRadius: 2, fontWeight: 600, '&:hover': { bgcolor: '#0284c7' } }}>
-            {importing ? 'Importing...' : 'Import from API'}
-          </Button>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowExcel(false)} sx={{ textTransform: 'none' }}>Cancel</Button>
+          <Button variant="contained" onClick={handleExcelImport} disabled={importing || !excelFile} sx={{ bgcolor: ACCENT, textTransform: 'none' }}>Import</Button>
         </DialogActions>
       </Dialog>
     </Box>

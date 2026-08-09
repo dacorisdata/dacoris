@@ -1150,7 +1150,7 @@ const sw = {
         draft: 'Rasimu',
         returned: 'Marekebisho Yanahitajika',
         submitted: 'Imewasilishwa',
-        internal_review: 'Inapitiwa',
+        internal_review: 'Ukaguzi wa ustahili',
         under_review: 'Inapitiwa',
         awarded: 'Imetunukiwa',
         declined: 'Haikutunukiwa',
@@ -1161,6 +1161,7 @@ const sw = {
         draft: { label: 'Rasimu', hint: 'Bado inaendelea' },
         pipeline: { label: 'Yaliyowasilishwa na Yanapitiwa', hint: 'Inasubiri ukaguzi' },
         awarded: { label: 'Zilizotunukiwa', hint: 'Maombi yaliyofanikiwa' },
+        declined: { label: 'Haikutunukiwa', hint: 'Pendekezo lililokataliwa' },
       },
       table: {
         title: 'Kichwa cha Pendekezo',
@@ -1379,6 +1380,10 @@ const sw = {
           panel: 'Ukaguzi wa jopo',
           final: 'Idhini ya mwisho',
         },
+      },
+      reviewFeedback: {
+        title: 'Maoni ya Mkaguzi',
+        score: 'Alama: {score}',
       },
       award: {
         title: 'Maelezo ya Tuzo',

@@ -256,7 +256,10 @@ class ProposalStatus(str, enum.Enum):
     RETURNED = "returned"
     SUBMITTED = "submitted"
     UNDER_REVIEW = "under_review"
+    APPROVED = "approved"
+    APPLYING = "applying"
     AWARDED = "awarded"
+    FUNDING_UNSUCCESSFUL = "funding_unsuccessful"
     DECLINED = "declined"
 
 class AwardStatus(str, enum.Enum):
@@ -359,6 +362,30 @@ class OpportunityBookmark(Base):
     __table_args__ = (
         # Ensure a user can only bookmark an opportunity once
         UniqueConstraint('opportunity_id', 'user_id', name='unique_user_opportunity_bookmark'),
+    )
+
+
+class OpportunityResearcherRecommendation(Base):
+    """Staff recommendation tagging a researcher to a grant opportunity."""
+    __tablename__ = "opportunity_researcher_recommendations"
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    opportunity_id = Column(String, ForeignKey("grant_opportunities.id"), nullable=False, index=True)
+    researcher_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    recommended_by_id = Column(String, ForeignKey("users.id"), nullable=False)
+    institution_id = Column(String, ForeignKey("institutions.id"), nullable=False, index=True)
+    note = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    opportunity = relationship("GrantOpportunity", backref="researcher_recommendations")
+    researcher = relationship("User", foreign_keys=[researcher_id])
+    recommended_by = relationship("User", foreign_keys=[recommended_by_id])
+
+    __table_args__ = (
+        UniqueConstraint(
+            'opportunity_id', 'researcher_id',
+            name='unique_opportunity_researcher_recommendation',
+        ),
     )
 
 
@@ -568,6 +595,7 @@ class ProposalReview(Base):
     id = Column(String, primary_key=True, index=True, default=generate_uuid)
     proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False)
     reviewer_id = Column(String, ForeignKey("users.id"), nullable=False)
+    section_id = Column(String, ForeignKey("proposal_sections.id"), nullable=True)
     status = Column(Enum(ReviewStatus), default=ReviewStatus.ASSIGNED)
     has_coi = Column(Boolean, default=False)
     coi_reason = Column(Text)
@@ -604,13 +632,14 @@ class ProposalStageHistory(Base):
 
 
 class ProposalStageAssignment(Base):
-    """Tracks which reviewer is assigned to review a specific stage of a proposal."""
+    """Tracks which reviewer is assigned to review a proposal section or stage."""
     __tablename__ = "proposal_stage_assignments"
 
     id = Column(String, primary_key=True, index=True, default=generate_uuid)
     proposal_id = Column(String, ForeignKey("proposals.id"), nullable=False)
     stage_step = Column(Integer, nullable=False)
     stage_name = Column(String(100))
+    section_id = Column(String, ForeignKey("proposal_sections.id"), nullable=True)
     reviewer_id = Column(String, ForeignKey("users.id"), nullable=False)
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
     assigned_by_id = Column(String, ForeignKey("users.id"), nullable=False)
@@ -622,8 +651,8 @@ class ProposalStageAssignment(Base):
     assigned_by = relationship("User", foreign_keys=[assigned_by_id])
 
     __table_args__ = (
-        UniqueConstraint("proposal_id", "stage_step", "reviewer_id",
-                         name="uq_proposal_stage_reviewer"),
+        UniqueConstraint("proposal_id", "section_id", "reviewer_id",
+                         name="uq_proposal_section_reviewer"),
     )
 
 

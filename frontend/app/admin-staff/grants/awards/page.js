@@ -95,7 +95,7 @@ export default function GrantAwardsPage() {
     <Box sx={{ p: { xs: 2, md: 4 } }}>
       <Box sx={{ mb: 4 }}>
         <Typography sx={{ color: 'text.primary', fontSize: 26, fontWeight: 700, mb: 0.5 }}>Awards</Typography>
-        <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>Track all issued awards and their post-award status</Typography>
+        <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>Read-only view of funder awards recorded by research teams</Typography>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}

@@ -57,7 +57,28 @@ export const GRANT_REVIEWER_ASSIGNER_TYPES = [
   'RESEARCH_ADMINISTRATOR',
 ];
 
-export function canAssignGrantReviewers(user) {
+/** Permission roles that may assign grant reviewers (matches backend user_roles). */
+export const GRANT_REVIEWER_ASSIGNER_ROLE_KEYS = new Set([
+  'director_research',
+  'research_admin',
+  'research_administrator',
+]);
+
+function normalizeRoleKey(role) {
+  return String(role || '').toLowerCase().replace(/-/g, '_');
+}
+
+export function userHasGrantStaffRole(user) {
   if (!user) return false;
-  return GRANT_REVIEWER_ASSIGNER_TYPES.includes(user.primary_account_type);
+  if (user.is_global_admin || user.is_institution_admin) return true;
+  if (GRANT_REVIEWER_ASSIGNER_TYPES.includes(user.primary_account_type)) return true;
+  return (user.roles || []).some((role) => GRANT_REVIEWER_ASSIGNER_ROLE_KEYS.has(normalizeRoleKey(role)));
+}
+
+export function canAssignGrantReviewers(user) {
+  return userHasGrantStaffRole(user);
+}
+
+export function canRecommendGrantOpportunities(user) {
+  return userHasGrantStaffRole(user);
 }

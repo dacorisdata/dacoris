@@ -25,6 +25,7 @@ import {
   FiberManualRecord as DotIcon,
 } from '@mui/icons-material';
 import api from '../../../../../lib/api';
+import { grantsAPI } from '../../../../../lib/apiModules';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { TeamMemberProfileModal } from '../../../../../components/TeamInvitePanel';
 import { collabAvatarSx } from '../../../../../lib/pendingAvatar';
@@ -35,25 +36,40 @@ const ACCENT = '#16a699';
 
 const WORKFLOW_STEPS = [
   { step: 0, label: 'Received',       desc: 'Submitted & intake' },
-  { step: 1, label: 'Eligibility',    desc: 'Step 1/5: Eligibility check' },
-  { step: 2, label: 'Technical',      desc: 'Step 2/5: Expert review' },
-  { step: 3, label: 'Budget',         desc: 'Step 3/5: Finance review' },
-  { step: 4, label: 'Panel',          desc: 'Step 4/5: Panel decision' },
-  { step: 5, label: 'Final Approval', desc: 'Step 5/5: Institutional sign-off' },
+  { step: 1, label: 'Section Review',   desc: 'Concurrent reviewer feedback on sections' },
+  { step: 2, label: 'Approved',         desc: 'Institutional approval — PI applies to funder' },
 ];
 
 const STATUS_COLORS = {
   draft:           { bg: '#94a3b822', color: '#94a3b8', label: 'Draft' },
   submitted:       { bg: '#f59e0b22', color: '#f59e0b', label: 'Submitted' },
-  internal_review: { bg: '#3b82f622', color: '#3b82f6', label: 'Eligibility Review' },
-  under_review:    { bg: '#8b5cf622', color: '#8b5cf6', label: 'Under Review' },
+  internal_review: { bg: '#3b82f622', color: '#3b82f6', label: 'In Review' },
+  under_review:    { bg: '#8b5cf622', color: '#8b5cf6', label: 'Section Review' },
   returned:        { bg: '#ef444422', color: '#ef4444', label: 'Returned for Revision' },
-  awarded:         { bg: '#10b98122', color: '#10b981', label: 'Awarded' },
+  approved:        { bg: '#10b98122', color: '#10b981', label: 'Approved' },
+  applying:        { bg: '#0ea5e922', color: '#0ea5e9', label: 'Applying to Funder' },
+  awarded:         { bg: '#10b98122', color: '#10b981', label: 'Funder Awarded' },
+  funding_unsuccessful: { bg: '#ef444422', color: '#ef4444', label: 'Funding Unsuccessful' },
   declined:        { bg: '#ef444422', color: '#ef4444', label: 'Declined' },
 };
 
 const fmt = v => v ? new Intl.NumberFormat().format(v) : null;
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+const RECOMMENDATION_LABELS = {
+  fund: 'Recommend funding',
+  recommend_funding: 'Recommend funding',
+  approve: 'Approve',
+  reject: 'Do not recommend',
+  do_not_fund: 'Do not recommend',
+  revise: 'Revise and resubmit',
+};
+
+const formatRecommendation = (value) => {
+  if (!value) return '—';
+  const key = value.toLowerCase().replace(/\s+/g, '_');
+  return RECOMMENDATION_LABELS[key] || value.replace(/_/g, ' ');
+};
 
 /* ── Expandable section with content viewer + comment box ── */
 function SectionRow({ section, proposalId, dark }) {
@@ -388,11 +404,12 @@ export default function AdminProposalDetailPage() {
   const { fetchUser, user } = useAuth();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
-  const canAssign = canAssignGrantReviewers(user);
+  const [canAssign, setCanAssign] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [proposal, setProposal] = useState(null);
   const [workflow, setWorkflow] = useState(null);
+  const [reviews, setReviews] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tab, setTab] = useState(0); // 0=Sections, 1=Documents
@@ -444,6 +461,7 @@ export default function AdminProposalDetailPage() {
   useEffect(() => {
     fetchUser().then(u => {
       if (!u) { router.push('/login'); return; }
+      setCanAssign(canAssignGrantReviewers(u));
       loadAll();
     });
   }, [params.id]);
@@ -456,12 +474,14 @@ export default function AdminProposalDetailPage() {
   const loadAll = async () => {
     try {
       setLoading(true);
-      const [pRes, wRes] = await Promise.all([
+      const [pRes, wRes, rRes] = await Promise.all([
         api.get(`/grants/proposals/${params.id}`),
         api.get(`/grants/proposals/${params.id}/workflow`),
+        grantsAPI.getProposalReviews(params.id).catch(() => ({ data: [] })),
       ]);
       setProposal(pRes.data);
       setWorkflow(wRes.data);
+      setReviews(rRes.data || []);
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to load proposal');
     } finally {
@@ -477,7 +497,7 @@ export default function AdminProposalDetailPage() {
         action: actionDialog,
         notes: actionNotes || undefined,
       });
-      setSuccess(`Proposal ${actionDialog === 'advance' ? 'advanced' : actionDialog === 'return' ? 'returned' : 'declined'} successfully.`);
+      setSuccess(`Proposal ${actionDialog === 'approve' ? 'approved' : actionDialog === 'advance' ? 'moved to section review' : actionDialog === 'return' ? 'returned' : 'declined'} successfully.`);
       setActionDialog(null);
       setActionNotes('');
       await loadAll();
@@ -496,28 +516,31 @@ export default function AdminProposalDetailPage() {
   if (!proposal) return null;
 
   const currentStep = workflow?.review_step ?? 0;
-  const isTerminal = ['awarded', 'declined'].includes(proposal.status);
+  const nextStep = WORKFLOW_STEPS[currentStep + 1];
+  const isTerminal = ['approved', 'applying', 'awarded', 'funding_unsuccessful', 'declined'].includes(proposal.status);
   const isSubmitted = proposal.status !== 'draft';
   const sm = STATUS_COLORS[proposal.status] || STATUS_COLORS.draft;
   const opp = proposal.opportunity || {};
 
-  // Check if current stage has an active reviewer
-  const currentStageAssignment = (proposal.stage_assignments || []).find(
-    a => a.status === 'active' && a.stage_step === currentStep
-  );
-  // Stage 0 (Received) doesn't require a reviewer to advance — just intake
-  const requiresReviewer = currentStep > 0;
-  const reviewerMissing  = requiresReviewer && !currentStageAssignment;
+  const activeAssignments = (proposal.stage_assignments || []).filter(a => a.status === 'active');
+  const submittedReviews = reviews.filter((r) => r.status === 'submitted');
+  const allReviewsSubmitted = activeAssignments.length > 0 && activeAssignments.every((assignment) => {
+    const match = submittedReviews.find((r) => {
+      if (assignment.section_id) return r.section_id === assignment.section_id && r.reviewer_id === assignment.reviewer?.id;
+      return r.reviewer_id === assignment.reviewer?.id;
+    });
+    return !!match;
+  });
+  const reviewersMissing = activeAssignments.length === 0 && ['submitted', 'under_review', 'internal_review'].includes(proposal.status);
 
-  const canAdvance = isSubmitted && !isTerminal;
+  const canStartReview = isSubmitted && !isTerminal && currentStep < 1;
+  const canApprove = isSubmitted && !isTerminal && currentStep >= 1 && allReviewsSubmitted;
   const canReturn  = isSubmitted && !isTerminal && proposal.status !== 'returned';
   const canDecline = isSubmitted && !isTerminal;
 
   const sectionsDone = (proposal.sections || []).filter(s => (s.word_count || 0) > 50).length;
   const sectionsTotal = (proposal.sections || []).length;
   const sectionPct = sectionsTotal > 0 ? Math.round(sectionsDone / sectionsTotal * 100) : 0;
-
-  const nextStep = WORKFLOW_STEPS[Math.min(currentStep + 1, 5)];
 
   return (
     <Box sx={{ p: { xs: 2, md: 4 } }}>
@@ -559,6 +582,20 @@ export default function AdminProposalDetailPage() {
 
           {/* Action buttons */}
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            {canStartReview && (
+              <Button variant="outlined" startIcon={<AdvanceIcon />}
+                onClick={() => setActionDialog('advance')}
+                sx={{ textTransform: 'none', fontWeight: 600, borderColor: ACCENT, color: ACCENT }}>
+                Start Section Review
+              </Button>
+            )}
+            {canApprove && (
+              <Button variant="contained" startIcon={<CheckIcon />}
+                onClick={() => setActionDialog('approve')}
+                sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, textTransform: 'none', fontWeight: 600 }}>
+                Approve Proposal
+              </Button>
+            )}
             {canReturn && (
               <Button variant="outlined" color="warning" startIcon={<ReturnIcon />}
                 onClick={() => setActionDialog('return')} sx={{ textTransform: 'none', fontWeight: 600 }}>
@@ -573,37 +610,24 @@ export default function AdminProposalDetailPage() {
             )}
             {isTerminal && (
               <Chip
-                label={proposal.status === 'awarded' ? '🏆 Awarded' : '❌ Declined'}
+                label={
+                  proposal.status === 'approved' ? '✅ Approved'
+                  : proposal.status === 'applying' ? '📤 Applying to Funder'
+                  : proposal.status === 'awarded' ? '🏆 Funder Awarded'
+                  : proposal.status === 'funding_unsuccessful' ? '❌ Funding Unsuccessful'
+                  : proposal.status === 'declined' ? '❌ Declined'
+                  : proposal.status
+                }
                 sx={{ fontWeight: 700, fontSize: 13,
-                  bgcolor: proposal.status === 'awarded' ? '#10b98122' : '#ef444422',
-                  color:  proposal.status === 'awarded' ? '#10b981'   : '#ef4444' }}
+                  bgcolor: sm.bg, color: sm.color }}
               />
             )}
           </Box>
         </Box>
       </Paper>
 
-      {/* ── AWARD AMOUNT NOT SET ALERT ───────────────────────── */}
-      {proposal.status === 'awarded' && !proposal.award && (
-        <Alert
-          severity="success"
-          icon={<AwardIcon2 />}
-          sx={{ mb: 3, borderRadius: 2.5, bgcolor: '#10b98111', border: '1px solid #10b98144', '& .MuiAlert-message': { width: '100%' } }}
-          action={
-            <Button size="small" variant="contained"
-              onClick={() => router.push(`/admin-staff/grants/awards/issue?proposal_id=${params.id}`)}
-              sx={{ bgcolor: '#10b981', '&:hover': { bgcolor: '#059669' }, textTransform: 'none', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', ml: 1 }}>
-              Set Award Amount
-            </Button>
-          }
-        >
-          <strong>Proposal marked as Awarded.</strong>
-          {' '}No award amount has been recorded yet. Set the award amount so the researcher can see it.
-        </Alert>
-      )}
-
       {/* ── REVIEWER MISSING ALERT ───────────────────────────── */}
-      {reviewerMissing && (
+      {reviewersMissing && (
         <Alert
           severity="warning"
           sx={{ mb: 3, borderRadius: 2.5, '& .MuiAlert-message': { width: '100%' } }}
@@ -615,12 +639,38 @@ export default function AdminProposalDetailPage() {
             </Button>
           ) : undefined}
         >
-          <strong>Reviewer required before advancing.</strong>
-          {' '}No reviewer has been assigned to the <strong>{WORKFLOW_STEPS[currentStep]?.label}</strong> stage.
+          <strong>Assign section reviewers.</strong>
+          {' '}No reviewers have been assigned yet. Assign reviewers to proposal sections — they can review concurrently.
           {canAssign
-            ? ' Assign a reviewer to unlock stage progression.'
-            : ' Contact your Director of Research or Research Administrator to assign a reviewer.'}
+            ? ''
+            : ' Contact your Director of Research or Research Administrator to assign reviewers.'}
         </Alert>
+      )}
+
+      {/* ── REVIEW PENDING ALERT ─────────────────────────────── */}
+      {!reviewersMissing && activeAssignments.length > 0 && !allReviewsSubmitted && !isTerminal && (
+        <Alert severity="info" sx={{ mb: 3, borderRadius: 2.5 }}>
+          <strong>Awaiting reviewer submissions.</strong>
+          {' '}{submittedReviews.length} of {activeAssignments.length} assigned section review(s) submitted.
+          You can approve once all are in.
+        </Alert>
+      )}
+
+      {/* ── FUNDER AWARD INFO (PI-entered) ───────────────────── */}
+      {['applying', 'awarded', 'funding_unsuccessful'].includes(proposal.status) && (
+        <Paper elevation={0} variant="outlined" sx={{ p: 2.5, mb: 3, borderRadius: 3 }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1 }}>External Funding Status</Typography>
+          <Chip label={sm.label} size="small" sx={{ bgcolor: sm.bg, color: sm.color, fontWeight: 700, mb: 1.5 }} />
+          {proposal.award && (
+            <Typography sx={{ fontSize: 13 }}>
+              Award amount: <strong>{proposal.award.currency} {new Intl.NumberFormat().format(proposal.award.total_amount)}</strong>
+              {proposal.award.funder_name ? ` · ${proposal.award.funder_name}` : ''}
+            </Typography>
+          )}
+          {proposal.stage_notes && (
+            <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1 }}>{proposal.stage_notes}</Typography>
+          )}
+        </Paper>
       )}
 
       {/* ── REVIEW PIPELINE STEPPER ─────────────────────────── */}
@@ -665,7 +715,7 @@ export default function AdminProposalDetailPage() {
               <WaitIcon sx={{ fontSize: 16, color: ACCENT }} />
               <Typography sx={{ fontSize: 12, color: ACCENT }}>
                 <strong>Current stage:</strong> {WORKFLOW_STEPS[currentStep]?.desc}.
-                {currentStep < 5 && ` Next: ${nextStep?.desc}.`}
+                {nextStep && ` Next: ${nextStep.desc}.`}
               </Typography>
             </Box>
           )}
@@ -756,6 +806,93 @@ export default function AdminProposalDetailPage() {
                 </Button>
               )}
             </Box>
+          )}
+
+          {/* Review Feedback */}
+          {isSubmitted && (
+            <Paper elevation={0} variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <CommentIcon sx={{ fontSize: 17, color: '#8b5cf6' }} />
+                <Typography sx={{ fontSize: 14, fontWeight: 700 }}>Review Feedback</Typography>
+                <Chip
+                  label={`${submittedReviews.length} submitted`}
+                  size="small"
+                  sx={{ ml: 'auto', height: 20, fontSize: 10, bgcolor: '#8b5cf622', color: '#8b5cf6', fontWeight: 700 }}
+                />
+              </Box>
+              {reviews.length === 0 ? (
+                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontStyle: 'italic' }}>
+                  No reviewer feedback yet. Assign a reviewer and wait for their submission before advancing.
+                </Typography>
+              ) : (
+                reviews.map((review) => (
+                  <Box
+                    key={review.id}
+                    sx={{
+                      mb: 1.5,
+                      p: 1.75,
+                      borderRadius: 2,
+                      border: '1px solid',
+                      borderColor: review.status === 'submitted' ? '#8b5cf644' : 'divider',
+                      bgcolor: review.status === 'submitted'
+                        ? (dark ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.04)')
+                        : (dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
+                      <Typography sx={{ fontSize: 12.5, fontWeight: 700 }}>
+                        {review.reviewer_name || 'Reviewer'}
+                      </Typography>
+                      <Chip
+                        label={review.status === 'submitted' ? 'Submitted' : 'Pending'}
+                        size="small"
+                        sx={{
+                          height: 18,
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          bgcolor: review.status === 'submitted' ? '#10b98122' : '#f59e0b22',
+                          color: review.status === 'submitted' ? '#10b981' : '#f59e0b',
+                        }}
+                      />
+                    </Box>
+                    {review.status === 'submitted' ? (
+                      <>
+                        {(review.overall_score != null || review.recommendation) && (
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 0.75 }}>
+                            {review.overall_score != null && (
+                              <Chip label={`Score: ${review.overall_score}`} size="small"
+                                sx={{ height: 20, fontSize: 10, fontWeight: 700 }} />
+                            )}
+                            {review.recommendation && (
+                              <Chip label={formatRecommendation(review.recommendation)} size="small"
+                                sx={{ height: 20, fontSize: 10, fontWeight: 600, bgcolor: ACCENT + '18', color: ACCENT }} />
+                            )}
+                          </Box>
+                        )}
+                        {review.narrative_feedback ? (
+                          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                            {review.narrative_feedback}
+                          </Typography>
+                        ) : (
+                          <Typography sx={{ fontSize: 12, color: 'text.disabled', fontStyle: 'italic' }}>
+                            No narrative feedback provided.
+                          </Typography>
+                        )}
+                        {review.submitted_at && (
+                          <Typography sx={{ fontSize: 10, color: 'text.disabled', mt: 0.75 }}>
+                            Submitted {fmtDate(review.submitted_at)}
+                          </Typography>
+                        )}
+                      </>
+                    ) : (
+                      <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                        Review assigned — waiting for submission.
+                      </Typography>
+                    )}
+                  </Box>
+                ))
+              )}
+            </Paper>
           )}
 
           {/* Award Details — shown when awarded */}
@@ -1082,11 +1219,7 @@ export default function AdminProposalDetailPage() {
         <AssignStageReviewerDialog
           open={assignOpen}
           proposal={proposal}
-          stages={WORKFLOW_STEPS.map((s, i) => ({
-            step: s.step,
-            label: s.label,
-            days: [3, 7, 14, 7, 14, 7][i],
-          }))}
+          sections={proposal.sections || []}
           currentStep={currentStep}
           onClose={() => setAssignOpen(false)}
           onAssigned={async (data) => {
@@ -1108,7 +1241,8 @@ export default function AdminProposalDetailPage() {
       <Dialog open={!!actionDialog} onClose={() => { setActionDialog(null); setActionNotes(''); }} maxWidth="sm" fullWidth
         PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ fontWeight: 800, fontSize: 17 }}>
-          {actionDialog === 'advance' && (currentStep >= 5 ? '🏆 Issue Award' : `Advance → ${nextStep?.label}`)}
+          {actionDialog === 'advance' && 'Start Concurrent Section Review'}
+          {actionDialog === 'approve' && '✅ Approve Proposal'}
           {actionDialog === 'return'  && '↩ Return for Revision'}
           {actionDialog === 'decline' && '❌ Decline Proposal'}
         </DialogTitle>
@@ -1119,8 +1253,8 @@ export default function AdminProposalDetailPage() {
             borderColor: actionDialog === 'advance' ? '#6ee7b7' : actionDialog === 'return' ? '#fcd34d' : '#fca5a5',
           }}>
             <Typography sx={{ fontSize: 13, color: actionDialog === 'advance' ? '#065f46' : actionDialog === 'return' ? '#92400e' : '#991b1b' }}>
-              {actionDialog === 'advance' && currentStep >= 5 && 'This marks the proposal as Awarded. The applicant will be notified with the award decision.'}
-              {actionDialog === 'advance' && currentStep < 5 && `This moves the proposal from "${WORKFLOW_STEPS[currentStep]?.label}" to "${nextStep?.label}" and notifies the team.`}
+              {actionDialog === 'advance' && 'This opens the concurrent section review phase. Assign reviewers to sections so they can review in parallel.'}
+              {actionDialog === 'approve' && 'This institutionally approves the proposal. The PI will then apply to the external funder and record the outcome.'}
               {actionDialog === 'return'  && 'This returns the proposal to the applicant for revision. They will be notified with your feedback.'}
               {actionDialog === 'decline' && 'This permanently declines the proposal. The applicant will be notified. This action cannot be undone.'}
             </Typography>
@@ -1145,12 +1279,13 @@ export default function AdminProposalDetailPage() {
             onClick={handleAction}
             startIcon={acting ? <CircularProgress size={14} sx={{ color: 'inherit' }} /> : null}
             color={actionDialog === 'decline' ? 'error' : actionDialog === 'return' ? 'warning' : 'primary'}
-            sx={actionDialog === 'advance'
+            sx={actionDialog === 'approve' || actionDialog === 'advance'
               ? { bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, textTransform: 'none', fontWeight: 700 }
               : { textTransform: 'none', fontWeight: 700 }}
           >
             {acting ? 'Processing…' :
-              actionDialog === 'advance' ? (currentStep >= 5 ? 'Issue Award' : 'Advance') :
+              actionDialog === 'approve' ? 'Approve Proposal' :
+              actionDialog === 'advance' ? 'Start Review' :
               actionDialog === 'return'  ? 'Return to Applicant' : 'Decline Proposal'}
           </Button>
         </DialogActions>

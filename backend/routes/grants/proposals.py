@@ -13,7 +13,8 @@ from models import (Proposal, ProposalSection, ProposalSectionVersion, ProposalD
                     ProposalDocumentRequirement, ProposalCollaborator, ProposalStatus, GrantOpportunity, User, UserStatus,
                     ProposalStageHistory, ProposalStageAssignment, STAGE_INTENDED_DAYS, Award, BudgetLine,
                     PrimaryAccountType, ResearchRole, user_roles, ReviewerAssignment, ReviewType,
-                    ReviewerAssignmentStatus, NotificationType)
+                    ReviewerAssignmentStatus, NotificationType, ProposalReview, ReviewStatus,
+                    ResearchProject, ProjectStatus)
 from auth import require_roles, ResearchRole, get_current_user
 from services.workflow import can_transition_proposal
 from services.notifications import create_notification
@@ -70,8 +71,56 @@ async def _can_assign_stage_reviewers(db: AsyncSession, user: User) -> bool:
         text("SELECT role::text FROM user_roles WHERE user_id = :uid"),
         {"uid": user.id},
     )
-    role_names = {r[0] for r in roles_res.fetchall()}
-    return bool(role_names & _REVIEWER_ASSIGNER_ROLES)
+    role_names = {str(r[0]).lower() for r in roles_res.fetchall()}
+    allowed = {str(r).lower() for r in _REVIEWER_ASSIGNER_ROLES}
+    return bool(role_names & allowed)
+
+
+async def _is_proposal_pi_or_collaborator(db: AsyncSession, proposal: Proposal, user: User) -> bool:
+    if proposal.lead_pi_id == user.id:
+        return True
+    result = await db.execute(
+        select(ProposalCollaborator).where(
+            ProposalCollaborator.proposal_id == proposal.id,
+            ProposalCollaborator.user_id == user.id,
+            ProposalCollaborator.status == "accepted",
+        ).limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+def _post_approval_statuses():
+    return {
+        ProposalStatus.APPROVED,
+        ProposalStatus.APPLYING,
+        ProposalStatus.AWARDED,
+        ProposalStatus.FUNDING_UNSUCCESSFUL,
+    }
+
+
+async def _all_active_reviews_submitted(db: AsyncSession, proposal_id: str) -> bool:
+    """True when every active section/stage assignment has a submitted review."""
+    assigns = await db.execute(
+        select(ProposalStageAssignment).where(
+            ProposalStageAssignment.proposal_id == proposal_id,
+            ProposalStageAssignment.status == "active",
+        )
+    )
+    active = assigns.scalars().all()
+    if not active:
+        return False
+    for assignment in active:
+        review_q = select(ProposalReview).where(
+            ProposalReview.proposal_id == proposal_id,
+            ProposalReview.reviewer_id == assignment.reviewer_id,
+            ProposalReview.status == ReviewStatus.SUBMITTED,
+        )
+        if assignment.section_id:
+            review_q = review_q.where(ProposalReview.section_id == assignment.section_id)
+        review_result = await db.execute(review_q)
+        if not review_result.scalar_one_or_none():
+            return False
+    return True
 
 
 async def _require_proposal_workspace_access(
@@ -299,6 +348,8 @@ class StageAssignmentOut(BaseModel):
     id: str
     stage_step: int
     stage_name: Optional[str]
+    section_id: Optional[str] = None
+    section_title: Optional[str] = None
     reviewer: Optional[UserBasic]
     assigned_at: Optional[datetime]
     notes: Optional[str]
@@ -1005,8 +1056,15 @@ async def upload_document(
     if not proposal:
         raise HTTPException(404, "Proposal not found")
 
-    if proposal.status != ProposalStatus.DRAFT:
-        raise HTTPException(400, "Cannot upload documents to non-draft proposals")
+    if proposal.status == ProposalStatus.DRAFT:
+        pass
+    elif proposal.status in _post_approval_statuses():
+        if not await _is_proposal_pi_or_collaborator(db, proposal, current_user):
+            raise HTTPException(403, "Only the lead PI or accepted team members can upload funding documents")
+        if not requirement_id:
+            document_type = document_type or "funding_award"
+    else:
+        raise HTTPException(400, "Cannot upload documents while proposal is under institutional review")
 
     requirement = None
     if requirement_id:
@@ -1241,11 +1299,23 @@ async def transition_proposal_status(
             message=f'Your proposal "{proposal.title}" has been submitted successfully and is awaiting review.',
             entity_type="proposal", entity_id=proposal_id
         )
-    elif target_status in (ProposalStatus.AWARDED, ProposalStatus.DECLINED):
+    elif target_status in (ProposalStatus.AWARDED, ProposalStatus.DECLINED, ProposalStatus.APPROVED):
+        titles = {
+            ProposalStatus.AWARDED: "Proposal funding confirmed",
+            ProposalStatus.DECLINED: "Proposal not approved",
+            ProposalStatus.APPROVED: "Proposal institutionally approved",
+        }
         await create_notification(
             db, proposal.lead_pi_id,
-            title=f'Proposal {"awarded" if target_status == ProposalStatus.AWARDED else "not awarded"}',
-            message=f'Decision on "{proposal.title}": {target_status.value}. {notes or ""}',
+            title=titles.get(target_status, "Proposal status update"),
+            message=f'Update on "{proposal.title}": {target_status.value}. {notes or ""}',
+            entity_type="proposal", entity_id=proposal_id
+        )
+    elif target_status in (ProposalStatus.APPLYING, ProposalStatus.FUNDING_UNSUCCESSFUL):
+        await create_notification(
+            db, proposal.lead_pi_id,
+            title="Funding application update",
+            message=f'"{proposal.title}" status updated to {target_status.value}. {notes or ""}',
             entity_type="proposal", entity_id=proposal_id
         )
 
@@ -1316,12 +1386,13 @@ async def delete_proposal(
 @router.post("/{proposal_id}/collaborators", status_code=201)
 async def add_collaborator(
     proposal_id: str,
-    user_id: str,
-    role: str = "co_investigator",
+    data: CollaboratorInvite,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
     """Add a collaborator to a proposal and send invite email + in-app notification."""
+    import secrets
+
     result = await db.execute(select(Proposal).where(
         Proposal.id == proposal_id,
         Proposal.lead_pi_id == current_user.id
@@ -1330,56 +1401,131 @@ async def add_collaborator(
     if not proposal:
         raise HTTPException(404, "Proposal not found or you're not the lead PI")
 
-    user = await db.get(User, user_id)
-    if not user:
-        raise HTTPException(404, "User not found")
-    if not (user.email or "").strip():
-        raise HTTPException(400, "Invitee email is required so the invitation can be sent")
+    user = None
+    invite_email = (data.email or "").strip().lower() or None
 
-    existing = await db.execute(select(ProposalCollaborator).where(
-        ProposalCollaborator.proposal_id == proposal_id,
-        ProposalCollaborator.user_id == user_id
-    ))
+    if data.user_id:
+        user = await db.get(User, data.user_id)
+    if not user and data.orcid:
+        result = await db.execute(select(User).where(User.orcid_id == data.orcid))
+        user = result.scalar_one_or_none()
+    if not user and invite_email:
+        result = await db.execute(select(User).where(func.lower(User.email) == invite_email))
+        user = result.scalar_one_or_none()
+
+    if user and not invite_email:
+        invite_email = (user.email or "").strip().lower() or None
+
+    if not invite_email:
+        raise HTTPException(
+            400,
+            f"Email is required for collaborator '{data.name}' so the invitation can be sent",
+        )
+
+    dup_query = select(ProposalCollaborator).where(ProposalCollaborator.proposal_id == proposal_id)
+    if user:
+        dup_query = dup_query.where(
+            or_(
+                ProposalCollaborator.user_id == user.id,
+                func.lower(ProposalCollaborator.invited_email) == invite_email,
+            )
+        )
+    else:
+        dup_query = dup_query.where(func.lower(ProposalCollaborator.invited_email) == invite_email)
+
+    existing = await db.execute(dup_query)
     if existing.scalar_one_or_none():
-        raise HTTPException(400, "User is already a collaborator")
+        raise HTTPException(400, "This person is already a collaborator or has a pending invitation")
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    due_at = _invite_due_from_now()
+
+    if user:
+        collaborator = ProposalCollaborator(
+            proposal_id=proposal_id,
+            user_id=user.id,
+            role=data.role,
+            status="pending",
+            invited_email=invite_email,
+            invited_name=data.name,
+            invited_orcid=data.orcid,
+            invited_affiliation=data.affiliation,
+            invite_due_at=due_at,
+        )
+        db.add(collaborator)
+        await db.flush()
+
+        await create_notification(
+            db, user.id,
+            title="Proposal Collaboration Invite",
+            message=f'{current_user.name} invited you to collaborate on "{proposal.title}" as {data.role}',
+            entity_type="proposal",
+            entity_id=proposal_id,
+            link=f"/researcher/grants/proposals/{proposal_id}/collab/{collaborator.id}",
+            notification_type=NotificationType.PROPOSAL_INVITATION,
+        )
+        await db.commit()
+
+        try:
+            sent = await EmailService.send_collaboration_invite_email(
+                email=user.email or invite_email,
+                inviter_name=current_user.name,
+                proposal_title=proposal.title,
+                role=data.role,
+                proposal_url=f"{frontend_url}/researcher/grants/proposals/{proposal_id}",
+            )
+            print(f"Invite email to {user.email or invite_email}: {'ok' if sent else 'FAILED'}")
+        except Exception as e:
+            print(f"Failed to send invite email to {user.email or invite_email}: {e}")
+
+        return {"id": collaborator.id, "user_id": user.id, "role": data.role, "status": "pending"}
+
+    invitation_token = secrets.token_urlsafe(32)
+    registration_url = f"{frontend_url}/register?invitation={invitation_token}"
 
     collaborator = ProposalCollaborator(
         proposal_id=proposal_id,
-        user_id=user_id,
-        role=role,
+        user_id=None,
+        role=data.role,
         status="pending",
-        invited_email=user.email,
-        invited_name=user.name,
-        invite_due_at=_invite_due_from_now(),
+        invited_email=invite_email,
+        invited_orcid=data.orcid,
+        invited_name=data.name,
+        invited_affiliation=data.affiliation,
+        invitation_token=invitation_token,
+        invite_due_at=due_at,
     )
     db.add(collaborator)
-    await db.flush()
-
-    await create_notification(
-        db, user_id,
-        title="Proposal Collaboration Invite",
-        message=f'{current_user.name} invited you to collaborate on "{proposal.title}" as {role}',
-        entity_type="proposal",
-        entity_id=proposal_id,
-        link=f"/researcher/grants/proposals/{proposal_id}/collab/{collaborator.id}",
-        notification_type=NotificationType.PROPOSAL_INVITATION,
-    )
     await db.commit()
 
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
     try:
-        sent = await EmailService.send_collaboration_invite_email(
-            email=user.email,
+        account_sent = await EmailService.send_account_creation_invite_email(
+            email=invite_email,
+            inviter_name=current_user.name,
+            invitation_token=invitation_token,
+        )
+        collab_sent = await EmailService.send_collaboration_invite_email(
+            email=invite_email,
             inviter_name=current_user.name,
             proposal_title=proposal.title,
-            role=role,
-            proposal_url=f"{frontend_url}/researcher/grants/proposals/{proposal_id}",
+            role=data.role,
+            proposal_url=registration_url,
         )
-        print(f"Invite email to {user.email}: {'ok' if sent else 'FAILED'}")
+        print(
+            f"New-user invite emails to {invite_email}: "
+            f"account={'ok' if account_sent else 'FAILED'}, "
+            f"collab={'ok' if collab_sent else 'FAILED'}"
+        )
     except Exception as e:
-        print(f"Failed to send invite email to {user.email}: {e}")
+        print(f"Failed to send invite email(s) to {invite_email}: {e}")
 
-    return {"id": collaborator.id, "user_id": user_id, "role": role, "status": "pending"}
+    return {
+        "id": collaborator.id,
+        "user_id": None,
+        "role": data.role,
+        "status": "pending",
+        "invited_email": invite_email,
+    }
 
 
 @router.post("/{proposal_id}/collaborators/{collaborator_id}/accept")
@@ -1722,12 +1868,9 @@ async def get_proposal_completion(
 # ─── Admin Workflow Endpoints ──────────────────────────────────
 
 WORKFLOW_STAGES = [
-    {"step": 0, "key": "received",    "label": "Received",              "status": "submitted"},
-    {"step": 1, "key": "eligibility", "label": "Step 1/5: Eligibility Review", "status": "internal_review"},
-    {"step": 2, "key": "technical",   "label": "Step 2/5: Technical Review",   "status": "internal_review"},
-    {"step": 3, "key": "budget",      "label": "Step 3/5: Budget Review",      "status": "under_review"},
-    {"step": 4, "key": "panel",       "label": "Step 4/5: Panel Review",       "status": "under_review"},
-    {"step": 5, "key": "final",       "label": "Step 5/5: Final Approval",     "status": "under_review"},
+    {"step": 0, "key": "received",  "label": "Received",                 "status": "submitted"},
+    {"step": 1, "key": "review",    "label": "Concurrent Section Review", "status": "under_review"},
+    {"step": 2, "key": "approved",  "label": "Institutionally Approved",  "status": "approved"},
 ]
 
 
@@ -1755,7 +1898,7 @@ async def get_proposal_workflow(
 
 
 class WorkflowAdvanceRequest(BaseModel):
-    action: str            # "advance" | "return" | "decline"
+    action: str            # "advance" | "approve" | "return" | "decline"
     notes: Optional[str] = None
 
 
@@ -1788,23 +1931,24 @@ async def advance_proposal_workflow(
     action = body.action
     notes = body.notes
 
-    if action == "advance":
-        if current_step >= 5:
-            # Step 5 advance → award
-            proposal.status = ProposalStatus.AWARDED
-            new_step = 5
-            new_stage = "Awarded"
+    if action in ("advance", "approve"):
+        if action == "advance":
+            # Move from Received into concurrent section review
+            if current_step >= 1:
+                raise HTTPException(400, "Use approve once all section reviews are submitted")
+            new_step = 1
+            new_stage = "Concurrent Section Review"
+            proposal.status = ProposalStatus.UNDER_REVIEW
         else:
-            new_step = current_step + 1
-            stage_info = next((s for s in WORKFLOW_STAGES if s["step"] == new_step), None)
-            new_stage = stage_info["label"] if stage_info else f"Step {new_step}"
-            # Update status based on step
-            if new_step <= 1:
-                proposal.status = ProposalStatus.SUBMITTED
-            elif new_step <= 2:
-                proposal.status = ProposalStatus.INTERNAL_REVIEW
-            else:
-                proposal.status = ProposalStatus.UNDER_REVIEW
+            # Institutional approval — requires all assigned section reviews
+            if not await _all_active_reviews_submitted(db, proposal_id):
+                raise HTTPException(
+                    400,
+                    "All assigned section reviewers must submit their reviews before approving.",
+                )
+            proposal.status = ProposalStatus.APPROVED
+            new_step = 2
+            new_stage = "Institutionally Approved"
 
     elif action == "return":
         proposal.status = ProposalStatus.RETURNED
@@ -1833,8 +1977,8 @@ async def advance_proposal_workflow(
     if active_hist:
         active_hist.exited_at = now
 
-    # Only create a new history entry for advance (not return/decline)
-    if action == "advance":
+    # Only create a new history entry for advance/approve (not return/decline)
+    if action in ("advance", "approve"):
         db.add(ProposalStageHistory(
             proposal_id=proposal_id,
             stage_step=new_step,
@@ -1852,7 +1996,7 @@ async def advance_proposal_workflow(
     await db.commit()
 
     # Notify lead PI
-    action_labels = {"advance": "advanced to", "return": "returned from", "decline": "declined at"}
+    action_labels = {"advance": "moved to", "approve": "approved at", "return": "returned from", "decline": "declined at"}
     await create_notification(
         db, proposal.lead_pi_id,
         title=f"Proposal status update: {new_stage}",
@@ -1910,14 +2054,14 @@ async def get_stage_history(
 # ─── Stage Reviewer Assignment ──────────────────────────────────
 
 class AssignReviewerBody(BaseModel):
-    reviewer_id: Optional[str] = None  # Optional if creating new reviewer
-    stage_steps: list[int]  # Multiple stages can be assigned
+    reviewer_id: Optional[str] = None
+    stage_steps: list[int] = []
+    section_ids: list[str] = []
     stage_name: Optional[str] = None
     notes: Optional[str] = None
-    # For new reviewers
     new_reviewer_email: Optional[str] = None
     new_reviewer_name: Optional[str] = None
-    new_reviewer_expertise: Optional[list[str]] = None  # Areas of expertise
+    new_reviewer_expertise: Optional[list[str]] = None
 
 
 @router.post("/{proposal_id}/stage-reviewers")
@@ -1968,30 +2112,61 @@ async def assign_stage_reviewer(
         import secrets
         signup_token = secrets.token_urlsafe(32)
 
-    # Create assignments for all specified stages
-    assignments = []
-    stage_names = []
-    
-    for stage_step in body.stage_steps:
-        # Check if this reviewer is already assigned to this stage
-        existing = await db.execute(
-            select(ProposalStageAssignment).where(
-                ProposalStageAssignment.proposal_id == proposal_id,
-                ProposalStageAssignment.stage_step == stage_step,
-                ProposalStageAssignment.reviewer_id == reviewer.id,
-                ProposalStageAssignment.status == "active",
+    # Build assignment targets: section-based (preferred) or legacy stage steps
+    assignment_targets = []
+    if body.section_ids:
+        sections_result = await db.execute(
+            select(ProposalSection).where(
+                ProposalSection.proposal_id == proposal_id,
+                ProposalSection.id.in_(body.section_ids),
             )
         )
+        sections = {s.id: s for s in sections_result.scalars().all()}
+        for section_id in body.section_ids:
+            section = sections.get(section_id)
+            if not section:
+                continue
+            assignment_targets.append({
+                "stage_step": 1,
+                "stage_name": section.title,
+                "section_id": section.id,
+            })
+    elif body.stage_steps:
+        for stage_step in body.stage_steps:
+            assignment_targets.append({
+                "stage_step": stage_step,
+                "stage_name": body.stage_name or f"Stage {stage_step}",
+                "section_id": None,
+            })
+    else:
+        raise HTTPException(400, "Provide section_ids or stage_steps for reviewer assignment")
+
+    assignments = []
+    stage_names = []
+
+    for target in assignment_targets:
+        existing_q = select(ProposalStageAssignment).where(
+            ProposalStageAssignment.proposal_id == proposal_id,
+            ProposalStageAssignment.reviewer_id == reviewer.id,
+            ProposalStageAssignment.status == "active",
+        )
+        if target["section_id"]:
+            existing_q = existing_q.where(ProposalStageAssignment.section_id == target["section_id"])
+        else:
+            existing_q = existing_q.where(
+                ProposalStageAssignment.stage_step == target["stage_step"],
+                ProposalStageAssignment.section_id.is_(None),
+            )
+        existing = await db.execute(existing_q)
         if existing.scalar_one_or_none():
-            continue  # Skip if already assigned
-        
-        stage_name = body.stage_name or f"Stage {stage_step}"
-        stage_names.append(stage_name)
-        
+            continue
+
+        stage_names.append(target["stage_name"])
         assignment = ProposalStageAssignment(
             proposal_id=proposal_id,
-            stage_step=stage_step,
-            stage_name=stage_name,
+            stage_step=target["stage_step"],
+            stage_name=target["stage_name"],
+            section_id=target["section_id"],
             reviewer_id=reviewer.id,
             assigned_by_id=current_user.id,
             notes=body.notes,
@@ -1999,26 +2174,52 @@ async def assign_stage_reviewer(
         )
         db.add(assignment)
         assignments.append(assignment)
-    
+
+        review_q = select(ProposalReview).where(
+            ProposalReview.proposal_id == proposal_id,
+            ProposalReview.reviewer_id == reviewer.id,
+        )
+        if target["section_id"]:
+            review_q = review_q.where(ProposalReview.section_id == target["section_id"])
+        else:
+            review_q = review_q.where(ProposalReview.section_id.is_(None))
+        existing_review = await db.execute(review_q)
+        proposal_review = existing_review.scalar_one_or_none()
+        if not proposal_review:
+            proposal_review = ProposalReview(
+                proposal_id=proposal_id,
+                reviewer_id=reviewer.id,
+                section_id=target["section_id"],
+            )
+            db.add(proposal_review)
+            await db.flush()
+
+        portal_assignment = ReviewerAssignment(
+            institution_id=current_user.primary_institution_id,
+            reviewer_id=reviewer.id,
+            invited_email=reviewer.email,
+            invited_name=reviewer.name,
+            review_type=ReviewType.PROPOSAL,
+            entity_id=proposal_id,
+            entity_review_id=proposal_review.id,
+            entity_title=proposal.title,
+            assigned_by_id=current_user.id,
+            status=ReviewerAssignmentStatus.PENDING_SIGNUP if needs_signup else ReviewerAssignmentStatus.ASSIGNED,
+            signup_token=signup_token if needs_signup else None,
+            notes=body.notes or target["stage_name"],
+        )
+        db.add(portal_assignment)
+
     if not assignments:
-        raise HTTPException(400, "Reviewer is already assigned to all specified stages")
+        raise HTTPException(400, "Reviewer is already assigned to all specified sections/stages")
+
+    # Enter concurrent review phase when reviewers are assigned
+    if proposal.status in (ProposalStatus.SUBMITTED, ProposalStatus.INTERNAL_REVIEW):
+        proposal.status = ProposalStatus.UNDER_REVIEW
+        proposal.review_step = 1
+        proposal.review_stage_name = "Concurrent Section Review"
 
     stages_text = ", ".join(stage_names) if len(stage_names) > 1 else stage_names[0]
-
-    portal_assignment = ReviewerAssignment(
-        institution_id=current_user.primary_institution_id,
-        reviewer_id=reviewer.id,
-        invited_email=reviewer.email,
-        invited_name=reviewer.name,
-        review_type=ReviewType.PROPOSAL,
-        entity_id=proposal_id,
-        entity_title=proposal.title,
-        assigned_by_id=current_user.id,
-        status=ReviewerAssignmentStatus.PENDING_SIGNUP if needs_signup else ReviewerAssignmentStatus.ASSIGNED,
-        signup_token=signup_token if needs_signup else None,
-        notes=body.notes or stages_text,
-    )
-    db.add(portal_assignment)
     
     # In-app notification (skip until account is activated)
     if not needs_signup:
@@ -2030,11 +2231,10 @@ async def assign_stage_reviewer(
         )
     
     await db.commit()
-    await db.refresh(portal_assignment)
-    
-    # Send emails after commit
+
+    # Send emails after commit (one email summarising all sections)
     from services.email_service import EmailService
-    
+
     await EmailService.send_reviewer_assignment_email(
         email=reviewer.email,
         reviewer_name=reviewer.name,
@@ -2042,7 +2242,7 @@ async def assign_stage_reviewer(
         stages=stage_names,
         inviter_name=current_user.name,
         proposal_id=proposal_id,
-        register_token=portal_assignment.signup_token if needs_signup else None,
+        register_token=signup_token if needs_signup else None,
     )
 
     return {
@@ -2050,7 +2250,14 @@ async def assign_stage_reviewer(
         "reviewer_name": reviewer.name,
         "reviewer_email": reviewer.email,
         "is_new_reviewer": is_new_reviewer,
-        "assignments": [{"stage_step": a.stage_step, "stage_name": a.stage_name} for a in assignments],
+        "assignments": [
+            {
+                "stage_step": a.stage_step,
+                "stage_name": a.stage_name,
+                "section_id": a.section_id,
+            }
+            for a in assignments
+        ],
     }
 
 
@@ -2265,6 +2472,110 @@ async def preview_document(
         filename=getattr(doc, "original_filename", doc.stored_filename),
         headers={"Content-Disposition": f'inline; filename="{getattr(doc, "original_filename", doc.stored_filename)}"'},
     )
+
+
+# ─── PI funding tracking (post-approval) ─────────────────────────
+
+class PiFundingStatusUpdate(BaseModel):
+    status: str  # applying | awarded | funding_unsuccessful
+    total_amount: Optional[float] = None
+    currency: str = "KES"
+    funder_name: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    conditions: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.patch("/{proposal_id}/funding-status")
+async def update_pi_funding_status(
+    proposal_id: str,
+    body: PiFundingStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Lead PI updates external funder application status and award details after institutional approval."""
+    result = await db.execute(
+        select(Proposal)
+        .options(selectinload(Proposal.award), selectinload(Proposal.opportunity))
+        .where(
+            Proposal.id == proposal_id,
+            Proposal.institution_id == current_user.primary_institution_id,
+        )
+    )
+    proposal = result.scalar_one_or_none()
+    if not proposal:
+        raise HTTPException(404, "Proposal not found")
+    if proposal.lead_pi_id != current_user.id:
+        raise HTTPException(403, "Only the lead PI can update external funding status")
+
+    try:
+        target = ProposalStatus(body.status)
+    except ValueError:
+        raise HTTPException(400, f"Invalid status: {body.status}")
+
+    allowed_from = {
+        ProposalStatus.APPROVED: {ProposalStatus.APPLYING},
+        ProposalStatus.APPLYING: {ProposalStatus.AWARDED, ProposalStatus.FUNDING_UNSUCCESSFUL},
+    }
+    if target not in allowed_from.get(proposal.status, set()):
+        raise HTTPException(
+            400,
+            f"Cannot transition from '{proposal.status.value}' to '{target.value}'",
+        )
+
+    if target == ProposalStatus.AWARDED:
+        if body.total_amount is None or body.total_amount <= 0:
+            raise HTTPException(400, "Award amount is required when marking as awarded")
+        funder = body.funder_name or (proposal.opportunity.sponsor if proposal.opportunity else None)
+        if proposal.award:
+            proposal.award.total_amount = int(body.total_amount)
+            proposal.award.currency = body.currency
+            proposal.award.funder_name = funder
+            proposal.award.start_date = body.start_date
+            proposal.award.end_date = body.end_date
+            if body.conditions:
+                proposal.award.conditions = body.conditions
+            proposal.award.issued_by_id = current_user.id
+        else:
+            import uuid as _uuid
+            award = Award(
+                proposal_id=proposal.id,
+                institution_id=proposal.institution_id,
+                award_number=f"AWD-{datetime.now().year}-{_uuid.uuid4().hex[:6].upper()}",
+                funder_name=funder,
+                total_amount=int(body.total_amount),
+                currency=body.currency,
+                start_date=body.start_date,
+                end_date=body.end_date,
+                conditions=body.conditions,
+                issued_by_id=current_user.id,
+            )
+            db.add(award)
+            await db.flush()
+            project = ResearchProject(
+                institution_id=proposal.institution_id,
+                award_id=award.id,
+                pi_id=proposal.lead_pi_id,
+                title=proposal.title,
+                description=f"Created from external funder award on proposal {proposal.id}",
+                project_type="funded",
+                status=ProjectStatus.DRAFT,
+                start_date=body.start_date,
+                end_date=body.end_date,
+            )
+            db.add(project)
+
+    proposal.status = target
+    from services.workflow import STAGE_LABELS
+    step, stage_name = STAGE_LABELS.get(target, (proposal.review_step or 2, target.value))
+    proposal.review_step = step
+    proposal.review_stage_name = stage_name
+    if body.notes:
+        proposal.stage_notes = body.notes
+
+    await db.commit()
+    return {"id": proposal_id, "status": target.value, "review_stage_name": proposal.review_stage_name}
 
 
 # ─── Proposal Export ───────────────────────────────────────────

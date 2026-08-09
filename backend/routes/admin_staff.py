@@ -4,18 +4,23 @@ Provides institutional metrics and overview data for admin staff dashboards
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, desc
+from sqlalchemy import select, func, and_, or_, desc, text
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from datetime import datetime, timedelta
+import csv
+import io
+import json
 
 from database import get_db
 from models import (
-    User, Proposal, ProposalStatus, ResearchProject, ProjectStatus,
+    User, UserStatus, PrimaryAccountType, Proposal, ProposalStatus, ResearchProject, ProjectStatus,
     EthicsApplication, EthicsStatus, EthicsDocument, Award, AwardStatus,
     ProjectMilestone, ReviewerAssignment, ReviewType,
     Manuscript, ResearchOutput, DataImport, DataImportStatus,
+    Publication, PublicationLibrary,
 )
 from routes.auth import get_current_user
 from routes.research.lakehouse_imports import (
@@ -32,7 +37,10 @@ PROPOSAL_STATUS_COLORS = {
     "returned": "#f97316",
     "submitted": "#3b82f6",
     "under_review": "#0ea5e9",
-    "awarded": "#10b981",
+    "approved": "#10b981",
+    "applying": "#06b6d4",
+    "awarded": "#059669",
+    "funding_unsuccessful": "#ef4444",
     "declined": "#ef4444",
 }
 
@@ -42,6 +50,7 @@ PROJECT_STATUS_COLORS = {
     "active": "#10b981",
     "suspended": "#ef4444",
     "completed": "#0ea5e9",
+    "terminated": "#dc2626",
 }
 
 ETHICS_STATUS_COLORS = {
@@ -119,6 +128,334 @@ def _month_key(dt: datetime) -> Optional[str]:
     if not dt:
         return None
     return f"{dt.year}-{dt.month:02d}"
+
+
+def _status_val(raw) -> str:
+    return raw.value if hasattr(raw, "value") else str(raw or "")
+
+
+def _generate_report_insights(payload: dict) -> list:
+    """Generate decision-support insight strings from report aggregates."""
+    insights = []
+    summary = payload.get("summary") or {}
+    areas = payload.get("research_areas") or []
+    funded = payload.get("highly_funded_areas") or []
+    researchers = payload.get("top_researchers") or []
+
+    if funded:
+        top = funded[0]
+        insights.append(
+            f"{top['label']} is the highest-funded research area with "
+            f"{top.get('currency', 'KES')} {int(top.get('total_funding', 0)):,} across "
+            f"{top.get('project_count', 0)} project(s) — prioritize monitoring spend and milestones here."
+        )
+
+    if areas and len(areas) > 1:
+        insights.append(
+            f"{areas[0]['label']} leads research activity ({areas[0]['activity_score']} combined outputs). "
+            f"Compare with {areas[-1]['label']} ({areas[-1]['activity_score']}) to spot under-resourced high-potential areas."
+        )
+
+    if researchers:
+        r = researchers[0]
+        activity_total = (
+            r.get("publications", 0)
+            + r.get("manuscripts", 0)
+            + r.get("proposals_total", 0)
+            + r.get("grants_won", 0)
+            + r.get("projects_ongoing", 0)
+            + r.get("projects_completed", 0)
+        )
+        if activity_total > 0:
+            insights.append(
+                f"{r['name']} leads researcher activity with "
+                f"{r['publications']} publications, {r['manuscripts']} manuscripts, "
+                f"{r.get('proposals_total', 0)} proposal(s), "
+                f"{r['grants_won']} grant(s) won, and {r['proposal_success_rate']}% proposal success."
+                + (
+                    " Consider them for mentorship or centre leadership."
+                    if r.get("impact_score", 0) >= 10 or r["grants_won"] > 0
+                    else " Support them to convert proposals into funded awards."
+                )
+            )
+        else:
+            insights.append(
+                "Researcher activity is still building — no proposals, publications, or projects recorded yet. "
+                "Encourage researchers to submit grant applications and log outputs."
+            )
+
+    if summary.get("proposal_success_rate", 0) < 40 and summary.get("total_proposals", 0) >= 5:
+        insights.append(
+            f"Institutional proposal success is {summary['proposal_success_rate']}% — "
+            "consider pre-submission reviews or pairing PIs with experienced grant writers."
+        )
+    elif summary.get("proposal_success_rate", 0) >= 60:
+        insights.append(
+            f"Strong proposal pipeline: {summary['proposal_success_rate']}% institutional success rate "
+            f"with {summary.get('awarded_proposals', 0)} funder award(s)."
+        )
+
+    if summary.get("ethics_expiring_soon", 0) > 0:
+        insights.append(
+            f"{summary['ethics_expiring_soon']} ethics approval(s) expire within 90 days — "
+            "schedule renewals before fieldwork or publication deadlines slip."
+        )
+
+    active = summary.get("active_projects", 0)
+    total = summary.get("total_projects", 0)
+    if total and active / max(total, 1) > 0.7:
+        insights.append(
+            f"{active} of {total} projects are active — ensure project managers have capacity for reporting and compliance."
+        )
+
+    if summary.get("total_funding", 0) > 0 and summary.get("active_awards", 0) == 0:
+        insights.append(
+            "Historical funding exists but no active awards — review lapsed grants and renewal opportunities."
+        )
+
+    return insights[:8]
+
+
+async def _build_top_researchers(db: AsyncSession, institution_id: str, limit: int = 15) -> list:
+    users_result = await db.execute(
+        select(User).where(
+            User.primary_institution_id == institution_id,
+            User.status == UserStatus.ACTIVE,
+            User.primary_account_type == PrimaryAccountType.RESEARCHER,
+        )
+    )
+    users = {u.id: u for u in users_result.scalars().all()}
+    if not users:
+        return []
+
+    user_ids = list(users.keys())
+    metrics = {
+        uid: {
+            "publications": 0,
+            "manuscripts": 0,
+            "research_outputs": 0,
+            "proposals_total": 0,
+            "proposals_success": 0,
+            "grants_won": 0,
+            "projects_ongoing": 0,
+            "projects_completed": 0,
+            "projects_cancelled": 0,
+        }
+        for uid in user_ids
+    }
+
+    success_statuses = {"approved", "applying", "awarded"}
+    ongoing_statuses = {"active", "proposed"}
+    cancelled_statuses = {"suspended", "terminated"}
+
+    prop_result = await db.execute(
+        select(Proposal.lead_pi_id, Proposal.status, func.count(Proposal.id))
+        .where(Proposal.institution_id == institution_id, Proposal.lead_pi_id.in_(user_ids))
+        .group_by(Proposal.lead_pi_id, Proposal.status)
+    )
+    for pi_id, status, count in prop_result:
+        if pi_id not in metrics:
+            continue
+        status_str = _status_val(status).lower()
+        metrics[pi_id]["proposals_total"] += count
+        if status_str in success_statuses:
+            metrics[pi_id]["proposals_success"] += count
+        if status_str == "awarded":
+            metrics[pi_id]["grants_won"] += count
+
+    proj_result = await db.execute(
+        select(ResearchProject.pi_id, ResearchProject.status, func.count(ResearchProject.id))
+        .where(ResearchProject.institution_id == institution_id, ResearchProject.pi_id.in_(user_ids))
+        .group_by(ResearchProject.pi_id, ResearchProject.status)
+    )
+    for pi_id, status, count in proj_result:
+        if pi_id not in metrics:
+            continue
+        status_str = _status_val(status).lower()
+        if status_str in ongoing_statuses:
+            metrics[pi_id]["projects_ongoing"] += count
+        elif status_str == "completed":
+            metrics[pi_id]["projects_completed"] += count
+        elif status_str in cancelled_statuses:
+            metrics[pi_id]["projects_cancelled"] += count
+
+    ms_result = await db.execute(
+        select(Manuscript.user_id, func.count(Manuscript.id))
+        .where(Manuscript.user_id.in_(user_ids))
+        .group_by(Manuscript.user_id)
+    )
+    for uid, count in ms_result:
+        if uid in metrics:
+            metrics[uid]["manuscripts"] = count
+
+    out_result = await db.execute(
+        select(ResearchOutput.created_by_id, func.count(ResearchOutput.id))
+        .where(
+            ResearchOutput.institution_id == institution_id,
+            ResearchOutput.created_by_id.in_(user_ids),
+        )
+        .group_by(ResearchOutput.created_by_id)
+    )
+    for uid, count in out_result:
+        if uid in metrics:
+            metrics[uid]["research_outputs"] = count
+
+    pub_result = await db.execute(
+        select(PublicationLibrary.user_id, func.count(Publication.id))
+        .join(Publication, Publication.library_id == PublicationLibrary.id)
+        .where(PublicationLibrary.user_id.in_(user_ids))
+        .group_by(PublicationLibrary.user_id)
+    )
+    for uid, count in pub_result:
+        if uid in metrics:
+            metrics[uid]["publications"] += count
+
+    rows = []
+    for uid, m in metrics.items():
+        user = users[uid]
+        pub_total = m["publications"] + m["research_outputs"]
+        success_rate = round(
+            (m["proposals_success"] / m["proposals_total"] * 100), 1
+        ) if m["proposals_total"] > 0 else 0
+        impact_score = (
+            pub_total * 3
+            + m["manuscripts"] * 2
+            + m["grants_won"] * 10
+            + m["proposals_success"] * 4
+            + m["proposals_total"] * 1
+            + m["projects_completed"] * 3
+            + m["projects_ongoing"] * 2
+        )
+        rows.append({
+            "id": uid,
+            "name": user.name or user.email,
+            "email": user.email,
+            "department": user.department or "Unassigned",
+            "publications": pub_total,
+            "library_publications": m["publications"],
+            "research_outputs": m["research_outputs"],
+            "manuscripts": m["manuscripts"],
+            "proposals_total": m["proposals_total"],
+            "proposals_success": m["proposals_success"],
+            "proposal_success_rate": success_rate,
+            "grants_won": m["grants_won"],
+            "projects_ongoing": m["projects_ongoing"],
+            "projects_completed": m["projects_completed"],
+            "projects_cancelled": m["projects_cancelled"],
+            "impact_score": impact_score,
+        })
+
+    rows.sort(
+        key=lambda r: (
+            r["impact_score"],
+            r["proposals_total"],
+            r["publications"],
+            r["manuscripts"],
+            r["grants_won"],
+            r["projects_completed"],
+            r["projects_ongoing"],
+            (r["name"] or "").lower(),
+        ),
+        reverse=True,
+    )
+    return rows[:limit]
+
+
+async def _build_research_area_analytics(db: AsyncSession, institution_id: str) -> tuple:
+    area_stats: dict = {}
+
+    def bump(area: str, **kwargs):
+        key = (area or "Uncategorized").strip() or "Uncategorized"
+        if key not in area_stats:
+            area_stats[key] = {
+                "label": key,
+                "project_count": 0,
+                "proposal_count": 0,
+                "publication_count": 0,
+                "manuscript_count": 0,
+                "total_funding": 0,
+                "currency": "KES",
+                "activity_score": 0,
+            }
+        for k, v in kwargs.items():
+            area_stats[key][k] = area_stats[key].get(k, 0) + v
+
+    projects_result = await db.execute(
+        select(
+            ResearchProject.research_area,
+            func.count(ResearchProject.id),
+            func.coalesce(func.sum(Award.total_amount), 0),
+            func.max(Award.currency),
+        )
+        .outerjoin(Award, Award.id == ResearchProject.award_id)
+        .where(ResearchProject.institution_id == institution_id)
+        .group_by(ResearchProject.research_area)
+    )
+    for area, count, funding, currency in projects_result:
+        bump(area, project_count=count, total_funding=int(funding or 0))
+        if currency and area_stats.get((area or "Uncategorized").strip() or "Uncategorized"):
+            area_stats[(area or "Uncategorized").strip() or "Uncategorized"]["currency"] = currency
+
+    proposals_result = await db.execute(
+        select(ResearchProject.research_area, func.count(Proposal.id))
+        .join(
+            Proposal,
+            and_(
+                Proposal.lead_pi_id == ResearchProject.pi_id,
+                Proposal.institution_id == institution_id,
+            ),
+        )
+        .where(ResearchProject.institution_id == institution_id)
+        .group_by(ResearchProject.research_area)
+    )
+    for area, count in proposals_result:
+        bump(area, proposal_count=count)
+
+    outputs_result = await db.execute(
+        select(ResearchProject.research_area, func.count(ResearchOutput.id))
+        .join(ResearchOutput, ResearchOutput.project_id == ResearchProject.id)
+        .where(ResearchProject.institution_id == institution_id)
+        .group_by(ResearchProject.research_area)
+    )
+    for area, count in outputs_result:
+        bump(area, publication_count=count)
+
+    ms_result = await db.execute(
+        select(Manuscript.department, func.count(Manuscript.id))
+        .join(User, Manuscript.user_id == User.id)
+        .where(User.primary_institution_id == institution_id)
+        .group_by(Manuscript.department)
+    )
+    for dept, count in ms_result:
+        bump(dept, manuscript_count=count)
+
+    for stats in area_stats.values():
+        stats["activity_score"] = (
+            stats["project_count"] * 3
+            + stats["proposal_count"] * 2
+            + stats["publication_count"] * 2
+            + stats["manuscript_count"]
+        )
+
+    research_areas = sorted(
+        area_stats.values(),
+        key=lambda x: x["activity_score"],
+        reverse=True,
+    )[:12]
+
+    highly_funded = sorted(
+        [a for a in area_stats.values() if a["total_funding"] > 0],
+        key=lambda x: x["total_funding"],
+        reverse=True,
+    )[:10]
+
+    palette = ["#16a699", "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899"]
+    for i, area in enumerate(research_areas):
+        area["color"] = palette[i % len(palette)]
+    for i, area in enumerate(highly_funded):
+        area["color"] = palette[i % len(palette)]
+
+    return research_areas, highly_funded
 
 
 async def _load_pending_submissions(db: AsyncSession, institution_id: str) -> list:
@@ -678,8 +1015,12 @@ async def get_institutional_reports(
     }
     total_proposals = sum(proposals_by_status.values())
     awarded = proposals_by_status.get("awarded", 0)
+    approved = proposals_by_status.get("approved", 0)
+    applying = proposals_by_status.get("applying", 0)
     submitted_total = total_proposals - proposals_by_status.get("draft", 0)
-    proposal_success_rate = round((awarded / submitted_total * 100), 1) if submitted_total > 0 else 0
+    institutional_success = approved + applying + awarded
+    proposal_success_rate = round((institutional_success / submitted_total * 100), 1) if submitted_total > 0 else 0
+    funder_success_rate = round((awarded / max(approved + applying + awarded + proposals_by_status.get("funding_unsuccessful", 0), 1) * 100), 1)
 
     proposals_monthly_result = await db.execute(
         select(Proposal.created_at)
@@ -898,14 +1239,26 @@ async def get_institutional_reports(
         {"key": "publications", "label": "Publications & Manuscripts", "count": total_publications, "color": "#8b5cf6"},
     ]
 
-    return {
+    top_researchers = await _build_top_researchers(db, institution_id)
+    research_areas, highly_funded_areas = await _build_research_area_analytics(db, institution_id)
+
+    payload = {
         "institution_name": current_user.institution.name if current_user.institution else None,
         "generated_at": datetime.now().isoformat(),
         "summary": {
             "total_proposals": total_proposals,
             "proposal_success_rate": proposal_success_rate,
+            "funder_success_rate": funder_success_rate,
+            "approved_proposals": approved,
+            "applying_proposals": applying,
+            "awarded_proposals": awarded,
             "total_projects": total_projects,
             "active_projects": projects_by_status.get("active", 0),
+            "completed_projects": projects_by_status.get("completed", 0),
+            "cancelled_projects": (
+                projects_by_status.get("suspended", 0)
+                + projects_by_status.get("terminated", 0)
+            ),
             "total_ethics": total_ethics,
             "ethics_approval_rate": ethics_approval_rate,
             "ethics_pending": ethics_pending,
@@ -917,6 +1270,9 @@ async def get_institutional_reports(
         },
         "departments": _department_rows(dept_counts),
         "key_projects": key_projects,
+        "top_researchers": top_researchers,
+        "research_areas": research_areas,
+        "highly_funded_areas": highly_funded_areas,
         "charts": {
             "proposals_by_status": _chart_rows(proposals_by_status, PROPOSAL_STATUS_COLORS),
             "projects_by_status": _chart_rows(projects_by_status, PROJECT_STATUS_COLORS),
@@ -924,8 +1280,100 @@ async def get_institutional_reports(
             "publications_by_status": _chart_rows(combined_publications, OUTPUT_STATUS_COLORS),
             "portfolio_mix": [item for item in portfolio_mix if item["count"] > 0],
             "monthly_trend": monthly_trend,
+            "research_areas": [
+                {"label": a["label"], "count": a["activity_score"], "color": a["color"]}
+                for a in research_areas
+            ],
+            "funding_by_area": [
+                {
+                    "label": a["label"],
+                    "count": a["total_funding"],
+                    "color": a["color"],
+                    "currency": a.get("currency", "KES"),
+                }
+                for a in highly_funded_areas
+            ],
         },
     }
+    payload["insights"] = _generate_report_insights(payload)
+    return payload
+
+
+@router.get("/analytics/reports/download")
+async def download_institutional_reports(
+    format: str = Query("csv", pattern="^(csv|json)$"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Download institutional reports as CSV or JSON."""
+    if not current_user.primary_institution_id:
+        raise HTTPException(status_code=403, detail="User must be associated with an institution")
+
+    # Re-use the reports builder by calling the same logic inline
+    reports_response = await get_institutional_reports(db=db, current_user=current_user)
+    institution = (current_user.institution.name if current_user.institution else "institution").replace(" ", "_")
+    stamp = datetime.now().strftime("%Y%m%d")
+
+    if format == "json":
+        content = json.dumps(reports_response, indent=2, default=str)
+        return StreamingResponse(
+            io.BytesIO(content.encode("utf-8")),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{institution}_reports_{stamp}.json"'},
+        )
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+
+    writer.writerow(["Institutional Research Report"])
+    writer.writerow(["Institution", reports_response.get("institution_name")])
+    writer.writerow(["Generated", reports_response.get("generated_at")])
+    writer.writerow([])
+
+    writer.writerow(["Summary"])
+    for k, v in (reports_response.get("summary") or {}).items():
+        writer.writerow([k.replace("_", " ").title(), v])
+    writer.writerow([])
+
+    writer.writerow(["Insights"])
+    for insight in reports_response.get("insights") or []:
+        writer.writerow([insight])
+    writer.writerow([])
+
+    writer.writerow([
+        "Researcher", "Email", "Department", "Publications", "Manuscripts",
+        "Proposals", "Proposal Success %", "Grants Won",
+        "Projects Ongoing", "Projects Completed", "Projects Cancelled",
+    ])
+    for r in reports_response.get("top_researchers") or []:
+        writer.writerow([
+            r.get("name"), r.get("email"), r.get("department"),
+            r.get("publications"), r.get("manuscripts"),
+            r.get("proposals_total"), r.get("proposal_success_rate"), r.get("grants_won"),
+            r.get("projects_ongoing"), r.get("projects_completed"), r.get("projects_cancelled"),
+        ])
+    writer.writerow([])
+
+    writer.writerow(["Research Area", "Activity Score", "Projects", "Proposals", "Funding"])
+    for a in reports_response.get("research_areas") or []:
+        writer.writerow([
+            a.get("label"), a.get("activity_score"), a.get("project_count"),
+            a.get("proposal_count"), a.get("total_funding"),
+        ])
+    writer.writerow([])
+
+    writer.writerow(["Highly Funded Area", "Total Funding", "Currency", "Projects"])
+    for a in reports_response.get("highly_funded_areas") or []:
+        writer.writerow([
+            a.get("label"), a.get("total_funding"), a.get("currency"), a.get("project_count"),
+        ])
+
+    buffer.seek(0)
+    return StreamingResponse(
+        io.BytesIO(buffer.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{institution}_reports_{stamp}.csv"'},
+    )
 
 
 # ─── Reviewer Management ─────────────────────────────────────────────────────

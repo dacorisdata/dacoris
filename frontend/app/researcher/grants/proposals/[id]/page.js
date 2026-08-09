@@ -27,8 +27,23 @@ const TiptapEditor = dynamic(() => import('../../../../../components/TiptapEdito
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#16a699';
 const LOCALE_MAP = { en: 'en-US', fr: 'fr-FR', ar: 'ar', sw: 'sw-KE' };
-const WORKFLOW_STEP_KEYS = ['received', 'eligibility', 'technical', 'budget', 'panel', 'final'];
+const WORKFLOW_STEP_KEYS = ['received', 'review', 'approved'];
 const PW = 'researcher.proposalWorkspace';
+
+const RECOMMENDATION_LABELS = {
+  fund: 'Recommend funding',
+  recommend_funding: 'Recommend funding',
+  approve: 'Approve',
+  reject: 'Do not recommend',
+  do_not_fund: 'Do not recommend',
+  revise: 'Revise and resubmit',
+};
+
+const formatRecommendation = (value) => {
+  if (!value) return '—';
+  const key = value.toLowerCase().replace(/\s+/g, '_');
+  return RECOMMENDATION_LABELS[key] || value.replace(/_/g, ' ');
+};
 
 const normalizeStatusKey = (status) => (status || '').toLowerCase().replace(/\s+/g, '_');
 
@@ -220,6 +235,7 @@ export default function ProposalWorkspacePage() {
   const [reorderingSection, setReorderingSection] = useState(false);
   const [downloadMenu, setDownloadMenu] = useState(null);
   const [downloading, setDownloading] = useState(false);
+  const [reviewFeedback, setReviewFeedback] = useState([]);
 
   useEffect(() => {
     loadProposal({ initialLoad: true });
@@ -336,6 +352,19 @@ export default function ProposalWorkspacePage() {
           (a, b) => (a.item_order ?? 0) - (b.item_order ?? 0) || String(a.id).localeCompare(String(b.id))
         )
       );
+
+      if (res.data.status && res.data.status !== 'draft') {
+        try {
+          const reviewsRes = await axios.get(`${API_URL}/grants/reviews/proposals/${params.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          setReviewFeedback((reviewsRes.data || []).filter((r) => r.status === 'submitted'));
+        } catch {
+          setReviewFeedback([]);
+        }
+      } else {
+        setReviewFeedback([]);
+      }
       
       if (res.data.sections && res.data.sections.length > 0) {
         const sortedSections = sortSections(res.data.sections);
@@ -820,16 +849,22 @@ export default function ProposalWorkspacePage() {
         {/* ── Workflow Stepper ────────────────────────────── */}
         {proposal.status !== 'draft' && (() => {
           const step = proposal.review_step ?? 0;
-          const isTerminal = ['awarded','declined'].includes(proposal.status);
-          const terminalColor = proposal.status === 'awarded' ? '#10b981' : '#ef4444';
+          const isTerminal = ['approved','applying','awarded','funding_unsuccessful','declined'].includes(proposal.status);
+          const terminalColor = proposal.status === 'declined' || proposal.status === 'funding_unsuccessful' ? '#ef4444'
+            : proposal.status === 'applying' ? '#06b6d4' : '#10b981';
           const reviewStage = proposal.review_stage_name || t(`${PW}.workflow.underReviewDefault`);
+          const terminalLabel = proposal.status === 'approved' ? t(`${PW}.workflow.approved`)
+            : proposal.status === 'applying' ? t(`${PW}.workflow.applying`)
+            : proposal.status === 'awarded' ? t(`${PW}.workflow.awarded`)
+            : proposal.status === 'funding_unsuccessful' ? t(`${PW}.workflow.fundingUnsuccessful`)
+            : t(`${PW}.workflow.notAwarded`);
           return (
             <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2.5, borderColor: isTerminal ? terminalColor + '55' : ACCENT + '44' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
                 <Box>
                   <Typography sx={{ fontSize: 13, fontWeight: 700, color: isTerminal ? terminalColor : ACCENT }}>
                     {isTerminal
-                      ? (proposal.status === 'awarded' ? `🏆 ${t(`${PW}.workflow.awarded`)}` : `❌ ${t(`${PW}.workflow.notAwarded`)}`)
+                      ? terminalLabel
                       : `📋 ${t(`${PW}.workflow.underReview`, { stage: reviewStage })}`}
                   </Typography>
                   {proposal.stage_notes && (
@@ -868,6 +903,39 @@ export default function ProposalWorkspacePage() {
             </Paper>
           );
         })()}
+
+        {/* ── Review Feedback (when available) ── */}
+        {reviewFeedback.length > 0 && (
+          <Paper variant="outlined" sx={{ p: 2.5, mb: 2, borderRadius: 2.5, borderColor: '#8b5cf655', bgcolor: dark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.03)' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+              <CommentIcon sx={{ fontSize: 18, color: '#8b5cf6' }} />
+              <Typography sx={{ fontSize: 14, fontWeight: 700, color: '#8b5cf6' }}>
+                {t(`${PW}.reviewFeedback.title`)}
+              </Typography>
+            </Box>
+            {reviewFeedback.map((review) => (
+              <Box key={review.id} sx={{ mb: reviewFeedback.length > 1 ? 1.5 : 0, p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.7)', border: '1px solid', borderColor: 'divider' }}>
+                {(review.overall_score != null || review.recommendation) && (
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 0.75 }}>
+                    {review.overall_score != null && (
+                      <Chip label={t(`${PW}.reviewFeedback.score`, { score: review.overall_score })} size="small"
+                        sx={{ height: 20, fontSize: 10, fontWeight: 700 }} />
+                    )}
+                    {review.recommendation && (
+                      <Chip label={formatRecommendation(review.recommendation)} size="small"
+                        sx={{ height: 20, fontSize: 10, fontWeight: 600, bgcolor: ACCENT + '18', color: ACCENT }} />
+                    )}
+                  </Box>
+                )}
+                {review.narrative_feedback && (
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+                    {review.narrative_feedback}
+                  </Typography>
+                )}
+              </Box>
+            ))}
+          </Paper>
+        )}
 
         {/* ── Award Details Card ── */}
         {proposal.status === 'awarded' && proposal.award && (() => {

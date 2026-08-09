@@ -17,6 +17,10 @@ import {
   MenuBook as PublicationsIcon,
   Business as DepartmentIcon,
   ArrowForward as ArrowIcon,
+  Download as DownloadIcon,
+  Lightbulb as InsightIcon,
+  EmojiEvents as LeaderIcon,
+  Biotech as AreaIcon,
 } from '@mui/icons-material';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -130,6 +134,42 @@ function EmptyChart({ message = 'No data available yet' }) {
   );
 }
 
+function InsightBox({ text }) {
+  if (!text) return null;
+  return (
+    <Box sx={{
+      mt: 2, p: 1.5, borderRadius: 2,
+      bgcolor: 'rgba(13,148,136,0.06)', border: '1px solid rgba(13,148,136,0.18)',
+      display: 'flex', gap: 1, alignItems: 'flex-start',
+    }}>
+      <InsightIcon sx={{ fontSize: 18, color: ACCENT, mt: 0.15, flexShrink: 0 }} />
+      <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.55 }}>{text}</Typography>
+    </Box>
+  );
+}
+
+function InsightsPanel({ insights }) {
+  if (!insights?.length) return null;
+  return (
+    <Box sx={{ mb: 3 }}>
+      <ChartCard title="Decision Insights" subtitle="For research leadership">
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+          {insights.map((text, i) => (
+            <Box key={i} sx={{
+              display: 'flex', gap: 1.25, p: 1.5, borderRadius: 2,
+              bgcolor: i === 0 ? 'rgba(13,148,136,0.08)' : 'transparent',
+              border: '1px solid', borderColor: i === 0 ? 'rgba(13,148,136,0.22)' : 'divider',
+            }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 800, color: ACCENT, minWidth: 20 }}>{i + 1}.</Typography>
+              <Typography sx={{ fontSize: 13, color: 'text.primary', lineHeight: 1.55 }}>{text}</Typography>
+            </Box>
+          ))}
+        </Box>
+      </ChartCard>
+    </Box>
+  );
+}
+
 export default function ReportsAnalyticsPage() {
   const router = useRouter();
   const theme = useTheme();
@@ -141,6 +181,28 @@ export default function ReportsAnalyticsPage() {
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
   const [trendMetric, setTrendMetric] = useState('all');
+  const [downloading, setDownloading] = useState(null);
+
+  const downloadReport = async (format) => {
+    setDownloading(format);
+    try {
+      const res = await api.get(`/admin-staff/analytics/reports/download?format=${format}`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: format === 'json' ? 'application/json' : 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const inst = (data?.institution_name || 'institution').replace(/\s+/g, '_');
+      link.href = url;
+      link.download = `${inst}_reports_${new Date().toISOString().slice(0, 10)}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setError('Failed to download report.');
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   const loadReports = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -223,16 +285,38 @@ export default function ReportsAnalyticsPage() {
             )}
           </Box>
         </Box>
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
-          onClick={() => loadReports(true)}
-          disabled={refreshing}
-          sx={{ textTransform: 'none', borderRadius: '9px', fontWeight: 600 }}
-        >
-          {refreshing ? 'Refreshing…' : 'Refresh data'}
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<DownloadIcon sx={{ fontSize: 16 }} />}
+            onClick={() => downloadReport('csv')}
+            disabled={!!downloading}
+            sx={{ textTransform: 'none', borderRadius: '9px', fontWeight: 600 }}
+          >
+            {downloading === 'csv' ? 'Downloading…' : 'Download CSV'}
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<DownloadIcon sx={{ fontSize: 16 }} />}
+            onClick={() => downloadReport('json')}
+            disabled={!!downloading}
+            sx={{ textTransform: 'none', borderRadius: '9px', fontWeight: 600 }}
+          >
+            {downloading === 'json' ? 'Downloading…' : 'Download JSON'}
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
+            onClick={() => loadReports(true)}
+            disabled={refreshing}
+            sx={{ textTransform: 'none', borderRadius: '9px', fontWeight: 600 }}
+          >
+            {refreshing ? 'Refreshing…' : 'Refresh data'}
+          </Button>
+        </Box>
       </Box>
 
       {/* KPI row */}
@@ -240,15 +324,23 @@ export default function ReportsAnalyticsPage() {
         <KpiTile
           label="Proposal success"
           value={`${summary?.proposal_success_rate ?? 0}%`}
-          sub={`${summary?.total_proposals ?? 0} total proposals`}
+          sub={`${summary?.approved_proposals ?? 0} approved · ${summary?.total_proposals ?? 0} total`}
           color="#16a699"
           icon={ProposalsIcon}
           onClick={() => router.push('/admin-staff/grants/proposals')}
         />
         <KpiTile
+          label="Funder award rate"
+          value={`${summary?.funder_success_rate ?? 0}%`}
+          sub={`${summary?.awarded_proposals ?? 0} awarded · ${summary?.applying_proposals ?? 0} applying`}
+          color="#059669"
+          icon={TrendIcon}
+          onClick={() => router.push('/admin-staff/grants/awards')}
+        />
+        <KpiTile
           label="Active projects"
           value={summary?.active_projects ?? 0}
-          sub={`${summary?.total_projects ?? 0} in portfolio`}
+          sub={`${summary?.total_projects ?? 0} in portfolio · ${summary?.completed_projects ?? 0} completed · ${summary?.cancelled_projects ?? 0} cancelled`}
           color="#3b82f6"
           icon={ProjectsIcon}
           onClick={() => router.push('/admin-staff/research/projects')}
@@ -278,6 +370,8 @@ export default function ReportsAnalyticsPage() {
           onClick={() => router.push('/admin-staff/grants/awards')}
         />
       </Box>
+
+      <InsightsPanel insights={data?.insights} />
 
       {/* Monthly trend */}
       <Box sx={{ mb: 3 }}>
@@ -345,7 +439,69 @@ export default function ReportsAnalyticsPage() {
               )}
             </ResponsiveContainer>
           )}
+          <InsightBox text={data?.insights?.[0]} />
         </ChartCard>
+      </Box>
+
+      {/* Research areas + funding */}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+        <Box sx={{ flex: { xs: '1 1 100%', lg: '1 1 calc(50% - 8px)' }, minWidth: 0 }}>
+          <ChartCard title="Top Research Areas" subtitle="Activity by focus area" action={<AreaIcon sx={{ color: ACCENT, fontSize: 20 }} />}>
+            {!charts?.research_areas?.length ? (
+              <EmptyChart message="Tag projects with research areas to unlock this view." />
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(260, charts.research_areas.length * 34)}>
+                <BarChart data={charts.research_areas} layout="vertical" margin={{ top: 0, right: 16, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: axisColor }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <YAxis type="category" dataKey="label" width={130} tick={{ fontSize: 11, fill: axisColor }} tickLine={false} axisLine={false} />
+                  <Tooltip content={<PieTooltip />} cursor={{ fill: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }} />
+                  <Bar dataKey="count" name="Activity score" radius={[0, 6, 6, 0]} barSize={18}>
+                    {charts.research_areas.map((entry) => (
+                      <Cell key={entry.label} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+            <InsightBox text={data?.insights?.[1]} />
+          </ChartCard>
+        </Box>
+        <Box sx={{ flex: { xs: '1 1 100%', lg: '1 1 calc(50% - 8px)' }, minWidth: 0 }}>
+          <ChartCard title="Highly Funded Areas" subtitle="Award totals by research area">
+            {!charts?.funding_by_area?.length ? (
+              <EmptyChart message="Funding by area appears once projects are linked to awards." />
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(260, charts.funding_by_area.length * 34)}>
+                <BarChart
+                  data={charts.funding_by_area.map(d => ({
+                    ...d,
+                    funding_m: Math.round((d.count || 0) / 1_000_000 * 10) / 10,
+                  }))}
+                  layout="vertical"
+                  margin={{ top: 0, right: 16, left: 8, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: axisColor }} tickLine={false} axisLine={false} />
+                  <YAxis type="category" dataKey="label" width={130} tick={{ fontSize: 11, fill: axisColor }} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    formatter={(v, _n, props) => [
+                      `${props.payload.currency || 'KES'} ${Number(props.payload.count).toLocaleString()}`,
+                      'Total funding',
+                    ]}
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                  />
+                  <Bar dataKey="count" name="Funding" radius={[0, 6, 6, 0]} barSize={18}>
+                    {charts.funding_by_area.map((entry) => (
+                      <Cell key={entry.label} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+            <InsightBox text={data?.insights?.[0]} />
+          </ChartCard>
+        </Box>
       </Box>
 
       {/* Department + portfolio mix */}
@@ -441,6 +597,67 @@ export default function ReportsAnalyticsPage() {
             </ChartCard>
           </Box>
         ))}
+      </Box>
+
+      {/* Top researchers */}
+      <Box sx={{ mb: 3 }}>
+        <ChartCard
+          title="Top Researchers"
+          subtitle="Publications, manuscripts, grants & projects"
+          action={<LeaderIcon sx={{ color: '#f59e0b', fontSize: 22 }} />}
+        >
+          {!data?.top_researchers?.length ? (
+            <EmptyChart message="Researcher metrics appear once faculty start publishing and applying for grants." />
+          ) : (
+            <TableContainer component={Paper} elevation={0} variant="outlined" sx={{ borderRadius: 2 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
+                    <TableCell sx={headCell}>#</TableCell>
+                    <TableCell sx={headCell}>Researcher</TableCell>
+                    <TableCell sx={headCell}>Department</TableCell>
+                    <TableCell sx={headCell} align="center">Publications</TableCell>
+                    <TableCell sx={headCell} align="center">Manuscripts</TableCell>
+                    <TableCell sx={headCell} align="center">Proposals</TableCell>
+                    <TableCell sx={headCell} align="center">Success</TableCell>
+                    <TableCell sx={headCell} align="center">Grants Won</TableCell>
+                    <TableCell sx={headCell} align="center">Ongoing</TableCell>
+                    <TableCell sx={headCell} align="center">Completed</TableCell>
+                    <TableCell sx={headCell} align="center">Cancelled</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {data.top_researchers.map((r, idx) => (
+                    <TableRow key={r.id} hover sx={{ '&:last-child td': { borderBottom: 0 } }}>
+                      <TableCell sx={{ fontSize: 12, fontWeight: 800, color: idx < 3 ? '#f59e0b' : 'text.secondary' }}>
+                        {idx + 1}
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: 13, fontWeight: 700 }}>{r.name}</Typography>
+                        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{r.email}</Typography>
+                      </TableCell>
+                      <TableCell sx={{ fontSize: 12 }}>{r.department}</TableCell>
+                      <TableCell align="center" sx={{ fontSize: 13, fontWeight: 600 }}>{r.publications}</TableCell>
+                      <TableCell align="center" sx={{ fontSize: 13 }}>{r.manuscripts}</TableCell>
+                      <TableCell align="center" sx={{ fontSize: 13 }}>{r.proposals_total}</TableCell>
+                      <TableCell align="center">
+                        <Chip label={`${r.proposal_success_rate}%`} size="small"
+                          sx={{ height: 22, fontSize: 10.5, fontWeight: 700,
+                            bgcolor: r.proposal_success_rate >= 50 ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
+                            color: r.proposal_success_rate >= 50 ? '#10b981' : '#f59e0b' }} />
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontSize: 13, fontWeight: 700, color: '#059669' }}>{r.grants_won}</TableCell>
+                      <TableCell align="center" sx={{ fontSize: 13, color: '#3b82f6' }}>{r.projects_ongoing}</TableCell>
+                      <TableCell align="center" sx={{ fontSize: 13, color: '#0ea5e9' }}>{r.projects_completed}</TableCell>
+                      <TableCell align="center" sx={{ fontSize: 13, color: '#ef4444' }}>{r.projects_cancelled}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+          <InsightBox text={data?.insights?.[2]} />
+        </ChartCard>
       </Box>
 
       {/* Key projects table */}

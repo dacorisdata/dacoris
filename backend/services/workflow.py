@@ -8,34 +8,41 @@ from models import ProposalStatus, AwardStatus, ProjectStatus, EthicsStatus
 RESEARCHER_TRANSITIONS = {
     ProposalStatus.DRAFT: [ProposalStatus.SUBMITTED],
     ProposalStatus.RETURNED: [ProposalStatus.SUBMITTED],
+    ProposalStatus.APPROVED: [ProposalStatus.APPLYING],
+    ProposalStatus.APPLYING: [ProposalStatus.AWARDED, ProposalStatus.FUNDING_UNSUCCESSFUL],
 }
 
 # Admin/Grant officer-initiated transitions
 ADMIN_TRANSITIONS = {
-    ProposalStatus.SUBMITTED:      [ProposalStatus.INTERNAL_REVIEW, ProposalStatus.RETURNED, ProposalStatus.DECLINED],
-    ProposalStatus.INTERNAL_REVIEW:[ProposalStatus.UNDER_REVIEW, ProposalStatus.RETURNED, ProposalStatus.DECLINED],
-    ProposalStatus.UNDER_REVIEW:   [ProposalStatus.AWARDED, ProposalStatus.DECLINED, ProposalStatus.RETURNED],
-    ProposalStatus.RETURNED:       [ProposalStatus.INTERNAL_REVIEW],
+    ProposalStatus.SUBMITTED:       [ProposalStatus.UNDER_REVIEW, ProposalStatus.RETURNED, ProposalStatus.DECLINED],
+    ProposalStatus.INTERNAL_REVIEW: [ProposalStatus.UNDER_REVIEW, ProposalStatus.RETURNED, ProposalStatus.DECLINED],
+    ProposalStatus.UNDER_REVIEW:    [ProposalStatus.APPROVED, ProposalStatus.DECLINED, ProposalStatus.RETURNED],
+    ProposalStatus.RETURNED:        [ProposalStatus.UNDER_REVIEW],
 }
 
 # Combined for any role
 PROPOSAL_TRANSITIONS = {
-    ProposalStatus.DRAFT:          [ProposalStatus.SUBMITTED],
-    ProposalStatus.RETURNED:       [ProposalStatus.SUBMITTED, ProposalStatus.INTERNAL_REVIEW],
-    ProposalStatus.SUBMITTED:      [ProposalStatus.INTERNAL_REVIEW, ProposalStatus.RETURNED, ProposalStatus.DECLINED],
-    ProposalStatus.INTERNAL_REVIEW:[ProposalStatus.UNDER_REVIEW, ProposalStatus.RETURNED, ProposalStatus.DECLINED],
-    ProposalStatus.UNDER_REVIEW:   [ProposalStatus.AWARDED, ProposalStatus.DECLINED, ProposalStatus.RETURNED],
+    ProposalStatus.DRAFT:           [ProposalStatus.SUBMITTED],
+    ProposalStatus.RETURNED:        [ProposalStatus.SUBMITTED, ProposalStatus.UNDER_REVIEW],
+    ProposalStatus.SUBMITTED:       [ProposalStatus.UNDER_REVIEW, ProposalStatus.RETURNED, ProposalStatus.DECLINED],
+    ProposalStatus.INTERNAL_REVIEW: [ProposalStatus.UNDER_REVIEW, ProposalStatus.RETURNED, ProposalStatus.DECLINED],
+    ProposalStatus.UNDER_REVIEW:    [ProposalStatus.APPROVED, ProposalStatus.DECLINED, ProposalStatus.RETURNED],
+    ProposalStatus.APPROVED:        [ProposalStatus.APPLYING],
+    ProposalStatus.APPLYING:        [ProposalStatus.AWARDED, ProposalStatus.FUNDING_UNSUCCESSFUL],
 }
 
-# Stage labels for the 5-step workflow
+# Stage labels for the workflow UI
 STAGE_LABELS = {
-    ProposalStatus.DRAFT:           (0, 'Draft'),
-    ProposalStatus.RETURNED:        (0, 'Returned for Revision'),
-    ProposalStatus.SUBMITTED:       (1, 'Received – Awaiting Review'),
-    ProposalStatus.INTERNAL_REVIEW: (2, 'Step 1/4: Eligibility & Technical Review'),
-    ProposalStatus.UNDER_REVIEW:    (3, 'Step 2/4: Budget & Panel Review'),
-    ProposalStatus.AWARDED:         (4, 'Awarded'),
-    ProposalStatus.DECLINED:        (4, 'Not Awarded'),
+    ProposalStatus.DRAFT:                (0, 'Draft'),
+    ProposalStatus.RETURNED:             (0, 'Returned for Revision'),
+    ProposalStatus.SUBMITTED:            (1, 'Received – Awaiting Review'),
+    ProposalStatus.INTERNAL_REVIEW:      (2, 'Section Review'),
+    ProposalStatus.UNDER_REVIEW:         (2, 'Concurrent Section Review'),
+    ProposalStatus.APPROVED:             (3, 'Institutionally Approved'),
+    ProposalStatus.APPLYING:             (4, 'External Application in Progress'),
+    ProposalStatus.AWARDED:              (5, 'Funder Award Confirmed'),
+    ProposalStatus.FUNDING_UNSUCCESSFUL: (5, 'Funding Unsuccessful'),
+    ProposalStatus.DECLINED:             (5, 'Not Approved'),
 }
 
 ETHICS_TRANSITIONS = {

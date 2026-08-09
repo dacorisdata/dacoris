@@ -1283,7 +1283,7 @@ const ar = {
         draft: 'مسودة',
         returned: 'مطلوب مراجعة',
         submitted: 'مُقدَّم',
-        internal_review: 'قيد المراجعة',
+        internal_review: 'مراجعة الأهلية',
         under_review: 'قيد المراجعة',
         awarded: 'مُنح',
         declined: 'لم يُمنح',
@@ -1294,6 +1294,7 @@ const ar = {
         draft: { label: 'مسودات', hint: 'لا تزال قيد الإعداد' },
         pipeline: { label: 'مُقدَّمة وقيد المراجعة', hint: 'في انتظار المراجعة' },
         awarded: { label: 'مُنحت', hint: 'طلبات ناجحة' },
+        declined: { label: 'لم تُمنح', hint: 'مقترحات مرفوضة' },
       },
       table: {
         title: 'عنوان المقترح',
@@ -1512,6 +1513,10 @@ const ar = {
           panel: 'مراجعة اللجنة',
           final: 'الموافقة النهائية',
         },
+      },
+      reviewFeedback: {
+        title: 'ملاحظات المراجع',
+        score: 'الدرجة: {score}',
       },
       award: {
         title: 'تفاصيل المنحة',

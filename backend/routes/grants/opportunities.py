@@ -1,16 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional, List, Dict
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 import pandas as pd
 import io
 import httpx
 
 from database import get_db
-from models import GrantOpportunity, User, Proposal, OpportunityCategory, OpportunityCategories, InstitutionCategory
+from models import (
+    GrantOpportunity, User, Proposal, OpportunityCategory, OpportunityCategories,
+    InstitutionCategory, OpportunityResearcherRecommendation, PrimaryAccountType, UserStatus,
+)
 from auth import require_roles, ResearchRole, get_current_user
 from services.opportunity_import import OpportunityImportService
 
@@ -64,6 +68,31 @@ class CategoryBrief(BaseModel):
     color: Optional[str] = "#3B82F6"
 
 
+class OpportunityApplicationOut(BaseModel):
+    id: str
+    title: str
+    status: str
+    submitted_at: Optional[datetime] = None
+    created_at: datetime
+    lead_pi_name: Optional[str] = None
+    lead_pi_email: Optional[str] = None
+
+
+class ColleagueApplicationBrief(BaseModel):
+    user_id: str
+    name: str
+    status: str
+
+
+class RecommendedResearcherBrief(BaseModel):
+    user_id: str
+    name: str
+    email: Optional[str] = None
+    note: Optional[str] = None
+    recommended_by_name: Optional[str] = None
+    recommended_at: Optional[datetime] = None
+
+
 class OpportunityOut(BaseModel):
     id: str
     title: str
@@ -83,6 +112,12 @@ class OpportunityOut(BaseModel):
     categories: List[CategoryBrief] = []
     application_count: int = 0
     application_url: Optional[str] = None
+    colleague_applications: List[ColleagueApplicationBrief] = []
+    colleague_count: int = 0
+    staff_recommended: bool = False
+    staff_recommendation_note: Optional[str] = None
+    recommended_by_name: Optional[str] = None
+    recommended_researchers: List[RecommendedResearcherBrief] = []
 
     class Config:
         from_attributes = True
@@ -95,6 +130,212 @@ class OpportunityDetailOut(OpportunityOut):
     source_system: Optional[str] = None
 
 
+class RecommendationCreate(BaseModel):
+    researcher_id: str
+    note: Optional[str] = None
+
+
+class RecommendationBulkCreate(BaseModel):
+    researcher_ids: Optional[List[str]] = None
+    recommend_all: bool = False
+    note: Optional[str] = None
+
+
+class InstitutionResearcherBrief(BaseModel):
+    id: str
+    name: Optional[str] = None
+    email: str
+    department: Optional[str] = None
+    expertise_keywords: Optional[str] = None
+
+
+_RECOMMENDER_ACCOUNT_TYPES = {
+    PrimaryAccountType.DIRECTOR_RESEARCH,
+    PrimaryAccountType.RESEARCH_ADMINISTRATOR,
+}
+_RECOMMENDER_ROLES = {
+    ResearchRole.DIRECTOR_RESEARCH,
+    ResearchRole.RESEARCH_ADMIN,
+    ResearchRole.INSTITUTIONAL_LEAD,
+}
+
+
+def _can_recommend_researchers(user: User) -> bool:
+    if user.is_global_admin or user.is_institution_admin:
+        return True
+    return user.primary_account_type in _RECOMMENDER_ACCOUNT_TYPES
+
+
+async def _load_institution_researchers(
+    db: AsyncSession,
+    institution_id: str,
+    q: Optional[str] = None,
+    limit: int = 200,
+) -> List[User]:
+    query = select(User).where(
+        User.primary_institution_id == institution_id,
+        User.status == UserStatus.ACTIVE,
+    )
+    if q:
+        pattern = f"%{q.lower()}%"
+        query = query.where(
+            or_(
+                func.lower(User.name).like(pattern),
+                func.lower(User.email).like(pattern),
+                func.lower(User.department).like(pattern),
+                func.lower(User.expertise_keywords).like(pattern),
+            )
+        )
+    result = await db.execute(query.order_by(User.name).limit(limit))
+    return list(result.scalars().all())
+
+
+async def _get_existing_recommendation_user_ids(
+    db: AsyncSession,
+    opp_id: str,
+) -> set:
+    result = await db.execute(
+        select(OpportunityResearcherRecommendation.researcher_id).where(
+            OpportunityResearcherRecommendation.opportunity_id == opp_id,
+        )
+    )
+    return {row[0] for row in result.all()}
+
+
+async def _create_opportunity_recommendations(
+    db: AsyncSession,
+    opp_id: str,
+    researcher_ids: List[str],
+    institution_id: str,
+    recommended_by: User,
+    note: Optional[str] = None,
+) -> dict:
+    """Create recommendations for researchers not already tagged. Returns counts."""
+    if not researcher_ids:
+        return {"created": 0, "skipped": 0, "failures": []}
+
+    existing = await _get_existing_recommendation_user_ids(db, opp_id)
+    note_text = (note or "").strip() or None
+    created = 0
+    skipped = 0
+    failures = []
+
+    for researcher_id in researcher_ids:
+        if researcher_id in existing:
+            skipped += 1
+            continue
+        researcher = await db.get(User, researcher_id)
+        if not researcher or researcher.primary_institution_id != institution_id:
+            failures.append(f"{researcher_id}: not found at institution")
+            continue
+        if researcher.status != UserStatus.ACTIVE:
+            failures.append(f"{researcher.name or researcher.email}: not active")
+            continue
+
+        db.add(OpportunityResearcherRecommendation(
+            opportunity_id=opp_id,
+            researcher_id=researcher_id,
+            recommended_by_id=recommended_by.id,
+            institution_id=institution_id,
+            note=note_text,
+        ))
+        existing.add(researcher_id)
+        created += 1
+
+    if created:
+        await db.commit()
+    return {"created": created, "skipped": skipped, "failures": failures}
+
+
+async def _fetch_colleague_applications(
+    db: AsyncSession,
+    opportunity_ids: List[str],
+    institution_id: Optional[str],
+    exclude_user_id: Optional[str],
+) -> Dict[str, List[ColleagueApplicationBrief]]:
+    if not opportunity_ids or not institution_id:
+        return {oid: [] for oid in opportunity_ids}
+
+    query = (
+        select(Proposal.opportunity_id, Proposal.status, User.id, User.name)
+        .join(User, User.id == Proposal.lead_pi_id)
+        .where(
+            Proposal.opportunity_id.in_(opportunity_ids),
+            Proposal.institution_id == institution_id,
+        )
+    )
+    if exclude_user_id:
+        query = query.where(Proposal.lead_pi_id != exclude_user_id)
+
+    result = await db.execute(query)
+    mapping: Dict[str, List[ColleagueApplicationBrief]] = {oid: [] for oid in opportunity_ids}
+    for opp_id, status_val, user_id, name in result.all():
+        status_str = status_val.value if hasattr(status_val, 'value') else str(status_val or 'draft')
+        mapping.setdefault(opp_id, []).append(ColleagueApplicationBrief(
+            user_id=user_id,
+            name=name or "Researcher",
+            status=status_str.lower(),
+        ))
+    return mapping
+
+
+async def _fetch_staff_recommendations_for_user(
+    db: AsyncSession,
+    opportunity_ids: List[str],
+    researcher_id: str,
+    institution_id: Optional[str],
+) -> Dict[str, OpportunityResearcherRecommendation]:
+    if not opportunity_ids or not researcher_id:
+        return {}
+
+    query = (
+        select(OpportunityResearcherRecommendation)
+        .options(selectinload(OpportunityResearcherRecommendation.recommended_by))
+        .where(
+            OpportunityResearcherRecommendation.opportunity_id.in_(opportunity_ids),
+            OpportunityResearcherRecommendation.researcher_id == researcher_id,
+        )
+    )
+    if institution_id:
+        query = query.where(OpportunityResearcherRecommendation.institution_id == institution_id)
+
+    result = await db.execute(query)
+    return {rec.opportunity_id: rec for rec in result.scalars().all()}
+
+
+async def _fetch_recommended_researchers_by_opportunity(
+    db: AsyncSession,
+    opportunity_ids: List[str],
+    institution_id: Optional[str],
+) -> Dict[str, List[RecommendedResearcherBrief]]:
+    if not opportunity_ids or not institution_id:
+        return {oid: [] for oid in opportunity_ids}
+
+    result = await db.execute(
+        select(OpportunityResearcherRecommendation)
+        .options(
+            selectinload(OpportunityResearcherRecommendation.researcher),
+            selectinload(OpportunityResearcherRecommendation.recommended_by),
+        )
+        .where(
+            OpportunityResearcherRecommendation.opportunity_id.in_(opportunity_ids),
+            OpportunityResearcherRecommendation.institution_id == institution_id,
+        )
+        .order_by(OpportunityResearcherRecommendation.created_at.desc())
+    )
+    mapping: Dict[str, List[RecommendedResearcherBrief]] = {oid: [] for oid in opportunity_ids}
+    for rec in result.scalars().all():
+        mapping.setdefault(rec.opportunity_id, []).append(RecommendedResearcherBrief(
+            user_id=rec.researcher_id,
+            name=rec.researcher.name if rec.researcher else "Researcher",
+            email=rec.researcher.email if rec.researcher else None,
+            note=rec.note,
+            recommended_by_name=rec.recommended_by.name if rec.recommended_by else None,
+            recommended_at=rec.created_at,
+        ))
+    return mapping
+
+
 class FundingAreaSummary(BaseModel):
     category_id: Optional[str] = None
     category_name: str
@@ -105,16 +346,6 @@ class FundingAreaSummary(BaseModel):
     total_funding_min: float = 0
     total_funding_max: float = 0
     currencies: List[str] = []
-
-
-class OpportunityApplicationOut(BaseModel):
-    id: str
-    title: str
-    status: str
-    submitted_at: Optional[datetime] = None
-    created_at: datetime
-    lead_pi_name: Optional[str] = None
-    lead_pi_email: Optional[str] = None
 
 
 def _legacy_category_briefs(category: Optional[str]) -> List[CategoryBrief]:
@@ -228,7 +459,12 @@ def _serialize_opportunity(
     categories: List[CategoryBrief],
     application_count: int = 0,
     include_details: bool = False,
+    colleague_applications: Optional[List[ColleagueApplicationBrief]] = None,
+    staff_recommendation: Optional[OpportunityResearcherRecommendation] = None,
+    recommended_researchers: Optional[List[RecommendedResearcherBrief]] = None,
 ) -> dict:
+    colleagues = colleague_applications or []
+    recs = recommended_researchers or []
     payload = {
         "id": opp.id,
         "title": opp.title,
@@ -248,6 +484,16 @@ def _serialize_opportunity(
         "categories": categories,
         "application_count": application_count,
         "application_url": opp.application_url,
+        "colleague_applications": colleagues,
+        "colleague_count": len(colleagues),
+        "staff_recommended": staff_recommendation is not None,
+        "staff_recommendation_note": staff_recommendation.note if staff_recommendation else None,
+        "recommended_by_name": (
+            staff_recommendation.recommended_by.name
+            if staff_recommendation and staff_recommendation.recommended_by
+            else None
+        ),
+        "recommended_researchers": recs,
     }
     if include_details:
         payload.update({
@@ -282,12 +528,26 @@ async def list_opportunities(
     app_counts = await _fetch_application_counts(
         db, opp_ids, institution_id=current_user.primary_institution_id
     )
+    colleague_map = await _fetch_colleague_applications(
+        db, opp_ids, current_user.primary_institution_id, exclude_user_id=current_user.id,
+    )
+    user_recs = await _fetch_staff_recommendations_for_user(
+        db, opp_ids, current_user.id, current_user.primary_institution_id,
+    )
+    recommended_map = {}
+    if _can_recommend_researchers(current_user):
+        recommended_map = await _fetch_recommended_researchers_by_opportunity(
+            db, opp_ids, current_user.primary_institution_id,
+        )
 
     return [
         _serialize_opportunity(
             opp,
             _resolve_opportunity_categories(opp, category_map.get(opp.id, [])),
             app_counts.get(opp.id, 0),
+            colleague_applications=colleague_map.get(opp.id, []),
+            staff_recommendation=user_recs.get(opp.id),
+            recommended_researchers=recommended_map.get(opp.id, []),
         )
         for opp in opportunities
     ]
@@ -415,6 +675,34 @@ async def get_funding_by_area(
     return sorted(summaries.values(), key=lambda s: s.opportunity_count, reverse=True)
 
 
+@router.get("/institution-researchers", response_model=List[InstitutionResearcherBrief])
+async def search_institution_researchers(
+    q: Optional[str] = Query(None),
+    limit: int = Query(200, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List or search researchers at the current user's institution (for opportunity tagging)."""
+    if not _can_recommend_researchers(current_user):
+        raise HTTPException(403, "You do not have permission to tag researchers to opportunities")
+    if not current_user.primary_institution_id:
+        return []
+
+    users = await _load_institution_researchers(
+        db, current_user.primary_institution_id, q=q, limit=limit,
+    )
+    return [
+        InstitutionResearcherBrief(
+            id=u.id,
+            name=u.name,
+            email=u.email,
+            department=u.department,
+            expertise_keywords=u.expertise_keywords,
+        )
+        for u in users
+    ]
+
+
 @router.get("/{opp_id}", response_model=OpportunityDetailOut)
 async def get_opportunity(
     opp_id: str,
@@ -432,12 +720,26 @@ async def get_opportunity(
     app_counts = await _fetch_application_counts(
         db, [opp_id], institution_id=current_user.primary_institution_id
     )
+    colleague_map = await _fetch_colleague_applications(
+        db, [opp_id], current_user.primary_institution_id, exclude_user_id=current_user.id,
+    )
+    user_recs = await _fetch_staff_recommendations_for_user(
+        db, [opp_id], current_user.id, current_user.primary_institution_id,
+    )
+    recommended_map = {}
+    if _can_recommend_researchers(current_user):
+        recommended_map = await _fetch_recommended_researchers_by_opportunity(
+            db, [opp_id], current_user.primary_institution_id,
+        )
 
     return _serialize_opportunity(
         opp,
         _resolve_opportunity_categories(opp, category_map.get(opp_id, [])),
         app_counts.get(opp_id, 0),
         include_details=True,
+        colleague_applications=colleague_map.get(opp_id, []),
+        staff_recommendation=user_recs.get(opp_id),
+        recommended_researchers=recommended_map.get(opp_id, []),
     )
 
 
@@ -477,6 +779,144 @@ async def get_opportunity_applications(
         }
         for p in proposals
     ]
+
+
+@router.get("/{opp_id}/recommendations", response_model=List[RecommendedResearcherBrief])
+async def list_opportunity_recommendations(
+    opp_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not _can_recommend_researchers(current_user):
+        raise HTTPException(403, "You do not have permission to view recommendations")
+    result = await db.execute(select(GrantOpportunity).where(GrantOpportunity.id == opp_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(404, "Opportunity not found")
+
+    rec_map = await _fetch_recommended_researchers_by_opportunity(
+        db, [opp_id], current_user.primary_institution_id,
+    )
+    return rec_map.get(opp_id, [])
+
+
+@router.post("/{opp_id}/recommendations", status_code=201)
+async def recommend_researcher_to_opportunity(
+    opp_id: str,
+    data: RecommendationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not _can_recommend_researchers(current_user):
+        raise HTTPException(403, "You do not have permission to tag researchers to opportunities")
+    if not current_user.primary_institution_id:
+        raise HTTPException(400, "Your account is not linked to an institution")
+
+    opp_result = await db.execute(select(GrantOpportunity).where(GrantOpportunity.id == opp_id))
+    if not opp_result.scalar_one_or_none():
+        raise HTTPException(404, "Opportunity not found")
+
+    researcher = await db.get(User, data.researcher_id)
+    if not researcher or researcher.primary_institution_id != current_user.primary_institution_id:
+        raise HTTPException(404, "Researcher not found at your institution")
+
+    existing = await _get_existing_recommendation_user_ids(db, opp_id)
+    if data.researcher_id in existing:
+        raise HTTPException(400, "This researcher is already recommended for this opportunity")
+
+    result = await _create_opportunity_recommendations(
+        db, opp_id, [data.researcher_id], current_user.primary_institution_id, current_user, data.note,
+    )
+    if result["created"] == 0:
+        raise HTTPException(400, "Could not create recommendation")
+
+    rec_result = await db.execute(
+        select(OpportunityResearcherRecommendation).where(
+            OpportunityResearcherRecommendation.opportunity_id == opp_id,
+            OpportunityResearcherRecommendation.researcher_id == data.researcher_id,
+        )
+    )
+    rec = rec_result.scalar_one()
+
+    return {
+        "id": rec.id,
+        "researcher_id": rec.researcher_id,
+        "note": rec.note,
+        "recommended_by_name": current_user.name,
+    }
+
+
+@router.post("/{opp_id}/recommendations/bulk", status_code=201)
+async def recommend_researchers_bulk(
+    opp_id: str,
+    data: RecommendationBulkCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Recommend an opportunity to specific researchers or all institution researchers."""
+    if not _can_recommend_researchers(current_user):
+        raise HTTPException(403, "You do not have permission to tag researchers to opportunities")
+    if not current_user.primary_institution_id:
+        raise HTTPException(400, "Your account is not linked to an institution")
+
+    opp_result = await db.execute(select(GrantOpportunity).where(GrantOpportunity.id == opp_id))
+    if not opp_result.scalar_one_or_none():
+        raise HTTPException(404, "Opportunity not found")
+
+    if data.recommend_all:
+        users = await _load_institution_researchers(
+            db, current_user.primary_institution_id, limit=500,
+        )
+        researcher_ids = [u.id for u in users if u.id != current_user.id]
+    elif data.researcher_ids:
+        researcher_ids = list(dict.fromkeys(data.researcher_ids))
+    else:
+        raise HTTPException(400, "Provide researcher_ids or set recommend_all to true")
+
+    result = await _create_opportunity_recommendations(
+        db,
+        opp_id,
+        researcher_ids,
+        current_user.primary_institution_id,
+        current_user,
+        data.note,
+    )
+
+    if result["created"] == 0 and not result["skipped"]:
+        detail = result["failures"][0] if result["failures"] else "No researchers were recommended"
+        raise HTTPException(400, detail)
+
+    return {
+        "created": result["created"],
+        "skipped": result["skipped"],
+        "failures": result["failures"],
+        "recommended_by_name": current_user.name,
+    }
+
+
+@router.delete("/{opp_id}/recommendations/{researcher_id}")
+async def remove_opportunity_recommendation(
+    opp_id: str,
+    researcher_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not _can_recommend_researchers(current_user):
+        raise HTTPException(403, "You do not have permission to remove recommendations")
+
+    result = await db.execute(
+        select(OpportunityResearcherRecommendation).where(
+            OpportunityResearcherRecommendation.opportunity_id == opp_id,
+            OpportunityResearcherRecommendation.researcher_id == researcher_id,
+            OpportunityResearcherRecommendation.institution_id == current_user.primary_institution_id,
+        )
+    )
+    rec = result.scalar_one_or_none()
+    if not rec:
+        raise HTTPException(404, "Recommendation not found")
+
+    await db.delete(rec)
+    await db.commit()
+    return {"message": "Recommendation removed"}
 
 
 @router.patch("/{opp_id}/status")

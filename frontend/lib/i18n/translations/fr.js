@@ -1281,7 +1281,7 @@ const fr = {
         draft: 'Brouillon',
         returned: 'Révision demandée',
         submitted: 'Soumise',
-        internal_review: 'En cours d\'examen',
+        internal_review: 'Examen d\'éligibilité',
         under_review: 'En cours d\'examen',
         awarded: 'Attribuée',
         declined: 'Non attribuée',
@@ -1292,6 +1292,7 @@ const fr = {
         draft: { label: 'Brouillons', hint: 'En cours de rédaction' },
         pipeline: { label: 'Soumises et en examen', hint: 'En attente d\'examen' },
         awarded: { label: 'Attribuées', hint: 'Candidatures retenues' },
+        declined: { label: 'Non attribuées', hint: 'Propositions refusées' },
       },
       table: {
         title: 'Titre de la proposition',
@@ -1510,6 +1511,10 @@ const fr = {
           panel: 'Examen par le comité',
           final: 'Approbation finale',
         },
+      },
+      reviewFeedback: {
+        title: 'Commentaires de l\'évaluateur',
+        score: 'Score : {score}',
       },
       award: {
         title: 'Détails de la subvention',

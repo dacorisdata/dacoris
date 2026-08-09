@@ -24,10 +24,13 @@ const ACCENT = '#16a699';
 const STATUS_META = {
   draft:           { bg: 'rgba(100,116,139,0.12)', color: '#64748b', label: 'Draft' },
   submitted:       { bg: 'rgba(245,158,11,0.12)',  color: '#f59e0b', label: 'Submitted' },
-  internal_review: { bg: 'rgba(59,130,246,0.12)',  color: '#3b82f6', label: 'Eligibility Review' },
-  under_review:    { bg: 'rgba(139,92,246,0.12)',  color: '#8b5cf6', label: 'Under Review' },
+  internal_review: { bg: 'rgba(59,130,246,0.12)',  color: '#3b82f6', label: 'In Review' },
+  under_review:    { bg: 'rgba(139,92,246,0.12)',  color: '#8b5cf6', label: 'Section Review' },
   returned:        { bg: 'rgba(239,68,68,0.12)',   color: '#ef4444', label: 'Returned' },
-  awarded:         { bg: 'rgba(16,185,129,0.12)',  color: '#10b981', label: 'Awarded' },
+  approved:        { bg: 'rgba(16,185,129,0.12)',  color: '#10b981', label: 'Approved' },
+  applying:        { bg: 'rgba(6,182,212,0.12)',   color: '#06b6d4', label: 'Applying' },
+  awarded:         { bg: 'rgba(16,185,129,0.12)',  color: '#10b981', label: 'Funder Awarded' },
+  funding_unsuccessful: { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', label: 'Not Funded' },
   declined:        { bg: 'rgba(239,68,68,0.12)',   color: '#ef4444', label: 'Declined' },
 };
 
@@ -52,7 +55,7 @@ export default function GrantProposalsPage() {
   const { fetchUser, user } = useAuth();
   const theme  = useTheme();
   const dark   = theme.palette.mode === 'dark';
-  const canAssign = canAssignGrantReviewers(user);
+  const [canAssign, setCanAssign] = useState(false);
 
   const [loading, setLoading]     = useState(true);
   const [proposals, setProposals] = useState([]);
@@ -71,6 +74,7 @@ export default function GrantProposalsPage() {
     if (!u) { router.push('/login'); return; }
     if (u.is_global_admin)      { router.push('/global-admin/dashboard'); return; }
     if (u.is_institution_admin) { router.push('/institution-admin/dashboard'); return; }
+    setCanAssign(canAssignGrantReviewers(u));
     await loadProposals();
     setLoading(false);
   };

@@ -31,6 +31,7 @@ export default function AssignStageReviewerDialog({
   open,
   proposal,
   stages = DEFAULT_STAGES,
+  sections = null,
   currentStep = 0,
   reviewers: reviewersProp,
   reviewersUrl = '/grants/proposals/reviewers/available',
@@ -39,6 +40,7 @@ export default function AssignStageReviewerDialog({
 }) {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
+  const sectionMode = Array.isArray(sections) && sections.length > 0;
 
   const [selectedStages, setSelectedStages] = useState([]);
   const [selectedReviewer, setSelectedReviewer] = useState(null);
@@ -52,18 +54,22 @@ export default function AssignStageReviewerDialog({
   const [reviewers, setReviewers] = useState(reviewersProp || []);
   const [reviewersLoading, setReviewersLoading] = useState(false);
 
-  const assignableStages = useMemo(
-    () => (stages || DEFAULT_STAGES).filter((s) => s.step > 0),
-    [stages],
-  );
+  const assignableStages = useMemo(() => {
+    if (sectionMode) {
+      return sections.map((s) => ({ step: s.id, label: s.title, sectionId: s.id }));
+    }
+    return (stages || DEFAULT_STAGES).filter((s) => s.step > 0);
+  }, [sections, sectionMode, stages]);
 
   useEffect(() => {
     if (!open) return;
-    const initial = assignableStages.some((s) => s.step === currentStep)
-      ? [currentStep]
-      : assignableStages[0]
-        ? [assignableStages[0].step]
-        : [];
+    const initial = sectionMode
+      ? (assignableStages[0] ? [assignableStages[0].step] : [])
+      : assignableStages.some((s) => s.step === currentStep)
+        ? [currentStep]
+        : assignableStages[0]
+          ? [assignableStages[0].step]
+          : [];
     setSelectedStages(initial);
     setSelectedReviewer(null);
     setNotes('');
@@ -106,7 +112,7 @@ export default function AssignStageReviewerDialog({
       return;
     }
     if (selectedStages.length === 0) {
-      setError('Select at least one review stage');
+      setError(sectionMode ? 'Select at least one proposal section' : 'Select at least one review stage');
       return;
     }
 
@@ -114,8 +120,10 @@ export default function AssignStageReviewerDialog({
     setError('');
     try {
       const payload = {
-        stage_steps: selectedStages,
         notes: notes || undefined,
+        ...(sectionMode
+          ? { section_ids: selectedStages }
+          : { stage_steps: selectedStages }),
       };
       if (mode === 'new') {
         payload.new_reviewer_email = newReviewerEmail.trim();
@@ -172,7 +180,9 @@ export default function AssignStageReviewerDialog({
             Assign Reviewer
           </Typography>
           <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.4 }}>
-            Designate a reviewer for one or more workflow stages
+            {sectionMode
+              ? 'Assign reviewers to proposal sections — reviews run concurrently'
+              : 'Designate a reviewer for one or more workflow stages'}
           </Typography>
         </Box>
         <IconButton size="small" onClick={onClose} aria-label="Close" sx={{ mt: -0.25 }}>

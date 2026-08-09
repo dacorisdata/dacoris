@@ -11,13 +11,14 @@ import {
 import {
   Add as AddIcon, Edit as EditIcon, Send as SubmitIcon, Search as SearchIcon,
   PersonAdd as InviteIcon, Delete as DeleteIcon, People as PeopleIcon,
-  NotificationsActive as RemindIcon,
+  NotificationsActive as RemindIcon, AccountBalance as FundingIcon,
+  Upload as UploadIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLanguage } from '../../../../contexts/LanguageContext';
 import axios from 'axios';
 import {
-  TeamInvitePanel, PROPOSAL_TEAM_ROLES, buildTeamInvitePayload, getDisplayName,
+  TeamInvitePanel, TeamInviteDialog, PROPOSAL_TEAM_ROLES, buildTeamInvitePayload, getDisplayName,
   teamMembersMissingEmail,
 } from '../../../../components/TeamInvitePanel';
 import { collabAvatarSx } from '../../../../lib/pendingAvatar';
@@ -32,8 +33,11 @@ const STATUS_STYLE = {
   submitted:       { color: ACCENT,    priority: 2 },
   internal_review: { color: '#3b82f6', priority: 3 },
   under_review:    { color: '#0ea5e9', priority: 4 },
-  awarded:         { color: '#10b981', priority: 5 },
-  declined:        { color: '#ef4444', priority: 6 },
+  approved:        { color: '#10b981', priority: 5 },
+  applying:        { color: '#06b6d4', priority: 6 },
+  awarded:         { color: '#10b981', priority: 7 },
+  funding_unsuccessful: { color: '#ef4444', priority: 8 },
+  declined:        { color: '#ef4444', priority: 9 },
 };
 
 function normalizeStatusKey(status) {
@@ -64,11 +68,25 @@ function getStatusGroups(t) {
       match: (status) => ['submitted', 'internal_review', 'under_review'].includes(normalizeStatusKey(status)),
     },
     {
-      key: 'awarded',
-      label: t('researcher.grantsProposals.groups.awarded.label'),
-      hint: t('researcher.grantsProposals.groups.awarded.hint'),
+      key: 'approved',
+      label: t('researcher.grantsProposals.groups.approved.label'),
+      hint: t('researcher.grantsProposals.groups.approved.hint'),
       color: '#10b981',
-      match: (status) => normalizeStatusKey(status) === 'awarded',
+      match: (status) => normalizeStatusKey(status) === 'approved',
+    },
+    {
+      key: 'funding',
+      label: t('researcher.grantsProposals.groups.funding.label'),
+      hint: t('researcher.grantsProposals.groups.funding.hint'),
+      color: '#06b6d4',
+      match: (status) => ['applying', 'awarded', 'funding_unsuccessful'].includes(normalizeStatusKey(status)),
+    },
+    {
+      key: 'declined',
+      label: t('researcher.grantsProposals.groups.declined.label'),
+      hint: t('researcher.grantsProposals.groups.declined.hint'),
+      color: '#ef4444',
+      match: (status) => normalizeStatusKey(status) === 'declined',
     },
   ];
 }
@@ -153,8 +171,10 @@ const fmtDate = (d, locale, options = { year: 'numeric', month: 'short', day: 'n
 const proposalRowBg = (status, dark) => {
   const key = normalizeStatusKey(status);
   if (key === 'draft') return dark ? 'rgba(245, 158, 11, 0.09)' : 'rgba(245, 158, 11, 0.08)';
-  if (key === 'awarded') return dark ? 'rgba(16, 185, 129, 0.10)' : 'rgba(16, 185, 129, 0.08)';
+  if (key === 'awarded' || key === 'approved') return dark ? 'rgba(16, 185, 129, 0.10)' : 'rgba(16, 185, 129, 0.08)';
+  if (key === 'applying') return dark ? 'rgba(6, 182, 212, 0.10)' : 'rgba(6, 182, 212, 0.08)';
   if (key === 'returned') return dark ? 'rgba(249, 115, 22, 0.10)' : 'rgba(249, 115, 22, 0.08)';
+  if (key === 'declined' || key === 'funding_unsuccessful') return dark ? 'rgba(239, 68, 68, 0.10)' : 'rgba(239, 68, 68, 0.08)';
   if (['submitted', 'internal_review', 'under_review'].includes(key)) {
     return dark ? 'rgba(14, 165, 233, 0.08)' : 'rgba(14, 165, 233, 0.06)';
   }
@@ -166,6 +186,7 @@ const proposalRowHoverBg = (status, dark) => {
   if (key === 'draft') return dark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.12)';
   if (key === 'awarded') return dark ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)';
   if (key === 'returned') return dark ? 'rgba(249, 115, 22, 0.16)' : 'rgba(249, 115, 22, 0.12)';
+  if (key === 'declined') return dark ? 'rgba(239, 68, 68, 0.16)' : 'rgba(239, 68, 68, 0.12)';
   if (['submitted', 'internal_review', 'under_review'].includes(key)) {
     return dark ? 'rgba(14, 165, 233, 0.14)' : 'rgba(14, 165, 233, 0.10)';
   }
@@ -204,17 +225,26 @@ function MyProposalsContent() {
   const [opportunityModal, setOpportunityModal] = useState(false);
   const [selectedOpportunity, setSelectedOpportunity] = useState(null);
   const [teamModal, setTeamModal] = useState(false);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [selectedProposal, setSelectedProposal] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [proposalToDelete, setProposalToDelete] = useState(null);
   const [editTitleDialog, setEditTitleDialog] = useState(false);
   const [editingProposal, setEditingProposal] = useState(null);
   const [editedTitle, setEditedTitle] = useState('');
+  const [fundingDialog, setFundingDialog] = useState(null);
+  const [fundingForm, setFundingForm] = useState({
+    status: 'applying', total_amount: '', currency: 'KES', funder_name: '', notes: '',
+  });
+  const [fundingSaving, setFundingSaving] = useState(false);
+  const [awardDocFile, setAwardDocFile] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   useEffect(() => {
     fetchUser().then(u => { 
       if (!u) router.push('/login'); 
       else {
+        setCurrentUserId(u.id);
         loadProposals(u.id);
       }
     });
@@ -336,7 +366,57 @@ function MyProposalsContent() {
     }
   };
 
-  const teamEmailsComplete = teamMembersMissingEmail(teamMembers).length === 0;
+  const openFundingDialog = (proposal) => {
+    setFundingDialog(proposal);
+    setFundingForm({
+      status: proposal.status === 'approved' ? 'applying' : proposal.status === 'applying' ? 'awarded' : 'applying',
+      total_amount: proposal.award?.total_amount?.toString() || '',
+      currency: proposal.award?.currency || proposal.opportunity?.currency || 'KES',
+      funder_name: proposal.award?.funder_name || proposal.opportunity?.sponsor || '',
+      notes: '',
+    });
+    setAwardDocFile(null);
+  };
+
+  const saveFundingStatus = async () => {
+    if (!fundingDialog) return;
+    setFundingSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      const payload = {
+        status: fundingForm.status,
+        notes: fundingForm.notes || undefined,
+        currency: fundingForm.currency,
+        funder_name: fundingForm.funder_name || undefined,
+      };
+      if (fundingForm.status === 'awarded') {
+        payload.total_amount = parseFloat(fundingForm.total_amount);
+      }
+      await axios.patch(
+        `${API_URL}/grants/proposals/${fundingDialog.id}/funding-status`,
+        payload,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (awardDocFile && ['awarded', 'applying'].includes(fundingForm.status)) {
+        const fd = new FormData();
+        fd.append('document_type', 'funding_award');
+        fd.append('file', awardDocFile);
+        await axios.post(`${API_URL}/grants/proposals/${fundingDialog.id}/documents`, fd, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+        });
+      }
+      setSuccess(t('researcher.grantsProposals.funding.success'));
+      setFundingDialog(null);
+      await loadProposals();
+    } catch (e) {
+      setError(e.response?.data?.detail || t('researcher.grantsProposals.funding.error'));
+    } finally {
+      setFundingSaving(false);
+    }
+  };
+
+  const canManageFunding = (p) => currentUserId && p.lead_pi_id === currentUserId
+    && ['approved', 'applying'].includes(normalizeStatusKey(p.status));
 
   const refreshSelectedProposalTeam = async (proposalId) => {
     try {
@@ -374,6 +454,35 @@ function MyProposalsContent() {
     }
   };
 
+  const inviteCollaborators = async (invitees) => {
+    if (!selectedProposal?.id) return;
+    const token = localStorage.getItem('token');
+    let sent = 0;
+    const failures = [];
+    for (const data of invitees) {
+      try {
+        await axios.post(
+          `${API_URL}/grants/proposals/${selectedProposal.id}/collaborators`,
+          buildTeamInvitePayload(data),
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        sent += 1;
+      } catch (e) {
+        const label = data.name || data.email || 'Unknown';
+        failures.push(`${label}: ${e.response?.data?.detail || 'failed'}`);
+      }
+    }
+    await refreshSelectedProposalTeam(selectedProposal.id);
+    if (failures.length) {
+      throw new Error(
+        sent > 0
+          ? `Sent ${sent} invitation(s). Some failed: ${failures.join('; ')}`
+          : failures.join('; ')
+      );
+    }
+    setSuccess(t('researcher.grantsProposals.collab.inviteSuccess', { count: sent }));
+  };
+
   const remindCollaborator = async (collab) => {
     if (!selectedProposal?.id || !collab?.id || teamAction) return;
     if ((collab.status || '').toLowerCase() !== 'pending') return;
@@ -396,6 +505,8 @@ function MyProposalsContent() {
     }
   };
 
+  const teamEmailsComplete = teamMembers.length === 0 || teamMembersMissingEmail(teamMembers).length === 0;
+
   const handleNext = () => {
     if (activeStep === 1 && !teamEmailsComplete) {
       setError(t('researcher.grantsProposals.createDialog.emailRequiredForTeam'));
@@ -405,6 +516,19 @@ function MyProposalsContent() {
     setActiveStep((prev) => prev + 1);
   };
   const handleBack = () => setActiveStep((prev) => prev - 1);
+
+  const lockedTeamInvitees = selectedProposal
+    ? [
+        ...(selectedProposal.lead_pi
+          ? [{ user_id: selectedProposal.lead_pi_id, email: selectedProposal.lead_pi.email, name: selectedProposal.lead_pi.name }]
+          : []),
+        ...(selectedProposal.collaborators || []).map((c) => ({
+          user_id: c.user_id,
+          email: c.user?.email || c.invited_email,
+          name: c.user?.name || c.invited_name,
+        })),
+      ]
+    : [];
 
   const sortedProposals = sortProposalsForResearcher(proposals, t);
   const pageStart = page * rowsPerPage;
@@ -692,6 +816,28 @@ function MyProposalsContent() {
                             borderRadius: 1.5
                           }} 
                         />
+                        {['submitted', 'internal_review', 'under_review'].includes(normalizeStatusKey(p.status)) && p.review_stage_name && (
+                          <Typography sx={{ fontSize: 10.5, color: 'text.secondary', mt: 0.5, maxWidth: 140, lineHeight: 1.3 }}>
+                            {p.review_stage_name}
+                          </Typography>
+                        )}
+                        {normalizeStatusKey(p.status) === 'declined' && p.stage_notes && (
+                          <Typography sx={{ fontSize: 10.5, color: '#ef4444', mt: 0.5, maxWidth: 160, lineHeight: 1.3 }}>
+                            {p.stage_notes}
+                          </Typography>
+                        )}
+                        {normalizeStatusKey(p.status) === 'awarded' && p.award && (
+                          <Typography sx={{ fontSize: 10.5, color: '#10b981', mt: 0.5, fontWeight: 600 }}>
+                            {p.award.currency} {Number(p.award.total_amount).toLocaleString()}
+                          </Typography>
+                        )}
+                        {canManageFunding(p) && (
+                          <Button size="small" startIcon={<FundingIcon sx={{ fontSize: 14 }} />}
+                            onClick={(e) => { e.stopPropagation(); openFundingDialog(p); }}
+                            sx={{ mt: 0.5, textTransform: 'none', fontSize: 10.5, fontWeight: 700, color: ACCENT, p: 0, minWidth: 0 }}>
+                            {t('researcher.grantsProposals.funding.update')}
+                          </Button>
+                        )}
                       </TableCell>
                       
                       <TableCell>
@@ -1143,11 +1289,7 @@ function MyProposalsContent() {
                   <Button 
                     size="small" 
                     startIcon={<InviteIcon />}
-                    onClick={() => {
-                      setTeamModal(false);
-                      setCreateDialog(true);
-                      setActiveStep(1);
-                    }}
+                    onClick={() => setInviteDialogOpen(true)}
                     sx={{ textTransform: 'none', fontSize: 12, fontWeight: 600, color: ACCENT }}
                   >
                     {t('researcher.grantsProposals.teamModal.inviteMember')}
@@ -1301,11 +1443,7 @@ function MyProposalsContent() {
                       size="small" 
                       variant="outlined" 
                       startIcon={<InviteIcon />}
-                      onClick={() => {
-                        setTeamModal(false);
-                        setCreateDialog(true);
-                        setActiveStep(1);
-                      }}
+                      onClick={() => setInviteDialogOpen(true)}
                       sx={{ textTransform: 'none', borderColor: ACCENT, color: ACCENT }}
                     >
                       {t('researcher.grantsProposals.teamModal.inviteFirst')}
@@ -1322,6 +1460,26 @@ function MyProposalsContent() {
           <Button onClick={() => setTeamModal(false)}>{t('researcher.grantsProposals.common.close')}</Button>
         </DialogActions>
       </Dialog>
+
+      <TeamInviteDialog
+        open={inviteDialogOpen}
+        onClose={() => setInviteDialogOpen(false)}
+        onSave={inviteCollaborators}
+        title={t('researcher.teamInvite.inviteMembersTitle')}
+        roles={PROPOSAL_TEAM_ROLES}
+        defaultRole="Co-Investigator"
+        accent={ACCENT}
+        opportunityId={selectedProposal?.opportunity_id}
+        proposalTitle={selectedProposal?.title}
+        lockedInvitees={lockedTeamInvitees}
+        listLabel={t('researcher.teamInvite.listLabel')}
+        description={t('researcher.teamInvite.description')}
+        roleLabel={t('researcher.teamInvite.roleLabel')}
+        formatRole={(r) => formatRole(r, t)}
+        suggestionsLabel={t('researcher.teamInvite.suggestionsLabel')}
+        suggestionsHint={t('researcher.teamInvite.suggestionsHint')}
+        inviteFromProfileLabel={t('researcher.teamInvite.inviteToTeam')}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog 
@@ -1353,6 +1511,60 @@ function MyProposalsContent() {
             startIcon={<DeleteIcon />}
           >
             {t('researcher.grantsProposals.deleteDialog.delete')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Funding status dialog (PI only) */}
+      <Dialog open={!!fundingDialog} onClose={() => setFundingDialog(null)} maxWidth="sm" fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle>{t('researcher.grantsProposals.funding.title')}</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
+            {fundingDialog?.title}
+          </Typography>
+          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+            <InputLabel>{t('researcher.grantsProposals.funding.statusLabel')}</InputLabel>
+            <Select
+              value={fundingForm.status}
+              label={t('researcher.grantsProposals.funding.statusLabel')}
+              onChange={(e) => setFundingForm((f) => ({ ...f, status: e.target.value }))}
+            >
+              {fundingDialog?.status === 'approved' && (
+                <MenuItem value="applying">{t('researcher.grantsProposals.status.applying')}</MenuItem>
+              )}
+              {fundingDialog?.status === 'applying' && [
+                <MenuItem key="awarded" value="awarded">{t('researcher.grantsProposals.status.awarded')}</MenuItem>,
+                <MenuItem key="funding_unsuccessful" value="funding_unsuccessful">{t('researcher.grantsProposals.status.funding_unsuccessful')}</MenuItem>,
+              ]}
+            </Select>
+          </FormControl>
+          {fundingForm.status === 'awarded' && (
+            <>
+              <TextField fullWidth size="small" label={t('researcher.grantsProposals.funding.amount')} type="number"
+                value={fundingForm.total_amount} sx={{ mb: 2 }}
+                onChange={(e) => setFundingForm((f) => ({ ...f, total_amount: e.target.value }))} />
+              <TextField fullWidth size="small" label={t('researcher.grantsProposals.funding.currency')}
+                value={fundingForm.currency} sx={{ mb: 2 }}
+                onChange={(e) => setFundingForm((f) => ({ ...f, currency: e.target.value }))} />
+              <TextField fullWidth size="small" label={t('researcher.grantsProposals.funding.funder')}
+                value={fundingForm.funder_name} sx={{ mb: 2 }}
+                onChange={(e) => setFundingForm((f) => ({ ...f, funder_name: e.target.value }))} />
+            </>
+          )}
+          <TextField fullWidth size="small" multiline rows={2} label={t('researcher.grantsProposals.funding.notes')}
+            value={fundingForm.notes} sx={{ mb: 2 }}
+            onChange={(e) => setFundingForm((f) => ({ ...f, notes: e.target.value }))} />
+          <Button variant="outlined" component="label" startIcon={<UploadIcon />} sx={{ textTransform: 'none' }}>
+            {awardDocFile ? awardDocFile.name : t('researcher.grantsProposals.funding.uploadDoc')}
+            <input type="file" hidden onChange={(e) => setAwardDocFile(e.target.files?.[0] || null)} />
+          </Button>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setFundingDialog(null)}>{t('researcher.grantsProposals.common.cancel')}</Button>
+          <Button variant="contained" onClick={saveFundingStatus} disabled={fundingSaving}
+            sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}>
+            {fundingSaving ? t('researcher.grantsProposals.funding.saving') : t('researcher.grantsProposals.funding.save')}
           </Button>
         </DialogActions>
       </Dialog>
