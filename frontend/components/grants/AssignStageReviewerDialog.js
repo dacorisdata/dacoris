@@ -10,6 +10,7 @@ import {
   Close as CloseIcon, CheckCircle as CheckIcon,
   PersonAdd as AssignIcon, AddCircle as AddIcon, RemoveCircle as RemoveIcon,
   Search as SearchIcon, EventNote as StageIcon, MailOutline as MailIcon,
+  Edit as EditIcon, DeleteOutline as DeleteIcon,
 } from '@mui/icons-material';
 import { COLORS } from '../../contexts/ThemeContext';
 import api from '../../lib/api';
@@ -33,6 +34,7 @@ export default function AssignStageReviewerDialog({
   stages = DEFAULT_STAGES,
   sections = null,
   currentStep = 0,
+  existingAssignments = null,
   reviewers: reviewersProp,
   reviewersUrl = '/grants/proposals/reviewers/available',
   onClose,
@@ -53,6 +55,28 @@ export default function AssignStageReviewerDialog({
   const [newReviewerExpertise, setNewReviewerExpertise] = useState(['']);
   const [reviewers, setReviewers] = useState(reviewersProp || []);
   const [reviewersLoading, setReviewersLoading] = useState(false);
+  const [assignments, setAssignments] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editStages, setEditStages] = useState([]);
+  const [removingId, setRemovingId] = useState(null);
+  const [updatingId, setUpdatingId] = useState(null);
+
+  const activeAssignments = useMemo(() => {
+    const source = existingAssignments ?? proposal?.stage_assignments ?? [];
+    return (source || []).filter((a) => a.status === 'active');
+  }, [existingAssignments, proposal?.stage_assignments]);
+
+  const stageLabel = (assignment) => {
+    if (assignment.section_title) return assignment.section_title;
+    if (assignment.stage_name) return assignment.stage_name;
+    const match = assignableStages.find((s) => s.step === assignment.stage_step
+      || s.sectionId === assignment.section_id);
+    return match?.label || `Stage ${assignment.stage_step}`;
+  };
+
+  const assignmentStageKey = (assignment) => (
+    sectionMode ? (assignment.section_id || assignment.stage_step) : assignment.stage_step
+  );
 
   const assignableStages = useMemo(() => {
     if (sectionMode) {
@@ -63,14 +87,23 @@ export default function AssignStageReviewerDialog({
 
   useEffect(() => {
     if (!open) return;
+    setAssignments(activeAssignments);
+    setEditingId(null);
+    setEditStages([]);
+    setRemovingId(null);
+    setUpdatingId(null);
+
+    const assignedKeys = new Set(activeAssignments.map(assignmentStageKey));
     const initial = sectionMode
-      ? (assignableStages[0] ? [assignableStages[0].step] : [])
-      : assignableStages.some((s) => s.step === currentStep)
+      ? assignableStages
+        .map((s) => s.step)
+        .filter((key) => !assignedKeys.has(key))
+        .slice(0, 1)
+      : assignableStages.some((s) => s.step === currentStep) && !assignedKeys.has(currentStep)
         ? [currentStep]
-        : assignableStages[0]
-          ? [assignableStages[0].step]
-          : [];
-    setSelectedStages(initial);
+        : assignableStages.map((s) => s.step).filter((key) => !assignedKeys.has(key)).slice(0, 1);
+
+    setSelectedStages(initial.length > 0 ? initial : []);
     setSelectedReviewer(null);
     setNotes('');
     setError('');
@@ -88,7 +121,7 @@ export default function AssignStageReviewerDialog({
       .then((res) => setReviewers(res.data || []))
       .catch(() => setReviewers([]))
       .finally(() => setReviewersLoading(false));
-  }, [open, currentStep, assignableStages, reviewersProp, reviewersUrl]);
+  }, [open, currentStep, assignableStages, reviewersProp, reviewersUrl, activeAssignments, sectionMode]);
 
   const toggleStage = (step) => {
     setSelectedStages((prev) => (
@@ -137,9 +170,62 @@ export default function AssignStageReviewerDialog({
       onAssigned?.(response.data);
       onClose?.();
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to assign reviewer');
+      const detail = e.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Failed to assign reviewer');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRemove = async (assignmentId) => {
+    if (!window.confirm('Remove this reviewer assignment?')) return;
+    setRemovingId(assignmentId);
+    setError('');
+    try {
+      await api.delete(`/grants/proposals/${proposal.id}/stage-reviewers/${assignmentId}`);
+      setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+      onAssigned?.({ removed: assignmentId });
+    } catch (e) {
+      const detail = e.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Failed to remove reviewer');
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  const startEdit = (assignment) => {
+    setEditingId(assignment.id);
+    setEditStages([assignmentStageKey(assignment)]);
+    setError('');
+  };
+
+  const handleUpdateStages = async (assignmentId) => {
+    if (editStages.length === 0) {
+      setError(sectionMode ? 'Select a section' : 'Select a stage');
+      return;
+    }
+    setUpdatingId(assignmentId);
+    setError('');
+    try {
+      const key = editStages[0];
+      const payload = sectionMode
+        ? { section_id: key, stage_name: assignableStages.find((s) => s.step === key)?.label }
+        : { stage_step: key, stage_name: assignableStages.find((s) => s.step === key)?.label };
+      const response = await api.patch(
+        `/grants/proposals/${proposal.id}/stage-reviewers/${assignmentId}`,
+        payload,
+      );
+      setAssignments((prev) => prev.map((a) => (
+        a.id === assignmentId ? { ...a, ...response.data } : a
+      )));
+      setEditingId(null);
+      setEditStages([]);
+      onAssigned?.({ updated: response.data });
+    } catch (e) {
+      const detail = e.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Failed to update assignment');
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -177,12 +263,12 @@ export default function AssignStageReviewerDialog({
       >
         <Box>
           <Typography sx={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.3 }}>
-            Assign Reviewer
+            Manage Reviewer Assignments
           </Typography>
           <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.4 }}>
             {sectionMode
-              ? 'Assign reviewers to proposal sections — reviews run concurrently'
-              : 'Designate a reviewer for one or more workflow stages'}
+              ? 'Add, remove, or update section reviewers — reviews run concurrently'
+              : 'Add, remove, or update reviewers for workflow stages'}
           </Typography>
         </Box>
         <IconButton size="small" onClick={onClose} aria-label="Close" sx={{ mt: -0.25 }}>
@@ -222,6 +308,133 @@ export default function AssignStageReviewerDialog({
           </Alert>
         )}
 
+        {/* Current assignments */}
+        {assignments.length > 0 && (
+          <Box sx={{ mb: 3 }}>
+            <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: 'text.secondary', letterSpacing: '0.02em', mb: 1.25 }}>
+              CURRENT ASSIGNMENTS
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {assignments.map((assignment) => {
+                const isEditing = editingId === assignment.id;
+                return (
+                  <Box
+                    key={assignment.id}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 1.5,
+                      border: '1px solid',
+                      borderColor: isEditing ? ACCENT : 'divider',
+                      bgcolor: dark ? 'rgba(255,255,255,0.02)' : COLORS.slate[50],
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                      <Avatar sx={{ width: 32, height: 32, bgcolor: '#8b5cf6', fontSize: 13, fontWeight: 700 }}>
+                        {(assignment.reviewer?.name || '?').charAt(0).toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography sx={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>
+                          {assignment.reviewer?.name || 'Reviewer'}
+                        </Typography>
+                        <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>
+                          {assignment.reviewer?.email || ''}
+                        </Typography>
+                      </Box>
+                      {!isEditing && (
+                        <Box sx={{ display: 'flex', gap: 0.25 }}>
+                          <IconButton
+                            size="small"
+                            aria-label="Edit assignment"
+                            onClick={() => startEdit(assignment)}
+                            sx={{ color: 'text.secondary' }}
+                          >
+                            <EditIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            aria-label="Remove assignment"
+                            disabled={removingId === assignment.id}
+                            onClick={() => handleRemove(assignment.id)}
+                            sx={{ color: 'error.main' }}
+                          >
+                            {removingId === assignment.id
+                              ? <CircularProgress size={14} />
+                              : <DeleteIcon sx={{ fontSize: 16 }} />}
+                          </IconButton>
+                        </Box>
+                      )}
+                    </Box>
+
+                    {!isEditing ? (
+                      <Chip
+                        label={stageLabel(assignment)}
+                        size="small"
+                        sx={{ mt: 1, height: 22, fontSize: 11, fontWeight: 600 }}
+                      />
+                    ) : (
+                      <Box sx={{ mt: 1.25 }}>
+                        <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: 'text.secondary', mb: 0.75 }}>
+                          {sectionMode ? 'Change section' : 'Change stage'}
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
+                          {assignableStages.map((stage) => {
+                            const selected = editStages.includes(stage.step);
+                            return (
+                              <Chip
+                                key={stage.step}
+                                label={stage.label}
+                                size="small"
+                                clickable
+                                onClick={() => setEditStages([stage.step])}
+                                sx={{
+                                  fontWeight: 600,
+                                  bgcolor: selected ? ACCENT : 'transparent',
+                                  color: selected ? '#fff' : 'text.primary',
+                                  border: `1px solid ${selected ? ACCENT : 'divider'}`,
+                                }}
+                              />
+                            );
+                          })}
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                          <Button
+                            size="small"
+                            onClick={() => { setEditingId(null); setEditStages([]); }}
+                            sx={{ textTransform: 'none', fontSize: 12 }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            disabled={updatingId === assignment.id || editStages.length === 0}
+                            onClick={() => handleUpdateStages(assignment.id)}
+                            sx={{
+                              textTransform: 'none',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              bgcolor: ACCENT,
+                              boxShadow: 'none',
+                              '&:hover': { bgcolor: COLORS.teal[700], boxShadow: 'none' },
+                            }}
+                          >
+                            {updatingId === assignment.id ? 'Saving…' : 'Save'}
+                          </Button>
+                        </Box>
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+            <Divider sx={{ mt: 3 }} />
+          </Box>
+        )}
+
+        <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: 'text.secondary', letterSpacing: '0.02em', mb: 2 }}>
+          ADD REVIEWER
+        </Typography>
+
         {/* Stages */}
         <Box sx={{ mb: 3 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.25 }}>
@@ -241,6 +454,10 @@ export default function AssignStageReviewerDialog({
             {assignableStages.map((stage) => {
               const selected = selectedStages.includes(stage.step);
               const isCurrent = stage.step === currentStep;
+              const takenBy = assignments
+                .filter((a) => assignmentStageKey(a) === stage.step)
+                .map((a) => a.reviewer?.name)
+                .filter(Boolean);
               return (
                 <Box
                   key={stage.step}
@@ -299,6 +516,11 @@ export default function AssignStageReviewerDialog({
                         '& .MuiChip-label': { px: 0.75 },
                       }}
                     />
+                  )}
+                  {takenBy.length > 0 && (
+                    <Typography sx={{ fontSize: 10, color: 'text.secondary', mt: 0.5, lineHeight: 1.3 }}>
+                      Assigned: {takenBy.join(', ')}
+                    </Typography>
                   )}
                 </Box>
               );
@@ -601,8 +823,11 @@ export default function AssignStageReviewerDialog({
         }}
       >
         <Button onClick={onClose} sx={{ textTransform: 'none', color: 'text.secondary', fontWeight: 600 }}>
-          Cancel
+          {assignments.length > 0 && selectedStages.length === 0 && !selectedReviewer && !newReviewerEmail.trim()
+            ? 'Done'
+            : 'Cancel'}
         </Button>
+        {selectedStages.length > 0 && (
         <Button
           variant="contained"
           disabled={saving || !canSubmit}
@@ -623,6 +848,7 @@ export default function AssignStageReviewerDialog({
         >
           {saving ? 'Assigning…' : 'Assign Reviewer'}
         </Button>
+        )}
       </DialogActions>
     </Dialog>
   );

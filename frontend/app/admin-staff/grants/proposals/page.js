@@ -202,10 +202,16 @@ export default function GrantProposalsPage() {
               const stageInfo = WORKFLOW_STAGES[step];
               const isActive = !['draft','awarded','declined'].includes(p.status);
 
-              // All reviewers for current stage
+              // All active reviewer assignments (any stage/section)
               const currentAssignments = (p.stage_assignments || []).filter(
-                a => a.status === 'active' && a.stage_step === step
+                a => a.status === 'active'
               );
+              const stepAssignments = currentAssignments.filter(
+                a => a.stage_step === step && !a.section_id
+              );
+              const displayAssignments = stepAssignments.length > 0
+                ? stepAssignments
+                : currentAssignments;
 
               // Overdue check based on submitted_at + accumulated stage days
               const submittedDays = daysAgo(p.submitted_at);
@@ -300,18 +306,21 @@ export default function GrantProposalsPage() {
 
                   {/* Reviewer */}
                   <TableCell>
-                    {currentAssignments.length > 0 ? (
+                    {displayAssignments.length > 0 ? (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-                        {currentAssignments.map((assignment, idx) => (
-                          <Tooltip key={idx} title={`${assignment.reviewer?.name || 'Reviewer'} - Stage ${assignment.stage_step}`}>
+                        {displayAssignments.map((assignment) => (
+                          <Tooltip
+                            key={assignment.id}
+                            title={`${assignment.reviewer?.name || 'Reviewer'} — ${assignment.stage_name || assignment.section_title || `Stage ${assignment.stage_step}`}`}
+                          >
                             <Avatar sx={{ bgcolor: '#8b5cf6', width: 26, height: 26, fontSize: 11 }}>
                               {assignment.reviewer?.name?.charAt(0) || '?'}
                             </Avatar>
                           </Tooltip>
                         ))}
-                        {currentAssignments.length > 1 && (
+                        {displayAssignments.length > 1 && (
                           <Typography sx={{ fontSize: 10, color: 'text.secondary', ml: 0.5 }}>
-                            ({currentAssignments.length})
+                            ({displayAssignments.length})
                           </Typography>
                         )}
                       </Box>
@@ -350,9 +359,9 @@ export default function GrantProposalsPage() {
                   <TableCell align="right">
                     <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                       {canAssign && isActive && (
-                        <Tooltip title={currentAssignments.length > 0 ? 'Add Another Reviewer' : 'Assign Reviewer'}>
+                        <Tooltip title={displayAssignments.length > 0 ? 'Manage Reviewers' : 'Assign Reviewer'}>
                           <IconButton size="small" onClick={() => openAssign(p)}
-                            sx={{ color: currentAssignments.length > 0 ? 'text.secondary' : '#f59e0b',
+                            sx={{ color: displayAssignments.length > 0 ? 'text.secondary' : '#f59e0b',
                               '&:hover': { bgcolor: 'rgba(245,158,11,0.1)' } }}>
                             <AssignIcon sx={{ fontSize: 17 }} />
                           </IconButton>
@@ -380,10 +389,29 @@ export default function GrantProposalsPage() {
           proposal={assignTarget}
           stages={WORKFLOW_STAGES}
           currentStep={assignTarget?.review_step ?? 0}
+          existingAssignments={assignTarget?.stage_assignments}
           onClose={() => setAssignTarget(null)}
-          onAssigned={async () => {
-            setSuccess('Reviewer assigned successfully.');
+          onAssigned={async (data) => {
+            if (data?.removed) {
+              setSuccess('Reviewer assignment removed.');
+            } else if (data?.updated) {
+              setSuccess('Reviewer assignment updated.');
+            } else {
+              setSuccess('Reviewer assigned successfully.');
+            }
             await loadProposals();
+            if (assignTarget?.id) {
+              try {
+                const res = await api.get('/grants/proposals');
+                const updated = (res.data || []).find((p) => p.id === assignTarget.id);
+                if (updated) setAssignTarget(updated);
+              } catch {
+                // keep current assignTarget if refresh fails
+              }
+            }
+            if (data?.reviewer_id || data?.reviewer_name) {
+              setAssignTarget(null);
+            }
           }}
         />
       )}

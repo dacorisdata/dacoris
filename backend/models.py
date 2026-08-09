@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Enum, Table, UniqueConstraint, Float, Date
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Enum, Table, UniqueConstraint, Float, Date, Index, text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -651,8 +651,18 @@ class ProposalStageAssignment(Base):
     assigned_by = relationship("User", foreign_keys=[assigned_by_id])
 
     __table_args__ = (
-        UniqueConstraint("proposal_id", "section_id", "reviewer_id",
-                         name="uq_proposal_section_reviewer"),
+        Index(
+            "uq_proposal_section_reviewer",
+            "proposal_id", "section_id", "reviewer_id",
+            unique=True,
+            postgresql_where=text("section_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_proposal_stage_reviewer",
+            "proposal_id", "stage_step", "reviewer_id",
+            unique=True,
+            postgresql_where=text("section_id IS NULL"),
+        ),
     )
 
 

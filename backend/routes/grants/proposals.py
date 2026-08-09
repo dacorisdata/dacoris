@@ -2184,7 +2184,7 @@ async def assign_stage_reviewer(
         else:
             review_q = review_q.where(ProposalReview.section_id.is_(None))
         existing_review = await db.execute(review_q)
-        proposal_review = existing_review.scalar_one_or_none()
+        proposal_review = existing_review.scalars().first()
         if not proposal_review:
             proposal_review = ProposalReview(
                 proposal_id=proposal_id,
@@ -2194,30 +2194,46 @@ async def assign_stage_reviewer(
             db.add(proposal_review)
             await db.flush()
 
-        portal_assignment = ReviewerAssignment(
-            institution_id=current_user.primary_institution_id,
-            reviewer_id=reviewer.id,
-            invited_email=reviewer.email,
-            invited_name=reviewer.name,
-            review_type=ReviewType.PROPOSAL,
-            entity_id=proposal_id,
-            entity_review_id=proposal_review.id,
-            entity_title=proposal.title,
-            assigned_by_id=current_user.id,
-            status=ReviewerAssignmentStatus.PENDING_SIGNUP if needs_signup else ReviewerAssignmentStatus.ASSIGNED,
-            signup_token=signup_token if needs_signup else None,
-            notes=body.notes or target["stage_name"],
+        portal_exists = await db.execute(
+            select(ReviewerAssignment).where(
+                ReviewerAssignment.review_type == ReviewType.PROPOSAL,
+                ReviewerAssignment.entity_review_id == proposal_review.id,
+                ReviewerAssignment.status.notin_([
+                    ReviewerAssignmentStatus.DECLINED,
+                ]),
+            )
         )
-        db.add(portal_assignment)
+        if not portal_exists.scalars().first():
+            portal_assignment = ReviewerAssignment(
+                institution_id=current_user.primary_institution_id,
+                reviewer_id=reviewer.id,
+                invited_email=reviewer.email,
+                invited_name=reviewer.name,
+                review_type=ReviewType.PROPOSAL,
+                entity_id=proposal_id,
+                entity_review_id=proposal_review.id,
+                entity_title=proposal.title,
+                assigned_by_id=current_user.id,
+                status=ReviewerAssignmentStatus.PENDING_SIGNUP if needs_signup else ReviewerAssignmentStatus.ASSIGNED,
+                signup_token=signup_token if needs_signup else None,
+                notes=body.notes or target["stage_name"],
+            )
+            db.add(portal_assignment)
 
     if not assignments:
-        raise HTTPException(400, "Reviewer is already assigned to all specified sections/stages")
+        raise HTTPException(
+            400,
+            "This reviewer is already assigned to the selected section(s) or stage(s). "
+            "Choose different stages or pick another reviewer.",
+        )
 
     # Enter concurrent review phase when reviewers are assigned
     if proposal.status in (ProposalStatus.SUBMITTED, ProposalStatus.INTERNAL_REVIEW):
         proposal.status = ProposalStatus.UNDER_REVIEW
-        proposal.review_step = 1
-        proposal.review_stage_name = "Concurrent Section Review"
+        if not proposal.review_step or proposal.review_step < 1:
+            proposal.review_step = 1
+        if not proposal.review_stage_name:
+            proposal.review_stage_name = "Concurrent Section Review"
 
     stages_text = ", ".join(stage_names) if len(stage_names) > 1 else stage_names[0]
     
@@ -2232,18 +2248,19 @@ async def assign_stage_reviewer(
     
     await db.commit()
 
-    # Send emails after commit (one email summarising all sections)
-    from services.email_service import EmailService
-
-    await EmailService.send_reviewer_assignment_email(
-        email=reviewer.email,
-        reviewer_name=reviewer.name,
-        proposal_title=proposal.title,
-        stages=stage_names,
-        inviter_name=current_user.name,
-        proposal_id=proposal_id,
-        register_token=signup_token if needs_signup else None,
-    )
+    # Send emails after commit (don't fail assignment if email fails)
+    try:
+        await EmailService.send_reviewer_assignment_email(
+            email=reviewer.email,
+            reviewer_name=reviewer.name,
+            proposal_title=proposal.title,
+            stages=stage_names,
+            inviter_name=current_user.name,
+            proposal_id=proposal_id,
+            register_token=signup_token if needs_signup else None,
+        )
+    except Exception:
+        pass
 
     return {
         "reviewer_id": reviewer.id,
@@ -2268,19 +2285,160 @@ async def remove_stage_reviewer(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Remove a reviewer assignment from a proposal stage."""
+    """Remove a reviewer assignment from a proposal stage or section."""
     if not await _can_assign_stage_reviewers(db, current_user):
         raise HTTPException(
             403,
             "Only Director of Research or Research Administrator can remove reviewers",
         )
-    
+
     assignment = await db.get(ProposalStageAssignment, assignment_id)
     if not assignment or assignment.proposal_id != proposal_id:
         raise HTTPException(404, "Assignment not found")
+    if assignment.status != "active":
+        raise HTTPException(400, "Assignment is already removed")
+
+    review_q = select(ProposalReview).where(
+        ProposalReview.proposal_id == proposal_id,
+        ProposalReview.reviewer_id == assignment.reviewer_id,
+        ProposalReview.status == ReviewStatus.SUBMITTED,
+    )
+    if assignment.section_id:
+        review_q = review_q.where(ProposalReview.section_id == assignment.section_id)
+    else:
+        review_q = review_q.where(ProposalReview.section_id.is_(None))
+    submitted = await db.execute(review_q)
+    if submitted.scalars().first():
+        raise HTTPException(400, "Cannot remove — reviewer has already submitted their review")
+
     assignment.status = "removed"
+
+    proposal_review_q = select(ProposalReview).where(
+        ProposalReview.proposal_id == proposal_id,
+        ProposalReview.reviewer_id == assignment.reviewer_id,
+    )
+    if assignment.section_id:
+        proposal_review_q = proposal_review_q.where(
+            ProposalReview.section_id == assignment.section_id
+        )
+    else:
+        proposal_review_q = proposal_review_q.where(ProposalReview.section_id.is_(None))
+    proposal_review = (await db.execute(proposal_review_q)).scalars().first()
+
+    if proposal_review:
+        portal_q = select(ReviewerAssignment).where(
+            ReviewerAssignment.review_type == ReviewType.PROPOSAL,
+            ReviewerAssignment.entity_review_id == proposal_review.id,
+            ReviewerAssignment.status.notin_([
+                ReviewerAssignmentStatus.DECLINED,
+                ReviewerAssignmentStatus.SUBMITTED,
+            ]),
+        )
+        for portal in (await db.execute(portal_q)).scalars().all():
+            portal.status = ReviewerAssignmentStatus.DECLINED
+
     await db.commit()
-    return {"message": "Reviewer removed"}
+    return {"message": "Reviewer removed", "assignment_id": assignment_id}
+
+
+class UpdateAssignmentBody(BaseModel):
+    stage_step: Optional[int] = None
+    section_id: Optional[str] = None
+    stage_name: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.patch("/{proposal_id}/stage-reviewers/{assignment_id}")
+async def update_stage_reviewer(
+    proposal_id: str,
+    assignment_id: str,
+    body: UpdateAssignmentBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update the stage/section or notes on an existing reviewer assignment."""
+    if not await _can_assign_stage_reviewers(db, current_user):
+        raise HTTPException(
+            403,
+            "Only Director of Research or Research Administrator can update reviewer assignments",
+        )
+
+    assignment = await db.get(ProposalStageAssignment, assignment_id)
+    if not assignment or assignment.proposal_id != proposal_id:
+        raise HTTPException(404, "Assignment not found")
+    if assignment.status != "active":
+        raise HTTPException(400, "Cannot update a removed assignment")
+
+    review_q = select(ProposalReview).where(
+        ProposalReview.proposal_id == proposal_id,
+        ProposalReview.reviewer_id == assignment.reviewer_id,
+        ProposalReview.status == ReviewStatus.SUBMITTED,
+    )
+    if assignment.section_id:
+        review_q = review_q.where(ProposalReview.section_id == assignment.section_id)
+    else:
+        review_q = review_q.where(ProposalReview.section_id.is_(None))
+    if (await db.execute(review_q)).scalars().first():
+        raise HTTPException(400, "Cannot update — reviewer has already submitted their review")
+
+    new_section_id = body.section_id if body.section_id is not None else assignment.section_id
+    new_stage_step = body.stage_step if body.stage_step is not None else assignment.stage_step
+
+    if body.section_id is not None:
+        if body.section_id:
+            section = await db.get(ProposalSection, body.section_id)
+            if not section or section.proposal_id != proposal_id:
+                raise HTTPException(404, "Section not found")
+            new_stage_step = 1
+            if body.stage_name:
+                assignment.stage_name = body.stage_name
+            else:
+                assignment.stage_name = section.title
+        else:
+            new_section_id = None
+
+    if body.stage_step is not None and not new_section_id:
+        new_stage_step = body.stage_step
+        if body.stage_name:
+            assignment.stage_name = body.stage_name
+        else:
+            assignment.stage_name = f"Stage {body.stage_step}"
+
+    dup_q = select(ProposalStageAssignment).where(
+        ProposalStageAssignment.proposal_id == proposal_id,
+        ProposalStageAssignment.reviewer_id == assignment.reviewer_id,
+        ProposalStageAssignment.status == "active",
+        ProposalStageAssignment.id != assignment_id,
+    )
+    if new_section_id:
+        dup_q = dup_q.where(ProposalStageAssignment.section_id == new_section_id)
+    else:
+        dup_q = dup_q.where(
+            ProposalStageAssignment.stage_step == new_stage_step,
+            ProposalStageAssignment.section_id.is_(None),
+        )
+    if (await db.execute(dup_q)).scalars().first():
+        raise HTTPException(
+            400,
+            "This reviewer is already assigned to the selected section or stage",
+        )
+
+    assignment.section_id = new_section_id
+    assignment.stage_step = new_stage_step
+    if body.notes is not None:
+        assignment.notes = body.notes
+
+    await db.commit()
+    await db.refresh(assignment)
+
+    return {
+        "id": assignment.id,
+        "stage_step": assignment.stage_step,
+        "stage_name": assignment.stage_name,
+        "section_id": assignment.section_id,
+        "notes": assignment.notes,
+        "status": assignment.status,
+    }
 
 
 # ─── Available Reviewers ─────────────────────────────────────────

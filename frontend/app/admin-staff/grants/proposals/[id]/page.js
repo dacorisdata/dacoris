@@ -1221,17 +1221,26 @@ export default function AdminProposalDetailPage() {
           proposal={proposal}
           sections={proposal.sections || []}
           currentStep={currentStep}
+          existingAssignments={proposal.stage_assignments}
           onClose={() => setAssignOpen(false)}
           onAssigned={async (data) => {
-            const stagesText = (data?.assignments || [])
-              .map((a) => WORKFLOW_STEPS[a.stage_step]?.label || a.stage_name)
-              .join(', ');
-            const reviewerName = data?.reviewer_name || 'Reviewer';
-            setSuccess(
-              `${reviewerName} assigned to stage(s): ${stagesText || 'selected'}`
-              + (data?.is_new_reviewer ? ' (invitation email sent)' : '')
-            );
-            setAssignOpen(false);
+            if (data?.removed) {
+              setSuccess('Reviewer assignment removed.');
+            } else if (data?.updated) {
+              setSuccess('Reviewer assignment updated.');
+            } else {
+              const stagesText = (data?.assignments || [])
+                .map((a) => WORKFLOW_STEPS[a.stage_step]?.label || a.stage_name)
+                .join(', ');
+              const reviewerName = data?.reviewer_name || 'Reviewer';
+              setSuccess(
+                `${reviewerName} assigned to stage(s): ${stagesText || 'selected'}`
+                + (data?.is_new_reviewer ? ' (invitation email sent)' : '')
+              );
+            }
+            if (data?.reviewer_id || data?.reviewer_name) {
+              setAssignOpen(false);
+            }
             await loadAll();
           }}
         />
