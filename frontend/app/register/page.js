@@ -82,6 +82,15 @@ export default function RegisterPage() {
   const isDark = muiTheme.palette.mode === 'dark';
   const { t, dir } = useLanguage();
 
+  useEffect(() => {
+    try {
+      const invitation = new URLSearchParams(window.location.search).get('invitation');
+      if (invitation) {
+        sessionStorage.setItem('proposalInvitationToken', invitation);
+      }
+    } catch (_) { /* ignore */ }
+  }, []);
+
   const [activeStep, setActiveStep] = useState(0);
   const [tier, setTier] = useState('');
   const [formData, setFormData] = useState({
@@ -91,6 +100,8 @@ export default function RegisterPage() {
     affiliation: '',
     email: '',
     institution: '',
+    institution_types: [],
+    role: '',
     department: '',
     job_title: '',
     phone: '',
@@ -146,6 +157,7 @@ export default function RegisterPage() {
       if (!formData.email?.trim()) newErrors.email = t('register.errorEmailRequired');
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = t('register.errorEmailInvalid');
       if (!formData.institution) newErrors.institution = t('register.errorInstitutionRequired');
+      if (!formData.department?.trim()) newErrors.department = t('register.errorDepartmentRequired');
     }
 
     const isPasswordStep = (tier === 'researcher' && activeStep === 3) ||
@@ -156,6 +168,8 @@ export default function RegisterPage() {
         if (!formData.name?.trim()) newErrors.name = t('register.errorNameRequired');
         if (!formData.email?.trim()) newErrors.email = t('register.errorEmailRequired');
         else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = t('register.errorEmailInvalid');
+        if (!formData.role?.trim()) newErrors.role = t('register.errorRoleRequired');
+        if (!formData.department?.trim()) newErrors.department = t('register.errorDepartmentRequired');
       }
       if (!formData.password) newErrors.password = t('register.errorPasswordRequired');
       else if (formData.password.length < 8) newErrors.password = t('register.errorPasswordTooShort');
@@ -187,6 +201,7 @@ export default function RegisterPage() {
         email: formData.email,
         password: formData.password,
         confirm_password: formData.confirm_password,
+        role: formData.role || null,
         department: formData.department || null,
         phone: formData.phone || null,
         ...(tier === 'admin_staff' && { name: formData.name, job_title: formData.job_title || null }),
@@ -196,6 +211,7 @@ export default function RegisterPage() {
           affiliation: formData.affiliation || null,
           institution: formData.institution,
           orcid_id: formData.orcid_id,
+          department: formData.department || null,
         }),
       };
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}${endpoint}`, {

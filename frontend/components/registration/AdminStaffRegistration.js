@@ -9,21 +9,19 @@ import {
   FormControl,
   Select,
   MenuItem,
+  ListSubheader,
+  FormHelperText,
   alpha,
   CircularProgress,
 } from '@mui/material';
-import { InfoOutlined, CheckCircle, Cancel } from '@mui/icons-material';
+import { CheckCircle, Cancel } from '@mui/icons-material';
 import { useLanguage } from '../../contexts/LanguageContext';
-
-const DEPARTMENT_VALUES = [
-  { value: 'Research Office', labelKey: 'departmentResearchOffice' },
-  { value: 'Grant Management', labelKey: 'departmentGrantManagement' },
-  { value: 'Finance Department', labelKey: 'departmentFinance' },
-  { value: 'Data Management', labelKey: 'departmentDataManagement' },
-  { value: 'Ethics Committee', labelKey: 'departmentEthicsCommittee' },
-  { value: 'Administration', labelKey: 'departmentAdministration' },
-  { value: 'Other', labelKey: 'departmentOther' },
-];
+import {
+  getRegistrationRolesForInstitution,
+  groupRegistrationRoles,
+  isRoleAllowedForInstitution,
+} from '../../lib/adminStaffRoles';
+import DepartmentSelect from './DepartmentSelect';
 
 function passwordStrength(pw) {
   let score = 0;
@@ -36,12 +34,23 @@ function passwordStrength(pw) {
 
 const PW_COLORS = ['#ef4444', '#f59e0b', '#14b8a6', '#34d399'];
 
+const LEVEL_LABEL_KEYS = {
+  top: 'levelTop',
+  mid: 'levelMid',
+  bottom: 'levelBottom',
+};
+
 export default function AdminStaffRegistration({ formData, onChange, errors }) {
   const { t } = useLanguage();
   const [verifyingEmail, setVerifyingEmail] = React.useState(false);
   const [emailVerified, setEmailVerified] = React.useState(false);
   const [verificationMessage, setVerificationMessage] = React.useState('');
   const pwScore = passwordStrength(formData.password || '');
+
+  const institutionTypes = formData.institution_types || [];
+  const availableRoles = getRegistrationRolesForInstitution(institutionTypes);
+  const groupedRoles = groupRegistrationRoles(availableRoles);
+  const roleDisabled = !emailVerified || availableRoles.length === 0;
 
   const handleChange = (field) => (e) => {
     onChange({ ...formData, [field]: e.target.value });
@@ -51,7 +60,14 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
     if (!email || !email.includes('@')) {
       setEmailVerified(false);
       setVerificationMessage('');
-      onChange({ ...formData, institution: '', institution_id: null });
+      onChange({
+        ...formData,
+        institution: '',
+        institution_id: null,
+        institution_types: [],
+        role: '',
+        department: '',
+      });
       return;
     }
 
@@ -71,20 +87,37 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
       if (data.valid) {
         setEmailVerified(true);
         setVerificationMessage(data.message);
+        const nextTypes = data.institution_types || [];
+        const keepRole = isRoleAllowedForInstitution(formData.role, nextTypes);
         onChange({
           ...formData,
           institution: data.institution_name,
-          institution_id: data.institution_id
+          institution_id: data.institution_id,
+          institution_types: nextTypes,
+          role: keepRole ? formData.role : '',
         });
       } else {
         setEmailVerified(false);
         setVerificationMessage(data.message);
-        onChange({ ...formData, institution: '', institution_id: null });
+        onChange({
+          ...formData,
+          institution: '',
+          institution_id: null,
+          institution_types: [],
+          role: '',
+        });
       }
     } catch (error) {
       console.error('Email verification error:', error);
       setVerificationMessage(t('registerAdminStaff.emailVerifyFailed'));
-      onChange({ ...formData, institution: '', institution_id: null });
+      onChange({
+        ...formData,
+        institution: '',
+        institution_id: null,
+        institution_types: [],
+        role: '',
+        department: '',
+      });
     } finally {
       setVerifyingEmail(false);
     }
@@ -92,6 +125,20 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
 
   const handleEmailBlur = () => {
     verifyEmailDomain(formData.email);
+  };
+
+  const renderRoleGroup = (levelKey, roles) => {
+    if (!roles.length) return null;
+    return [
+      <ListSubheader key={`header-${levelKey}`} sx={{ fontWeight: 700, color: 'text.secondary', lineHeight: 2.5 }}>
+        {t(`registerAdminStaff.${LEVEL_LABEL_KEYS[levelKey]}`)}
+      </ListSubheader>,
+      ...roles.map((role) => (
+        <MenuItem key={role.value} value={role.value}>
+          {t(`registerAdminStaff.${role.labelKey}`)}
+        </MenuItem>
+      )),
+    ];
   };
 
   return (
@@ -109,7 +156,6 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
       </Typography>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {/* Full Name */}
         <Box>
           <Typography
             variant="caption"
@@ -141,7 +187,6 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
           />
         </Box>
 
-        {/* Institutional Email */}
         <Box>
           <Typography
             variant="caption"
@@ -207,7 +252,6 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
           />
         </Box>
 
-        {/* Department */}
         <Box>
           <Typography
             variant="caption"
@@ -221,18 +265,19 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
               letterSpacing: '0.5px'
             }}
           >
-            {t('registerAdminStaff.departmentLabel')}
+            {t('registerAdminStaff.roleLabel')}
           </Typography>
-          <FormControl fullWidth>
+          <FormControl fullWidth error={!!errors.role}>
             <Select
-              value={formData.department || ''}
-              onChange={handleChange('department')}
+              value={formData.role || ''}
+              onChange={handleChange('role')}
               displayEmpty
+              disabled={roleDisabled}
               MenuProps={{
                 disableScrollLock: true,
                 PaperProps: {
                   sx: {
-                    maxHeight: 300,
+                    maxHeight: 360,
                     mt: 1,
                   },
                 },
@@ -249,23 +294,50 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
               sx={{
                 bgcolor: 'background.paper',
                 '& .MuiSelect-select': {
-                  fontStyle: !formData.department ? 'italic' : 'normal',
+                  fontStyle: !formData.role ? 'italic' : 'normal',
                 },
               }}
             >
               <MenuItem value="" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
-                {t('registerAdminStaff.departmentPlaceholder')}
+                {roleDisabled
+                  ? t('registerAdminStaff.roleVerifyEmailFirst')
+                  : t('registerAdminStaff.rolePlaceholder')}
               </MenuItem>
-              {DEPARTMENT_VALUES.map((dept) => (
-                <MenuItem key={dept.value} value={dept.value}>
-                  {t(`registerAdminStaff.${dept.labelKey}`)}
-                </MenuItem>
-              ))}
+              {renderRoleGroup('top', groupedRoles.top)}
+              {renderRoleGroup('mid', groupedRoles.mid)}
+              {renderRoleGroup('bottom', groupedRoles.bottom)}
             </Select>
+            <FormHelperText>
+              {errors.role || t('registerAdminStaff.roleHelper')}
+            </FormHelperText>
           </FormControl>
         </Box>
 
-        {/* Password and Confirm Password Row */}
+        <Box>
+          <Typography
+            variant="caption"
+            sx={{
+              mb: 1,
+              display: 'block',
+              color: 'text.primary',
+              fontWeight: 600,
+              fontSize: '0.75rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}
+          >
+            {t('registerAdminStaff.departmentLabel')}
+          </Typography>
+          <DepartmentSelect
+            institutionId={formData.institution_id}
+            value={formData.department}
+            onChange={(val) => onChange({ ...formData, department: val })}
+            disabled={!emailVerified}
+            error={!!errors.department}
+            helperText={errors.department || undefined}
+          />
+        </Box>
+
         <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
           <Box sx={{ flex: 1 }}>
             <Typography
@@ -370,7 +442,6 @@ export default function AdminStaffRegistration({ formData, onChange, errors }) {
           </Box>
         </Box>
 
-        {/* Password Strength Indicator */}
         {formData.password && (
           <Box>
             <Box sx={{ display: 'flex', gap: 0.5, mb: 1 }}>

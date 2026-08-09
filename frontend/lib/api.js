@@ -204,6 +204,11 @@ export const institutionAdminAPI = {
   createRole: (data) => api.post('/institution-admin/roles', data),
   getInstitutionSettings: () => api.get('/institution-admin/settings'),
   updateInstitutionSettings: (data) => api.put('/institution-admin/settings', data),
+  getDepartments: () => api.get('/institution-admin/departments'),
+  createDepartment: (data) => api.post('/institution-admin/departments', data),
+  updateDepartment: (id, data) => api.put(`/institution-admin/departments/${id}`, data),
+  deleteDepartment: (id) => api.delete(`/institution-admin/departments/${id}`),
+  seedDefaultDepartments: () => api.post('/institution-admin/departments/seed-defaults'),
   getAnalytics: () => api.get('/institution-admin/analytics'),
 };
 

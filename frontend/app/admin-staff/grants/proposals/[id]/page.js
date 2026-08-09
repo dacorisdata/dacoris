@@ -7,7 +7,6 @@ import {
   Avatar, Divider, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, IconButton, Tooltip, LinearProgress, useTheme, Collapse,
   List, ListItem, ListItemText, ListItemAvatar, Badge, Tab, Tabs,
-  Checkbox, FormControlLabel, Radio, RadioGroup, FormControl, FormLabel,
 } from '@mui/material';
 import {
   ArrowBack as BackIcon, CheckCircle as CheckIcon,
@@ -23,10 +22,14 @@ import {
   PersonPin as PIIcon, Groups as TeamIcon,
   Schedule as ClockIcon, Warning as WarnIcon, Error as OverdueIcon,
   PersonAdd as ReviewerIcon, AccessTime as DurationIcon,
-  FiberManualRecord as DotIcon, AddCircle as AddIcon, RemoveCircle as RemoveIcon,
+  FiberManualRecord as DotIcon,
 } from '@mui/icons-material';
 import api from '../../../../../lib/api';
 import { useAuth } from '../../../../../contexts/AuthContext';
+import { TeamMemberProfileModal } from '../../../../../components/TeamInvitePanel';
+import { collabAvatarSx } from '../../../../../lib/pendingAvatar';
+import { canAssignGrantReviewers } from '../../../../../lib/adminStaffRoles';
+import AssignStageReviewerDialog from '../../../../../components/grants/AssignStageReviewerDialog';
 
 const ACCENT = '#16a699';
 
@@ -382,9 +385,10 @@ function StageTimeline({ stageHistory, stageAssignments, currentStep, isTerminal
 export default function AdminProposalDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const { fetchUser } = useAuth();
+  const { fetchUser, user } = useAuth();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
+  const canAssign = canAssignGrantReviewers(user);
 
   const [loading, setLoading] = useState(true);
   const [proposal, setProposal] = useState(null);
@@ -399,17 +403,43 @@ export default function AdminProposalDetailPage() {
   const [acting, setActing] = useState(false);
 
   // Inline reviewer assignment
-  const [assignOpen, setAssignOpen]       = useState(false);
-  const [reviewers, setReviewers]         = useState([]);
-  const [reviewersLoading, setRvLoading]  = useState(false);
-  const [selReviewer, setSelReviewer]     = useState(null);
-  const [assignNotes, setAssignNotes]     = useState('');
-  const [assigning, setAssigning]         = useState(false);
-  const [selectedStages, setSelectedStages] = useState([]);
-  const [useNewReviewer, setUseNewReviewer] = useState(false);
-  const [newReviewerEmail, setNewReviewerEmail] = useState('');
-  const [newReviewerName, setNewReviewerName] = useState('');
-  const [newReviewerExpertise, setNewReviewerExpertise] = useState(['']);
+  const [assignOpen, setAssignOpen] = useState(false);
+
+  // Team member profile (available for drafts too)
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileMember, setProfileMember] = useState(null);
+  const [profileSnapshot, setProfileSnapshot] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+
+  const openTeamMemberProfile = async (member) => {
+    const userId = member?.user_id || member?.user?.id || null;
+    setProfileMember({
+      name: member?.name || member?.user?.name || member?.invited_name || 'Team member',
+      email: member?.email || member?.user?.email || member?.invited_email || '',
+      orcid: member?.orcid || member?.invited_orcid || '',
+      department: member?.department || member?.invited_affiliation || '',
+      job_title: member?.job_title || member?.role || '',
+      user_id: userId,
+    });
+    setProfileSnapshot(null);
+    setProfileOpen(true);
+    if (!userId) return;
+
+    setProfileLoading(true);
+    try {
+      const res = await api.get(`/grants/proposals/collaborators/${userId}/profile-snapshot`, {
+        params: {
+          opportunity_id: proposal?.opportunity_id || undefined,
+          proposal_title: proposal?.title || undefined,
+        },
+      });
+      setProfileSnapshot(res.data);
+    } catch {
+      setProfileSnapshot(null);
+    } finally {
+      setProfileLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetchUser().then(u => {
@@ -418,57 +448,9 @@ export default function AdminProposalDetailPage() {
     });
   }, [params.id]);
 
-  const loadReviewers = async () => {
-    if (reviewers.length) return;
-    setRvLoading(true);
-    try {
-      const r = await api.get('/grants/proposals/reviewers/available');
-      setReviewers(r.data || []);
-    } catch { setReviewers([]); }
-    finally { setRvLoading(false); }
-  };
-
-  const openAssignDialog = async () => {
-    setSelReviewer(null);
-    setAssignNotes('');
-    setSelectedStages([currentStep]);
-    setUseNewReviewer(false);
-    setNewReviewerEmail('');
-    setNewReviewerName('');
-    setNewReviewerExpertise(['']);
+  const openAssignDialog = () => {
+    if (!canAssign) return;
     setAssignOpen(true);
-    await loadReviewers();
-  };
-
-  const handleAssign = async () => {
-    if (!useNewReviewer && !selReviewer) return;
-    if (useNewReviewer && !newReviewerEmail) return;
-    if (selectedStages.length === 0) return;
-    
-    setAssigning(true);
-    try {
-      const payload = {
-        stage_steps: selectedStages,
-        notes: assignNotes || undefined,
-      };
-      
-      if (useNewReviewer) {
-        payload.new_reviewer_email = newReviewerEmail;
-        payload.new_reviewer_name = newReviewerName || undefined;
-        payload.new_reviewer_expertise = newReviewerExpertise.filter(e => e.trim());
-      } else {
-        payload.reviewer_id = selReviewer.id;
-      }
-      
-      const response = await api.post(`/grants/proposals/${params.id}/stage-reviewers`, payload);
-      const stagesText = selectedStages.map(s => WORKFLOW_STEPS[s]?.label).join(', ');
-      const reviewerName = response.data.reviewer_name;
-      setSuccess(`${reviewerName} assigned to stage(s): ${stagesText}${response.data.is_new_reviewer ? ' (invitation email sent)' : ''}`);
-      setAssignOpen(false);
-      await loadAll();
-    } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to assign reviewer');
-    } finally { setAssigning(false); }
   };
 
   const loadAll = async () => {
@@ -625,17 +607,19 @@ export default function AdminProposalDetailPage() {
         <Alert
           severity="warning"
           sx={{ mb: 3, borderRadius: 2.5, '& .MuiAlert-message': { width: '100%' } }}
-          action={
+          action={canAssign ? (
             <Button size="small" variant="contained" startIcon={<ReviewerIcon sx={{ fontSize: 14 }} />}
               onClick={openAssignDialog}
               sx={{ bgcolor: '#f59e0b', '&:hover': { bgcolor: '#d97706' }, textTransform: 'none', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', ml: 1 }}>
               Assign Now
             </Button>
-          }
+          ) : undefined}
         >
           <strong>Reviewer required before advancing.</strong>
           {' '}No reviewer has been assigned to the <strong>{WORKFLOW_STEPS[currentStep]?.label}</strong> stage.
-          Assign a reviewer to unlock stage progression.
+          {canAssign
+            ? ' Assign a reviewer to unlock stage progression.'
+            : ' Contact your Director of Research or Research Administrator to assign a reviewer.'}
         </Alert>
       )}
 
@@ -762,10 +746,10 @@ export default function AdminProposalDetailPage() {
                 currentStep={currentStep}
                 isTerminal={isTerminal}
               />
-              {!isTerminal && (
+              {canAssign && !isTerminal && (
                 <Button
                   fullWidth size="small" variant="outlined" startIcon={<ReviewerIcon sx={{ fontSize: 14 }} />}
-                  onClick={() => router.push(`/admin-staff/grants/proposals?assign=${params.id}`)}
+                  onClick={openAssignDialog}
                   sx={{ mt: 1, textTransform: 'none', fontSize: 12, borderRadius: 2, borderColor: '#8b5cf644', color: '#8b5cf6',
                     '&:hover': { borderColor: '#8b5cf6', bgcolor: '#8b5cf611' } }}>
                   Manage Reviewer Assignments
@@ -824,14 +808,30 @@ export default function AdminProposalDetailPage() {
             </Paper>
           )}
 
-          {/* Research Team */}
+          {/* Research Team — clickable profiles (including drafts) */}
           <Paper elevation={0} variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
               <TeamIcon sx={{ fontSize: 17, color: ACCENT }} />
               <Typography sx={{ fontSize: 14, fontWeight: 700 }}>Research Team</Typography>
             </Box>
+            <Typography sx={{ fontSize: 11, color: 'text.disabled', mb: 1.5 }}>
+              Click a member to view their profile
+            </Typography>
             {/* Lead PI */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(22,166,153,0.07)' : 'rgba(22,166,153,0.05)', border: '1px solid', borderColor: ACCENT + '33' }}>
+            <Box
+              onClick={() => openTeamMemberProfile({
+                ...proposal.lead_pi,
+                user_id: proposal.lead_pi?.id || proposal.lead_pi_id,
+                role: 'Lead PI',
+              })}
+              sx={{
+                display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, p: 1.5, borderRadius: 2,
+                bgcolor: dark ? 'rgba(22,166,153,0.07)' : 'rgba(22,166,153,0.05)',
+                border: '1px solid', borderColor: ACCENT + '33',
+                cursor: 'pointer',
+                '&:hover': { bgcolor: dark ? 'rgba(22,166,153,0.12)' : 'rgba(22,166,153,0.1)' },
+              }}
+            >
               <Avatar sx={{ bgcolor: ACCENT, width: 38, height: 38, fontSize: 15, fontWeight: 700 }}>
                 {proposal.lead_pi?.name?.charAt(0) || 'L'}
               </Avatar>
@@ -842,15 +842,29 @@ export default function AdminProposalDetailPage() {
               </Box>
             </Box>
             {(proposal.collaborators || []).map((c, i) => (
-              <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, opacity: c.status === 'pending' ? 0.65 : 1 }}>
-                <Avatar sx={{ bgcolor: '#8b5cf6', width: 32, height: 32, fontSize: 12 }}>
+              <Box
+                key={c.id || i}
+                onClick={() => openTeamMemberProfile({
+                  ...c,
+                  user_id: c.user_id || c.user?.id,
+                  name: c.user?.name || c.invited_name,
+                  email: c.user?.email || c.invited_email,
+                  role: c.role,
+                })}
+                sx={{
+                  display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, p: 1, borderRadius: 2,
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' },
+                }}
+              >
+                <Avatar sx={collabAvatarSx(c.status, { bgcolor: '#8b5cf6', width: 32, height: 32, fontSize: 12 })}>
                   {c.user?.name?.charAt(0) || c.invited_name?.charAt(0) || '?'}
                 </Avatar>
                 <Box>
                   <Typography sx={{ fontSize: 13 }}>{c.user?.name || c.invited_name || 'Pending'}</Typography>
                   <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
                     {(c.role || 'Co-Investigator').replace(/_/g, ' ')}
-                    {c.status === 'pending' && ' · Invite pending'}
+                    {c.status !== 'accepted' && ' · Invite pending'}
                   </Typography>
                 </Box>
               </Box>
@@ -1064,201 +1078,31 @@ export default function AdminProposalDetailPage() {
       </Box>
 
       {/* ── ASSIGN REVIEWER DIALOG ─────────────────────────────── */}
-      <Dialog open={assignOpen} onClose={() => setAssignOpen(false)} maxWidth="md" fullWidth
-        PaperProps={{ sx: { borderRadius: 3 } }}>
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, fontSize: 16 }}>
-          Assign Reviewer
-          <IconButton size="small" onClick={() => setAssignOpen(false)}><CloseIcon /></IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          <Box sx={{ mb: 2.5, p: 1.5, borderRadius: 2, bgcolor: dark ? 'rgba(22,166,153,0.08)' : 'rgba(22,166,153,0.05)', border: '1px solid', borderColor: ACCENT + '33' }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 0.3 }}>{proposal.title}</Typography>
-            <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-              Assign a reviewer to one or more review stages
-            </Typography>
-          </Box>
-
-          {/* Stage Selection */}
-          <Box sx={{ mb: 2.5 }}>
-            <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1.5 }}>
-              Select Review Stage(s) *
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              {WORKFLOW_STEPS.slice(1).map((stage) => (
-                <FormControlLabel
-                  key={stage.step}
-                  control={
-                    <Checkbox
-                      checked={selectedStages.includes(stage.step)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedStages([...selectedStages, stage.step]);
-                        } else {
-                          setSelectedStages(selectedStages.filter(s => s !== stage.step));
-                        }
-                      }}
-                      sx={{ '&.Mui-checked': { color: ACCENT } }}
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{stage.label}</Typography>
-                      <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>~{[3,7,14,7,14,7][stage.step]}d</Typography>
-                    </Box>
-                  }
-                  sx={{ 
-                    m: 0, 
-                    p: 1, 
-                    borderRadius: 1.5, 
-                    border: '1px solid', 
-                    borderColor: selectedStages.includes(stage.step) ? ACCENT : 'divider',
-                    bgcolor: selectedStages.includes(stage.step) ? (dark ? 'rgba(22,166,153,0.08)' : 'rgba(22,166,153,0.05)') : 'transparent',
-                  }}
-                />
-              ))}
-            </Box>
-          </Box>
-
-          <Divider sx={{ my: 2.5 }} />
-
-          {/* Reviewer Selection Mode */}
-          <FormControl component="fieldset" sx={{ mb: 2 }}>
-            <FormLabel sx={{ fontSize: 12, fontWeight: 700, color: 'text.primary', mb: 1 }}>
-              Reviewer Selection *
-            </FormLabel>
-            <RadioGroup value={useNewReviewer ? 'new' : 'existing'} onChange={(e) => setUseNewReviewer(e.target.value === 'new')}>
-              <FormControlLabel value="existing" control={<Radio sx={{ '&.Mui-checked': { color: ACCENT } }} />} 
-                label={<Typography sx={{ fontSize: 13 }}>Select from existing reviewers</Typography>} />
-              <FormControlLabel value="new" control={<Radio sx={{ '&.Mui-checked': { color: ACCENT } }} />} 
-                label={<Typography sx={{ fontSize: 13 }}>Add new reviewer by email</Typography>} />
-            </RadioGroup>
-          </FormControl>
-
-          {/* Existing Reviewer Selection */}
-          {!useNewReviewer && (
-            <Box sx={{ mb: 2.5 }}>
-              {reviewersLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
-              ) : reviewers.length === 0 ? (
-                <Alert severity="info" sx={{ fontSize: 12 }}>
-                  No existing reviewers found. You can add a new reviewer by email.
-                </Alert>
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 200, overflow: 'auto', p: 0.5 }}>
-                  {reviewers.map(r => (
-                    <Box key={r.id}
-                      onClick={() => setSelReviewer(selReviewer?.id === r.id ? null : r)}
-                      sx={{
-                        display: 'flex', alignItems: 'center', gap: 1.5,
-                        p: 1.5, borderRadius: 2, cursor: 'pointer',
-                        border: '1px solid',
-                        borderColor: selReviewer?.id === r.id ? ACCENT : 'divider',
-                        bgcolor: selReviewer?.id === r.id
-                          ? (dark ? 'rgba(22,166,153,0.12)' : 'rgba(22,166,153,0.07)')
-                          : 'transparent',
-                        '&:hover': { borderColor: ACCENT + '88' },
-                      }}>
-                      <Avatar sx={{ width: 32, height: 32, bgcolor: selReviewer?.id === r.id ? ACCENT : '#8b5cf6', fontSize: 12, flexShrink: 0 }}>
-                        {r.name?.charAt(0)}
-                      </Avatar>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{r.name}</Typography>
-                        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{r.email}</Typography>
-                      </Box>
-                      {selReviewer?.id === r.id && (
-                        <CheckIcon sx={{ fontSize: 16, color: ACCENT, flexShrink: 0 }} />
-                      )}
-                    </Box>
-                  ))}
-                </Box>
-              )}
-            </Box>
-          )}
-
-          {/* New Reviewer Form */}
-          {useNewReviewer && (
-            <Box sx={{ mb: 2.5, p: 2, borderRadius: 2, bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', border: '1px solid', borderColor: 'divider' }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 1.5, color: 'text.secondary' }}>
-                New Reviewer Details
-              </Typography>
-              <TextField
-                fullWidth
-                size="small"
-                label="Email Address *"
-                type="email"
-                value={newReviewerEmail}
-                onChange={(e) => setNewReviewerEmail(e.target.value)}
-                placeholder="reviewer@university.edu"
-                sx={{ mb: 1.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="Full Name (optional)"
-                value={newReviewerName}
-                onChange={(e) => setNewReviewerName(e.target.value)}
-                placeholder="Dr. Jane Smith"
-                sx={{ mb: 1.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-              />
-              <Typography sx={{ fontSize: 11, fontWeight: 700, mb: 1, color: 'text.secondary' }}>
-                Areas of Expertise (optional)
-              </Typography>
-              {newReviewerExpertise.map((exp, idx) => (
-                <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    value={exp}
-                    onChange={(e) => {
-                      const updated = [...newReviewerExpertise];
-                      updated[idx] = e.target.value;
-                      setNewReviewerExpertise(updated);
-                    }}
-                    placeholder="e.g., Machine Learning, Climate Science"
-                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                  />
-                  {idx === newReviewerExpertise.length - 1 ? (
-                    <IconButton
-                      size="small"
-                      onClick={() => setNewReviewerExpertise([...newReviewerExpertise, ''])}
-                      sx={{ color: ACCENT }}>
-                      <AddIcon />
-                    </IconButton>
-                  ) : (
-                    <IconButton
-                      size="small"
-                      onClick={() => setNewReviewerExpertise(newReviewerExpertise.filter((_, i) => i !== idx))}
-                      sx={{ color: 'error.main' }}>
-                      <RemoveIcon />
-                    </IconButton>
-                  )}
-                </Box>
-              ))}
-              <Alert severity="info" sx={{ mt: 1.5, fontSize: 11 }}>
-                An invitation email will be sent with a link to create their account and choose a password.
-              </Alert>
-            </Box>
-          )}
-
-          <TextField fullWidth size="small" multiline rows={2}
-            label="Assignment notes (optional)"
-            value={assignNotes} onChange={e => setAssignNotes(e.target.value)}
-            placeholder="Any specific instructions for this reviewer…"
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-          />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={() => setAssignOpen(false)} sx={{ textTransform: 'none', color: 'text.secondary' }}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            disabled={assigning || selectedStages.length === 0 || (!useNewReviewer && !selReviewer) || (useNewReviewer && !newReviewerEmail)} 
-            onClick={handleAssign}
-            startIcon={assigning ? <CircularProgress size={13} sx={{ color: 'inherit' }} /> : <ReviewerIcon />}
-            sx={{ textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}>
-            {assigning ? 'Assigning…' : 'Assign Reviewer'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {canAssign && (
+        <AssignStageReviewerDialog
+          open={assignOpen}
+          proposal={proposal}
+          stages={WORKFLOW_STEPS.map((s, i) => ({
+            step: s.step,
+            label: s.label,
+            days: [3, 7, 14, 7, 14, 7][i],
+          }))}
+          currentStep={currentStep}
+          onClose={() => setAssignOpen(false)}
+          onAssigned={async (data) => {
+            const stagesText = (data?.assignments || [])
+              .map((a) => WORKFLOW_STEPS[a.stage_step]?.label || a.stage_name)
+              .join(', ');
+            const reviewerName = data?.reviewer_name || 'Reviewer';
+            setSuccess(
+              `${reviewerName} assigned to stage(s): ${stagesText || 'selected'}`
+              + (data?.is_new_reviewer ? ' (invitation email sent)' : '')
+            );
+            setAssignOpen(false);
+            await loadAll();
+          }}
+        />
+      )}
 
       {/* ── ACTION DIALOG ──────────────────────────────────────── */}
       <Dialog open={!!actionDialog} onClose={() => { setActionDialog(null); setActionNotes(''); }} maxWidth="sm" fullWidth
@@ -1311,6 +1155,16 @@ export default function AdminProposalDetailPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <TeamMemberProfileModal
+        open={profileOpen}
+        onClose={() => { setProfileOpen(false); setProfileMember(null); setProfileSnapshot(null); }}
+        researcher={profileMember}
+        snapshot={profileSnapshot}
+        loading={profileLoading}
+        accent={ACCENT}
+        viewOnly
+      />
     </Box>
   );
 }

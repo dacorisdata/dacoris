@@ -111,7 +111,132 @@ ACCOUNT_TYPE_CONFIG: Dict[str, Dict] = {
         "primary_modules": ["Grants (Post-Award)"],
         "icon": "monetization_on",
         "invitation_only": True
-    }
+    },
+    PrimaryAccountType.ADMIN_STAFF: {
+        "label": "Administrative Staff",
+        "description": "General administrative staff supporting research operations",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.RESEARCH_ADMIN],
+        "assignable_roles": [ResearchRole.RESEARCH_ADMIN],
+        "primary_modules": ["Dashboard"],
+        "icon": "admin_panel_settings"
+    },
+    PrimaryAccountType.DVC_RESEARCH: {
+        "label": "DVC (Research)",
+        "description": "Deputy Vice-Chancellor for Research with executive oversight",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.DVC_RESEARCH, ResearchRole.INSTITUTIONAL_LEAD],
+        "assignable_roles": [ResearchRole.DVC_RESEARCH, ResearchRole.INSTITUTIONAL_LEAD],
+        "primary_modules": ["All (Strategic Dashboards)"],
+        "icon": "school"
+    },
+    PrimaryAccountType.DIRECTOR_RESEARCH: {
+        "label": "Director of Research",
+        "description": "Director or head of research with institutional oversight",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.DIRECTOR_RESEARCH, ResearchRole.INSTITUTIONAL_LEAD],
+        "assignable_roles": [ResearchRole.DIRECTOR_RESEARCH, ResearchRole.INSTITUTIONAL_LEAD],
+        "primary_modules": ["All (Strategic Dashboards)"],
+        "icon": "business_center"
+    },
+    PrimaryAccountType.RESEARCH_ADMINISTRATOR: {
+        "label": "Research Administrator",
+        "description": "Research office staff managing proposals, workflows and compliance",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.RESEARCH_ADMIN],
+        "assignable_roles": [ResearchRole.RESEARCH_ADMIN, ResearchRole.GRANT_OFFICER],
+        "primary_modules": ["Research", "Grants"],
+        "icon": "assignment"
+    },
+    PrimaryAccountType.LIBRARIAN: {
+        "label": "Librarian / RDM Specialist",
+        "description": "Library and research data management support staff",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.LIBRARIAN, ResearchRole.DATA_STEWARD],
+        "assignable_roles": [ResearchRole.LIBRARIAN, ResearchRole.DATA_STEWARD],
+        "primary_modules": ["Data Management", "Publications"],
+        "icon": "local_library"
+    },
+    PrimaryAccountType.MOU_ADMIN: {
+        "label": "MoU Administrator",
+        "description": "Staff managing institutional partnership agreements",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.MOU_ADMIN],
+        "assignable_roles": [ResearchRole.MOU_ADMIN, ResearchRole.PARTNERSHIP_COORDINATOR],
+        "primary_modules": ["Partnerships"],
+        "icon": "handshake"
+    },
+    PrimaryAccountType.LEGAL_OFFICER: {
+        "label": "Legal Officer",
+        "description": "Legal review of agreements and compliance matters",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.LEGAL_OFFICER],
+        "assignable_roles": [ResearchRole.LEGAL_OFFICER],
+        "primary_modules": ["Partnerships", "Compliance"],
+        "icon": "gavel"
+    },
+    PrimaryAccountType.PARTNERSHIP_COORDINATOR: {
+        "label": "Partnership Coordinator",
+        "description": "Coordinates institutional partnerships and collaborations",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.PARTNERSHIP_COORDINATOR],
+        "assignable_roles": [ResearchRole.PARTNERSHIP_COORDINATOR, ResearchRole.MOU_ADMIN],
+        "primary_modules": ["Partnerships"],
+        "icon": "groups"
+    },
+    PrimaryAccountType.SUPERVISOR: {
+        "label": "Supervisor",
+        "description": "Postgraduate research supervisor",
+        "requires_orcid": True,
+        "default_roles": [ResearchRole.SUPERVISOR],
+        "assignable_roles": [ResearchRole.SUPERVISOR],
+        "primary_modules": ["Postgraduate"],
+        "icon": "supervisor_account"
+    },
+    PrimaryAccountType.PG_COORDINATOR: {
+        "label": "PG Coordinator",
+        "description": "Postgraduate research programme coordinator",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.PG_COORDINATOR],
+        "assignable_roles": [ResearchRole.PG_COORDINATOR],
+        "primary_modules": ["Postgraduate"],
+        "icon": "school"
+    },
+    PrimaryAccountType.HEAD_OF_PG_STUDIES: {
+        "label": "Head of Postgraduate Studies",
+        "description": "Executive oversight of postgraduate research programmes",
+        "requires_orcid": False,
+        "default_roles": [ResearchRole.HEAD_OF_PG_STUDIES, ResearchRole.INSTITUTIONAL_LEAD],
+        "assignable_roles": [ResearchRole.HEAD_OF_PG_STUDIES, ResearchRole.INSTITUTIONAL_LEAD],
+        "primary_modules": ["Postgraduate", "Strategic Dashboards"],
+        "icon": "school"
+    },
+}
+
+SELF_REGISTRATION_ADMIN_STAFF_ROLES = {
+    PrimaryAccountType.DIRECTOR_RESEARCH,
+    PrimaryAccountType.INSTITUTIONAL_LEADERSHIP,
+    PrimaryAccountType.DVC_RESEARCH,
+    PrimaryAccountType.HEAD_OF_PG_STUDIES,
+    PrimaryAccountType.RESEARCH_ADMINISTRATOR,
+    PrimaryAccountType.GRANT_MANAGER,
+    PrimaryAccountType.FINANCE_OFFICER,
+    PrimaryAccountType.ETHICS_COMMITTEE_MEMBER,
+    PrimaryAccountType.DATA_STEWARD,
+    PrimaryAccountType.LIBRARIAN,
+    PrimaryAccountType.MOU_ADMIN,
+    PrimaryAccountType.LEGAL_OFFICER,
+    PrimaryAccountType.PARTNERSHIP_COORDINATOR,
+    PrimaryAccountType.PG_COORDINATOR,
+    PrimaryAccountType.DATA_ENGINEER,
+    PrimaryAccountType.SUPERVISOR,
+    PrimaryAccountType.ADMIN_STAFF,
+}
+
+UNIVERSITY_ONLY_ADMIN_STAFF_ROLES = {
+    PrimaryAccountType.DVC_RESEARCH,
+    PrimaryAccountType.HEAD_OF_PG_STUDIES,
+    PrimaryAccountType.PG_COORDINATOR,
 }
 
 
@@ -162,3 +287,23 @@ def validate_account_type_for_registration(account_type: str) -> Optional[Primar
         return account_type_enum
     except ValueError:
         return None
+
+
+def validate_admin_staff_registration_role(
+    role: str,
+    institution_types: Optional[List[str]] = None,
+) -> Optional[PrimaryAccountType]:
+    """Validate admin-staff self-registration role against allowed roles and institution type."""
+    try:
+        role_enum = PrimaryAccountType(role)
+    except ValueError:
+        return None
+
+    if role_enum not in SELF_REGISTRATION_ADMIN_STAFF_ROLES:
+        return None
+
+    types = institution_types or []
+    if role_enum in UNIVERSITY_ONLY_ADMIN_STAFF_ROLES and "university" not in types:
+        return None
+
+    return role_enum

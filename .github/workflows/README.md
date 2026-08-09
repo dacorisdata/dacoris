@@ -53,7 +53,7 @@ This directory contains all CI/CD workflows for the DACORIS project.
 - `PRODUCTION_SSH_KEY`: SSH private key for dacoris@41.89.92.140
 
 **Important Notes**:
-- `.env.production` must already exist on the server at `/home/dacoris/.env.production`
+- `.env.production` must already exist on the server at `/opt/dacoris/rims/.env.production`
 - Code is built directly on the server (not pulled from Docker Hub)
 - Database is preserved during deployment
 - Application URL: http://41.89.92.140

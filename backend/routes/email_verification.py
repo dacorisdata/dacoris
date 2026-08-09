@@ -5,9 +5,11 @@ Email domain verification endpoint for registration
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, EmailStr
+from typing import List
 
 from database import get_db
 from services.orcid_sync import OrcidSyncService
+from services.institution_types import institution_types_as_strings, load_institution_with_types
 
 router = APIRouter(prefix="/api/registration", tags=["registration"])
 
@@ -20,6 +22,7 @@ class EmailVerificationResponse(BaseModel):
     valid: bool
     institution_id: str | None = None
     institution_name: str | None = None
+    institution_types: List[str] = []
     message: str
 
 
@@ -35,10 +38,12 @@ async def verify_email_domain(
     institution = await OrcidSyncService.verify_email_domain(request.email, db)
     
     if institution:
+        institution = await load_institution_with_types(db, institution.id)
         return EmailVerificationResponse(
             valid=True,
             institution_id=institution.id,
             institution_name=institution.name,
+            institution_types=institution_types_as_strings(institution),
             message=f"Email domain verified for {institution.name}"
         )
     else:

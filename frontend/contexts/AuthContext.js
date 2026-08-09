@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { authAPI } from '../lib/api';
+import api, { authAPI } from '../lib/api';
 import { isDemoAccount, getDemoRoleById, getDemoRoleByAccountType } from '../lib/demoRoles';
 
 const AuthContext = createContext(null);
@@ -108,6 +108,9 @@ export function AuthProvider({ children }) {
           scheduleTokenRefresh(secondsUntilExpiry);
         }
       }
+
+      // Claim invites sent before account creation (e.g. user already logged in)
+      api.post('/grants/proposals/invitations/claim').catch(() => {});
     }
     setLoading(false);
     
@@ -152,6 +155,24 @@ export function AuthProvider({ children }) {
       return userData;
     }
   }, []);
+  const claimPendingInvites = async () => {
+    try {
+      const invitationToken =
+        typeof window !== 'undefined'
+          ? (sessionStorage.getItem('proposalInvitationToken') || new URLSearchParams(window.location.search).get('invitation'))
+          : null;
+      await api.post('/grants/proposals/invitations/claim', null, {
+        params: invitationToken ? { invitation_token: invitationToken } : undefined,
+      });
+      if (invitationToken && typeof window !== 'undefined') {
+        sessionStorage.removeItem('proposalInvitationToken');
+      }
+    } catch (error) {
+      // Non-blocking — login/session should still succeed
+      console.warn('Failed to claim pending proposal invites:', error?.response?.data || error.message);
+    }
+  };
+
   const fetchUser = async () => {
     try {
       const response = await authAPI.getCurrentUser();
@@ -190,6 +211,7 @@ export function AuthProvider({ children }) {
       
       console.log('AuthContext: Token set, fetching user...');
       const userData = await fetchUser();
+      await claimPendingInvites();
       console.log('AuthContext: User data fetched:', userData);
       return userData;
     } catch (error) {

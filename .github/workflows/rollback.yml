@@ -46,7 +46,7 @@ jobs:
       - name: Perform rollback
         run: |
           ssh ${{ env.SSH_USER }}@${{ env.SSH_HOST }} '
-            cd /home/dacoris
+            cd /opt/dacoris/rims
             
             echo "🔄 Starting rollback process..."
             

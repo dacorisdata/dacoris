@@ -45,6 +45,13 @@ function loadSavedExpanded() {
   return {};
 }
 
+const LEADERSHIP_ROLES = new Set([
+  'INSTITUTIONAL_LEADERSHIP',
+  'DVC_RESEARCH',
+  'DIRECTOR_RESEARCH',
+  'HEAD_OF_PG_STUDIES',
+]);
+
 const ROLE_META = {
   GRANT_MANAGER:            { label: 'Grant Manager' },
   FINANCE_OFFICER:          { label: 'Finance Officer' },
@@ -52,6 +59,10 @@ const ROLE_META = {
   DATA_STEWARD:             { label: 'Data Steward' },
   DATA_ENGINEER:            { label: 'Data Engineer' },
   INSTITUTIONAL_LEADERSHIP: { label: 'Institutional Lead' },
+  DVC_RESEARCH:             { label: 'DVC (Research)' },
+  DIRECTOR_RESEARCH:        { label: 'Director of Research' },
+  RESEARCH_ADMINISTRATOR:   { label: 'Research Administrator' },
+  LIBRARIAN:                { label: 'Librarian' },
   EXTERNAL_REVIEWER:        { label: 'External Reviewer' },
   GUEST_COLLABORATOR:       { label: 'Guest Collaborator' },
   EXTERNAL_FUNDER:          { label: 'External Funder' },
@@ -168,7 +179,12 @@ const NAV_SECTIONS = [
 
 function isVisible(itemRoles, userRole) {
   if (itemRoles === 'all') return true;
-  return Array.isArray(itemRoles) && itemRoles.includes(userRole);
+  if (!Array.isArray(itemRoles)) return false;
+  if (itemRoles.includes(userRole)) return true;
+  if (LEADERSHIP_ROLES.has(userRole) && itemRoles.includes('INSTITUTIONAL_LEADERSHIP')) return true;
+  if (userRole === 'RESEARCH_ADMINISTRATOR' && itemRoles.includes('ADMIN_STAFF')) return true;
+  if (userRole === 'LIBRARIAN' && itemRoles.includes('DATA_STEWARD')) return true;
+  return false;
 }
 
 function isPathActive(pathname, path) {

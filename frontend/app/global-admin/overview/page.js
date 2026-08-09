@@ -16,14 +16,14 @@ import {
   Add as AddIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
-import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useLanguage } from '../../../contexts/LanguageContext';
 import { globalAdminAPI } from '../../../lib/api';
 
 export default function OverviewPage() {
   const router = useRouter();
   const { fetchUser } = useAuth();
-  const theme = useMuiTheme();
-  
+  const { t } = useLanguage();
+
   const [analytics, setAnalytics] = useState(null);
   const [institutions, setInstitutions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +61,7 @@ export default function OverviewPage() {
       setAnalytics(analyticsRes.data);
       setLoading(false);
     } catch (err) {
-      setError('Failed to load data');
+      setError(t('globalAdmin.overview.errorLoad'));
       setLoading(false);
     }
   };
@@ -79,10 +79,10 @@ export default function OverviewPage() {
       {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h3" sx={{ mb: 0.5 }}>
-          Global Admin Dashboard
+          {t('globalAdmin.overview.title')}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Welcome back! Here's what's happening with your platform.
+          {t('globalAdmin.overview.subtitle')}
         </Typography>
       </Box>
 
@@ -101,7 +101,7 @@ export default function OverviewPage() {
               <SchoolIcon sx={{ color: 'primary.main', fontSize: 24, opacity: 1 }} />
             </Box>
             <Box>
-              <Typography variant="overline" color="text.secondary">Institutions</Typography>
+              <Typography variant="overline" color="text.secondary">{t('globalAdmin.overview.institutions')}</Typography>
               <Typography variant="h4">{analytics?.total_institutions || 0}</Typography>
             </Box>
           </Box>
@@ -110,7 +110,7 @@ export default function OverviewPage() {
             onClick={() => router.push('/global-admin/institutions')}
             sx={{ color: 'primary.main', fontSize: '0.75rem', fontWeight: 600 }}
           >
-            View All →
+            {t('globalAdmin.overview.viewAll')}
           </Button>
         </Box>
 
@@ -120,7 +120,7 @@ export default function OverviewPage() {
               <PeopleIcon sx={{ color: 'success.main', fontSize: 24, opacity: 1 }} />
             </Box>
             <Box>
-              <Typography variant="overline" color="text.secondary">Total Users</Typography>
+              <Typography variant="overline" color="text.secondary">{t('globalAdmin.overview.totalUsers')}</Typography>
               <Typography variant="h4">{analytics?.total_users || 0}</Typography>
             </Box>
           </Box>
@@ -129,7 +129,7 @@ export default function OverviewPage() {
             onClick={() => router.push('/global-admin/users')}
             sx={{ color: 'primary.main', fontSize: '0.75rem', fontWeight: 600 }}
           >
-            View All →
+            {t('globalAdmin.overview.viewAll')}
           </Button>
         </Box>
 
@@ -139,12 +139,12 @@ export default function OverviewPage() {
               <TrendingUpIcon sx={{ color: 'warning.main', fontSize: 24, opacity: 1 }} />
             </Box>
             <Box>
-              <Typography variant="overline" color="text.secondary">Active Users</Typography>
+              <Typography variant="overline" color="text.secondary">{t('globalAdmin.overview.activeUsers')}</Typography>
               <Typography variant="h4">{analytics?.active_users || 0}</Typography>
             </Box>
           </Box>
           <Typography variant="caption" color="text.secondary">
-            {analytics?.pending_users || 0} pending approval
+            {t('globalAdmin.overview.pendingApproval', { count: analytics?.pending_users || 0 })}
           </Typography>
         </Box>
       </Box>
@@ -153,8 +153,8 @@ export default function OverviewPage() {
       <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
         {/* Recent Institutions */}
         <Box sx={{ flex: '1 1 400px', bgcolor: 'background.paper', borderRadius: 3, p: 3, border: 1, borderColor: 'divider' }}>
-          <Typography variant="overline" color="success.main" sx={{ mb: 1, display: 'block' }}>Recent</Typography>
-          <Typography variant="h6" sx={{ mb: 3 }}>Institutions</Typography>
+          <Typography variant="overline" color="success.main" sx={{ mb: 1, display: 'block' }}>{t('globalAdmin.overview.recent')}</Typography>
+          <Typography variant="h6" sx={{ mb: 3 }}>{t('globalAdmin.overview.institutions')}</Typography>
           {institutions.length > 0 ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {institutions.slice(0, 5).map((institution) => (
@@ -182,14 +182,14 @@ export default function OverviewPage() {
               ))}
             </Box>
           ) : (
-            <Typography variant="body2" color="text.secondary">No institutions yet</Typography>
+            <Typography variant="body2" color="text.secondary">{t('globalAdmin.overview.noInstitutions')}</Typography>
           )}
         </Box>
 
         {/* Quick Actions */}
         <Box sx={{ flex: '1 1 300px', bgcolor: 'background.paper', borderRadius: 3, p: 3, border: 1, borderColor: 'divider' }}>
-          <Typography variant="overline" color="warning.main" sx={{ mb: 1, display: 'block' }}>Quick</Typography>
-          <Typography variant="h6" sx={{ mb: 3 }}>Actions</Typography>
+          <Typography variant="overline" color="warning.main" sx={{ mb: 1, display: 'block' }}>{t('globalAdmin.overview.quick')}</Typography>
+          <Typography variant="h6" sx={{ mb: 3 }}>{t('globalAdmin.overview.actions')}</Typography>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Button
               fullWidth
@@ -199,7 +199,7 @@ export default function OverviewPage() {
               onClick={() => router.push('/global-admin/institutions')}
               sx={{ py: 1.5, justifyContent: 'flex-start' }}
             >
-              Create Institution
+              {t('globalAdmin.overview.createInstitution')}
             </Button>
             <Button
               fullWidth
@@ -207,7 +207,7 @@ export default function OverviewPage() {
               onClick={() => router.push('/global-admin/users')}
               sx={{ py: 1.5, justifyContent: 'flex-start' }}
             >
-              View All Users
+              {t('globalAdmin.overview.viewAllUsers')}
             </Button>
             <Button
               fullWidth
@@ -215,7 +215,7 @@ export default function OverviewPage() {
               onClick={() => router.push('/global-admin/analytics')}
               sx={{ py: 1.5, justifyContent: 'flex-start' }}
             >
-              View Analytics
+              {t('globalAdmin.overview.viewAnalytics')}
             </Button>
           </Box>
         </Box>

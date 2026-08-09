@@ -179,6 +179,13 @@ async def login(
     # Update last login
     user.last_login = datetime.utcnow()
     await db.commit()
+
+    # Link any proposal invites that were sent before this account existed
+    try:
+        from services.proposal_invites import claim_pending_proposal_invites
+        await claim_pending_proposal_invites(db, user)
+    except Exception as e:
+        print(f"Failed to claim pending proposal invites on login for {user.email}: {e}")
     
     # Create token with extended expiry for admins
     is_admin = user.is_global_admin or user.is_institution_admin

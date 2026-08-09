@@ -9,8 +9,9 @@ services:
     stdin_open: true
     tty: true
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-d6xvCEiRaBMmOwWqg69Np67pqcYWhqTF}@host.docker.internal:15432/dacoris
-      - FRONTEND_URL=http://192.168.0.110
+      # Remote db: user=dacoris, db=dacoris_rims; @ in password → %40
+      - DATABASE_URL=postgresql+asyncpg://dacoris:Dacoris_RIMS%402026@host.docker.internal:15432/dacoris_rims
+      - FRONTEND_URL=https://rims.dacoris.com
       - JWT_SECRET_KEY=f61375a0bb2981f19a4391c3e294b49a
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
@@ -32,7 +33,7 @@ services:
       - FROM_EMAIL=DACORIS <no-reply@dacoris.org>
       # Admin account creation (set these to auto-create admin on first run)
       - ADMIN_NAME=Global Admin
-      - ADMIN_EMAIL=admin@ascensiondynamics.com
+      - ADMIN_EMAIL=admin@dacoris.com
       - ADMIN_PASSWORD=Demo@12345
       # MinIO Configuration (Lakehouse Bronze Layer)
       - MINIO_ENDPOINT=http://102.68.87.70:9000

@@ -62,20 +62,23 @@ jobs:
         if: ${{ !inputs.skip_backup }}
         run: |
           ssh dacoris@41.89.92.140 '
-            cd /home/dacoris
+            cd /opt/dacoris/rims
             
             # Create backup directory
             mkdir -p /var/backups/dacoris
             
-            # Backup database
+            # Backup database (DB name/user from .env.production)
             echo "💾 Creating database backup..."
-            docker exec dacoris-db-prod pg_dump -U postgres dacoris | gzip > /var/backups/dacoris/backup-$(date +%Y%m%d_%H%M%S).sql.gz || echo "⚠️  Database backup failed"
+            set -a
+            . ./.env.production
+            set +a
+            docker exec dacoris-db-prod pg_dump -U "${DB_USER:-dacoris}" "${DB_NAME:-dacoris_rims}" | gzip > /var/backups/dacoris/backup-$(date +%Y%m%d_%H%M%S).sql.gz || echo "⚠️  Database backup failed"
           '
       
       - name: Pull latest code
         run: |
           ssh dacoris@41.89.92.140 '
-            cd /home/dacoris
+            cd /opt/dacoris/rims
             
             echo "📥 Pulling latest code from GitHub..."
             git pull origin main
@@ -87,7 +90,7 @@ jobs:
       - name: Verify environment file
         run: |
           ssh dacoris@41.89.92.140 '
-            cd /home/dacoris
+            cd /opt/dacoris/rims
             
             if [ ! -f .env.production ]; then
               echo "❌ .env.production file not found!"
@@ -101,7 +104,7 @@ jobs:
       - name: Deploy with Docker Compose
         run: |
           ssh dacoris@41.89.92.140 '
-            cd /home/dacoris
+            cd /opt/dacoris/rims
             
             echo "🐳 Deploying services with Docker Compose..."
             
@@ -118,7 +121,7 @@ jobs:
       - name: Run database migrations
         run: |
           ssh dacoris@41.89.92.140 '
-            cd /home/dacoris
+            cd /opt/dacoris/rims
             
             echo "📊 Running database migrations..."
             docker compose -f docker-compose.prod.yml --env-file .env.production exec -T backend alembic upgrade head || echo "⚠️  Migrations failed or already up to date"
@@ -127,7 +130,7 @@ jobs:
       - name: Verify deployment
         run: |
           ssh dacoris@41.89.92.140 '
-            cd /home/dacoris
+            cd /opt/dacoris/rims
             
             echo "✅ Checking container status..."
             docker compose -f docker-compose.prod.yml --env-file .env.production ps
@@ -154,7 +157,7 @@ jobs:
           
           echo "❌ Health check failed after $max_attempts attempts"
           echo "📋 Checking logs..."
-          ssh dacoris@41.89.92.140 'cd /home/dacoris && docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=50'
+          ssh dacoris@41.89.92.140 'cd /opt/dacoris/rims && docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=50'
           exit 1
       
       - name: Show logs on failure
@@ -162,7 +165,7 @@ jobs:
         run: |
           echo "❌ Deployment failed. Showing recent logs..."
           ssh dacoris@41.89.92.140 '
-            cd /home/dacoris
+            cd /opt/dacoris/rims
             echo "=== Backend Logs ==="
             docker compose -f docker-compose.prod.yml --env-file .env.production logs backend --tail=100
             echo ""
@@ -174,7 +177,7 @@ jobs:
           '
           echo ""
           echo "💡 To rollback manually, SSH to the server and run:"
-          echo "   cd /home/dacoris"
+          echo "   cd /opt/dacoris/rims"
           echo "   git reset --hard HEAD~1"
           echo "   docker compose -f docker-compose.prod.yml --env-file .env.production down"
           echo "   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build"

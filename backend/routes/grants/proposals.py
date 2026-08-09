@@ -2,26 +2,166 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, R
 from fastapi.responses import FileResponse as FastAPIFileResponse
 import os
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text, or_
+from sqlalchemy import select, text, or_, func
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from database import get_db
 from models import (Proposal, ProposalSection, ProposalSectionVersion, ProposalDocument,
                     ProposalDocumentRequirement, ProposalCollaborator, ProposalStatus, GrantOpportunity, User, UserStatus,
                     ProposalStageHistory, ProposalStageAssignment, STAGE_INTENDED_DAYS, Award, BudgetLine,
                     PrimaryAccountType, ResearchRole, user_roles, ReviewerAssignment, ReviewType,
-                    ReviewerAssignmentStatus)
+                    ReviewerAssignmentStatus, NotificationType)
 from auth import require_roles, ResearchRole, get_current_user
 from services.workflow import can_transition_proposal
 from services.notifications import create_notification
 from services.file_upload import save_upload
 from services.reviewer_onboarding import get_or_create_reviewer_user
 from services.collaborator_matcher import suggest_collaborators, researcher_profile_snapshot
+from services.email_service import EmailService
 
 router = APIRouter(prefix="/api/grants/proposals", tags=["proposals"])
+
+DEFAULT_INVITE_RESPONSE_DAYS = int(os.getenv("INVITE_RESPONSE_DAYS", "7"))
+
+
+def _invite_due_from_now(days: Optional[int] = None) -> datetime:
+    return datetime.now(timezone.utc) + timedelta(days=days if days is not None else DEFAULT_INVITE_RESPONSE_DAYS)
+
+# Account types that can see all institutional proposals (including drafts)
+_INSTITUTION_PROPOSAL_VIEWERS = {
+    PrimaryAccountType.ADMIN_STAFF,
+    PrimaryAccountType.GRANT_MANAGER,
+    PrimaryAccountType.INSTITUTIONAL_LEADERSHIP,
+    PrimaryAccountType.DIRECTOR_RESEARCH,
+    PrimaryAccountType.DVC_RESEARCH,
+    PrimaryAccountType.RESEARCH_ADMINISTRATOR,
+}
+
+# Only Director Research and Research Administrator may assign stage reviewers
+_REVIEWER_ASSIGNER_ACCOUNT_TYPES = {
+    PrimaryAccountType.DIRECTOR_RESEARCH,
+    PrimaryAccountType.RESEARCH_ADMINISTRATOR,
+}
+_REVIEWER_ASSIGNER_ROLES = {
+    ResearchRole.DIRECTOR_RESEARCH.value,
+    ResearchRole.RESEARCH_ADMIN.value,
+    "DIRECTOR_RESEARCH",
+    "RESEARCH_ADMIN",
+    "RESEARCH_ADMINISTRATOR",
+}
+
+
+def _can_view_all_institution_proposals(user: User) -> bool:
+    if user.is_global_admin or user.is_institution_admin:
+        return True
+    return user.primary_account_type in _INSTITUTION_PROPOSAL_VIEWERS
+
+
+async def _can_assign_stage_reviewers(db: AsyncSession, user: User) -> bool:
+    """Director Research / Research Administrator (or platform admins)."""
+    if user.is_institution_admin or user.is_global_admin:
+        return True
+    if user.primary_account_type in _REVIEWER_ASSIGNER_ACCOUNT_TYPES:
+        return True
+    roles_res = await db.execute(
+        text("SELECT role::text FROM user_roles WHERE user_id = :uid"),
+        {"uid": user.id},
+    )
+    role_names = {r[0] for r in roles_res.fetchall()}
+    return bool(role_names & _REVIEWER_ASSIGNER_ROLES)
+
+
+async def _require_proposal_workspace_access(
+    db: AsyncSession,
+    proposal: Proposal,
+    user: User,
+) -> None:
+    """Lead PI, accepted collaborators, or institution viewers may open/work a proposal.
+    Pending invitees must accept before they can access the workspace.
+    """
+    if _can_view_all_institution_proposals(user):
+        return
+    if proposal.lead_pi_id == user.id:
+        return
+
+    result = await db.execute(
+        select(ProposalCollaborator.status).where(
+            ProposalCollaborator.proposal_id == proposal.id,
+            ProposalCollaborator.user_id == user.id,
+        ).limit(1)
+    )
+    status = result.scalar_one_or_none()
+    if status == "accepted":
+        return
+    if status == "pending":
+        raise HTTPException(
+            403,
+            "Accept the collaboration invitation before working on this proposal",
+        )
+    raise HTTPException(403, "You do not have access to this proposal")
+
+
+async def _resolve_collab_invite_notifications(
+    db: AsyncSession,
+    user_id: str,
+    proposal_id: str,
+    collaborator_id: str,
+) -> None:
+    """Mark invite notifications for this collaboration as read so they leave the actionable list."""
+    from models import Notification
+
+    link = f"/researcher/grants/proposals/{proposal_id}/collab/{collaborator_id}"
+    result = await db.execute(
+        select(Notification).where(
+            Notification.recipient_id == user_id,
+            Notification.action_url == link,
+            Notification.is_read == False,
+        )
+    )
+    now = datetime.now(timezone.utc)
+    for n in result.scalars().all():
+        n.is_read = True
+        n.read_at = now
+
+
+async def _notify_director_research_new_proposal(
+    db: AsyncSession,
+    proposal: Proposal,
+    creator: User,
+) -> None:
+    """In-app notify Director Research users when a new proposal is created."""
+    if not proposal.institution_id:
+        return
+
+    director_ids = select(user_roles.c.user_id).where(
+        user_roles.c.role == ResearchRole.DIRECTOR_RESEARCH
+    )
+    result = await db.execute(
+        select(User).where(
+            User.primary_institution_id == proposal.institution_id,
+            User.status == UserStatus.ACTIVE,
+            User.id != creator.id,
+            or_(
+                User.primary_account_type == PrimaryAccountType.DIRECTOR_RESEARCH,
+                User.id.in_(director_ids),
+            ),
+        )
+    )
+    directors = result.scalars().all()
+    for director in directors:
+        await create_notification(
+            db,
+            director.id,
+            title="New Proposal Created",
+            message=f"{creator.name} created a new proposal: '{proposal.title}'",
+            entity_type="proposal",
+            entity_id=proposal.id,
+            link=f"/admin-staff/grants/proposals/{proposal.id}",
+            notification_type=NotificationType.PROPOSAL_SUBMITTED,
+        )
 
 
 async def _normalize_section_orders(db: AsyncSession, proposal_id: str, sections: Optional[list] = None) -> None:
@@ -107,10 +247,13 @@ class CollaboratorOut(BaseModel):
     id: str
     role: str
     status: str
+    user_id: Optional[str] = None
     invited_email: Optional[str] = None
     invited_orcid: Optional[str] = None
     invited_name: Optional[str] = None
     invited_affiliation: Optional[str] = None
+    invited_at: Optional[datetime] = None
+    invite_due_at: Optional[datetime] = None
     user: Optional[UserBasic] = None
 
     class Config:
@@ -234,6 +377,37 @@ async def create_proposal(
     if existing.scalar_one_or_none():
         raise HTTPException(400, "You have already applied for this opportunity")
 
+    # Pre-resolve collaborators and require an email for every invitee
+    resolved_collabs = []
+    if data.collaborators:
+        for collab in data.collaborators:
+            user = None
+            invite_email = (collab.email or "").strip().lower() or None
+
+            if collab.user_id:
+                user = await db.get(User, collab.user_id)
+            if not user and collab.orcid:
+                result = await db.execute(
+                    select(User).where(User.orcid_id == collab.orcid)
+                )
+                user = result.scalar_one_or_none()
+            if not user and invite_email:
+                result = await db.execute(
+                    select(User).where(func.lower(User.email) == invite_email)
+                )
+                user = result.scalar_one_or_none()
+
+            if user and not invite_email:
+                invite_email = (user.email or "").strip().lower() or None
+
+            if not invite_email:
+                raise HTTPException(
+                    400,
+                    f"Email is required for collaborator '{collab.name}' so the invitation can be sent",
+                )
+
+            resolved_collabs.append((collab, user, invite_email))
+
     proposal = Proposal(
         opportunity_id=data.opportunity_id,
         institution_id=current_user.primary_institution_id,
@@ -243,93 +417,107 @@ async def create_proposal(
     db.add(proposal)
     await db.flush()
 
-    # Invite collaborators
-    if data.collaborators:
-        for collab in data.collaborators:
-            user = None
-            invitation_token = None
-            
-            # Try to find user by user_id (Dacoris search), ORCID, or email
-            if collab.user_id:
-                user = await db.get(User, collab.user_id)
-            elif collab.orcid:
-                result = await db.execute(
-                    select(User).where(User.orcid_id == collab.orcid)
-                )
-                user = result.scalar_one_or_none()
-            elif collab.email:
-                result = await db.execute(
-                    select(User).where(
-                        User.email == collab.email,
-                        User.primary_institution_id == current_user.primary_institution_id
-                    )
-                )
-                user = result.scalar_one_or_none()
-            
+    # Persist collaborators + in-app notifications first; send emails after commit
+    import secrets
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    pending_emails = []  # list of async call specs after commit
+
+    if resolved_collabs:
+        for collab, user, invite_email in resolved_collabs:
             if user:
-                # User exists - add as collaborator with pending status
+                due_at = _invite_due_from_now()
                 new_collab = ProposalCollaborator(
                     proposal_id=proposal.id,
                     user_id=user.id,
                     role=collab.role,
                     status="pending",
-                    invited_affiliation=collab.affiliation
+                    invited_email=invite_email,
+                    invited_name=collab.name,
+                    invited_orcid=collab.orcid,
+                    invited_affiliation=collab.affiliation,
+                    invite_due_at=due_at,
                 )
                 db.add(new_collab)
-                await db.flush()  # Flush to get the ID
-                
-                # Send in-app notification with collaborator_id for action buttons
+                await db.flush()
+
                 await create_notification(
                     db, user.id,
                     title="Proposal Collaboration Invite",
                     message=f"{current_user.name} invited you to collaborate on '{data.title}' as {collab.role}",
-                    link=f"/researcher/grants/proposals/{proposal.id}/collab/{new_collab.id}"
+                    entity_type="proposal",
+                    entity_id=proposal.id,
+                    link=f"/researcher/grants/proposals/{proposal.id}/collab/{new_collab.id}",
+                    notification_type=NotificationType.PROPOSAL_INVITATION,
                 )
-                
-                # Send email notification
-                from services.email_service import EmailService
-                try:
-                    await EmailService.send_collaboration_invite_email(
-                        email=user.email,
-                        inviter_name=current_user.name,
-                        proposal_title=data.title,
-                        role=collab.role,
-                        proposal_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/researcher/grants/proposals/{proposal.id}"
-                    )
-                except Exception as e:
-                    print(f"Failed to send email to {user.email}: {e}")
+
+                pending_emails.append({
+                    "kind": "registered",
+                    "email": user.email or invite_email,
+                    "role": collab.role,
+                    "proposal_url": f"{frontend_url}/researcher/grants/proposals/{proposal.id}",
+                })
             else:
-                # User doesn't exist - create pending invitation
-                import secrets
                 invitation_token = secrets.token_urlsafe(32)
-                
+                registration_url = f"{frontend_url}/register?invitation={invitation_token}"
+                due_at = _invite_due_from_now()
+
                 db.add(ProposalCollaborator(
                     proposal_id=proposal.id,
                     user_id=None,
                     role=collab.role,
                     status="pending",
-                    invited_email=collab.email,
+                    invited_email=invite_email,
                     invited_orcid=collab.orcid,
                     invited_name=collab.name,
                     invited_affiliation=collab.affiliation,
-                    invitation_token=invitation_token
+                    invitation_token=invitation_token,
+                    invite_due_at=due_at,
                 ))
-                
-                # Send invitation email for unregistered user
-                from services.email_service import EmailService
-                try:
-                    await EmailService.send_new_user_invitation_email(
-                        email=collab.email,
-                        inviter_name=current_user.name,
-                        proposal_title=data.title,
-                        role=collab.role,
-                        invitation_token=invitation_token
-                    )
-                except Exception as e:
-                    print(f"Failed to send invitation email to {collab.email}: {e}")
 
+                pending_emails.append({
+                    "kind": "unregistered",
+                    "email": invite_email,
+                    "role": collab.role,
+                    "invitation_token": invitation_token,
+                    "proposal_url": registration_url,
+                })
+
+    await _notify_director_research_new_proposal(db, proposal, current_user)
     await db.commit()
-    
+
+    # Send invite emails after commit so SMTP failures cannot roll back the proposal
+    for job in pending_emails:
+        try:
+            if job["kind"] == "registered":
+                sent = await EmailService.send_collaboration_invite_email(
+                    email=job["email"],
+                    inviter_name=current_user.name,
+                    proposal_title=data.title,
+                    role=job["role"],
+                    proposal_url=job["proposal_url"],
+                )
+                print(f"Invite email to {job['email']}: {'ok' if sent else 'FAILED'}")
+            else:
+                account_sent = await EmailService.send_account_creation_invite_email(
+                    email=job["email"],
+                    inviter_name=current_user.name,
+                    invitation_token=job["invitation_token"],
+                )
+                collab_sent = await EmailService.send_collaboration_invite_email(
+                    email=job["email"],
+                    inviter_name=current_user.name,
+                    proposal_title=data.title,
+                    role=job["role"],
+                    proposal_url=job["proposal_url"],
+                )
+                print(
+                    f"New-user invite emails to {job['email']}: "
+                    f"account={'ok' if account_sent else 'FAILED'}, "
+                    f"collab={'ok' if collab_sent else 'FAILED'}"
+                )
+        except Exception as e:
+            print(f"Failed to send invite email(s) to {job.get('email')}: {e}")
+
     # Reload with relationships eagerly loaded
     result = await db.execute(
         select(Proposal).where(Proposal.id == proposal.id).options(
@@ -354,28 +542,21 @@ async def list_proposals(
         ResearchRole.INSTITUTIONAL_LEAD
     ]))
 ):
-    # Admin staff (GRANT_OFFICER, INSTITUTIONAL_LEAD) and admins see all institutional proposals
-    # Researchers only see their own proposals (lead PI or accepted collaborator)
-    is_admin_staff = (
-        current_user.primary_account_type in [PrimaryAccountType.ADMIN_STAFF, PrimaryAccountType.GRANT_MANAGER, PrimaryAccountType.INSTITUTIONAL_LEADERSHIP]
-        or current_user.is_global_admin
-        or current_user.is_institution_admin
-    )
-    
-    if is_admin_staff:
-        # Admin staff: show all proposals from their institution
+    # Admin-staff portal roles (Director Research, Research Admin, etc.) see all
+    # institutional proposals including drafts. Researchers only see their own /
+    # accepted collaborations (pending invitees must accept first).
+    if _can_view_all_institution_proposals(current_user):
         query = select(Proposal).where(
             Proposal.institution_id == current_user.primary_institution_id
         )
     else:
-        # Researchers: only show proposals where they are lead PI or accepted collaborator
         query = select(Proposal).where(
             or_(
                 Proposal.lead_pi_id == current_user.id,
                 Proposal.id.in_(
                     select(ProposalCollaborator.proposal_id).where(
                         ProposalCollaborator.user_id == current_user.id,
-                        ProposalCollaborator.status == "accepted"
+                        ProposalCollaborator.status == "accepted",
                     )
                 )
             )
@@ -395,6 +576,65 @@ async def list_proposals(
     )
     result = await db.execute(query.order_by(Proposal.created_at.desc()))
     return result.scalars().all()
+
+
+class PendingInviteOut(BaseModel):
+    collaborator_id: str
+    proposal_id: str
+    proposal_title: str
+    proposal_status: str
+    role: str
+    status: str
+    invited_at: Optional[datetime] = None
+    invite_due_at: Optional[datetime] = None
+    lead_pi_name: Optional[str] = None
+    opportunity_title: Optional[str] = None
+
+
+@router.get("/invitations", response_model=List[PendingInviteOut])
+async def list_pending_invitations(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List collaboration invites the current user has not yet accepted or declined."""
+    email = (current_user.email or "").strip().lower()
+    conditions = [
+        ProposalCollaborator.user_id == current_user.id,
+    ]
+    if email:
+        conditions.append(func.lower(ProposalCollaborator.invited_email) == email)
+
+    result = await db.execute(
+        select(ProposalCollaborator)
+        .options(
+            selectinload(ProposalCollaborator.proposal).selectinload(Proposal.opportunity),
+            selectinload(ProposalCollaborator.proposal).selectinload(Proposal.lead_pi),
+        )
+        .where(
+            ProposalCollaborator.status == "pending",
+            or_(*conditions),
+        )
+        .order_by(ProposalCollaborator.invited_at.desc().nullslast())
+    )
+    collabs = result.scalars().all()
+    out = []
+    for c in collabs:
+        proposal = c.proposal
+        if not proposal:
+            continue
+        out.append(PendingInviteOut(
+            collaborator_id=c.id,
+            proposal_id=proposal.id,
+            proposal_title=proposal.title,
+            proposal_status=proposal.status.value if hasattr(proposal.status, "value") else str(proposal.status),
+            role=c.role,
+            status=c.status,
+            invited_at=c.invited_at,
+            invite_due_at=c.invite_due_at,
+            lead_pi_name=proposal.lead_pi.name if proposal.lead_pi else None,
+            opportunity_title=proposal.opportunity.title if proposal.opportunity else None,
+        ))
+    return out
 
 
 @router.get("/{proposal_id}")
@@ -429,6 +669,8 @@ async def get_proposal(
     if not proposal:
         raise HTTPException(404, "Proposal not found")
 
+    await _require_proposal_workspace_access(db, proposal, current_user)
+
     await _normalize_section_orders(db, proposal_id, proposal.sections)
 
     # Sort sections by section_order (stable tie-breaker on id)
@@ -455,6 +697,8 @@ async def reorder_sections(
     proposal = result.scalar_one_or_none()
     if not proposal:
         raise HTTPException(404, "Proposal not found")
+
+    await _require_proposal_workspace_access(db, proposal, current_user)
 
     if proposal.status != ProposalStatus.DRAFT:
         raise HTTPException(400, "Cannot reorder sections in non-draft proposals")
@@ -494,7 +738,10 @@ async def update_section(
     # First check if user is the lead PI (always allowed)
     proposal_check = await db.execute(select(Proposal).where(Proposal.id == proposal_id))
     proposal_obj = proposal_check.scalar_one_or_none()
-    is_lead_pi = proposal_obj and proposal_obj.lead_pi_id == current_user.id
+    if not proposal_obj:
+        raise HTTPException(404, "Proposal not found")
+    await _require_proposal_workspace_access(db, proposal_obj, current_user)
+    is_lead_pi = proposal_obj.lead_pi_id == current_user.id
     
     if section.allowed_roles and not is_lead_pi:
         allowed = [r.strip() for r in section.allowed_roles.split(",") if r.strip()]
@@ -1074,7 +1321,7 @@ async def add_collaborator(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    """Add a collaborator to a proposal"""
+    """Add a collaborator to a proposal and send invite email + in-app notification."""
     result = await db.execute(select(Proposal).where(
         Proposal.id == proposal_id,
         Proposal.lead_pi_id == current_user.id
@@ -1082,36 +1329,57 @@ async def add_collaborator(
     proposal = result.scalar_one_or_none()
     if not proposal:
         raise HTTPException(404, "Proposal not found or you're not the lead PI")
-    
-    # Check if user exists
+
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(404, "User not found")
-    
-    # Check if already a collaborator
+    if not (user.email or "").strip():
+        raise HTTPException(400, "Invitee email is required so the invitation can be sent")
+
     existing = await db.execute(select(ProposalCollaborator).where(
         ProposalCollaborator.proposal_id == proposal_id,
         ProposalCollaborator.user_id == user_id
     ))
     if existing.scalar_one_or_none():
         raise HTTPException(400, "User is already a collaborator")
-    
+
     collaborator = ProposalCollaborator(
         proposal_id=proposal_id,
         user_id=user_id,
-        role=role
+        role=role,
+        status="pending",
+        invited_email=user.email,
+        invited_name=user.name,
+        invite_due_at=_invite_due_from_now(),
     )
     db.add(collaborator)
-    await db.commit()
-    
+    await db.flush()
+
     await create_notification(
         db, user_id,
-        title="Added to proposal",
-        message=f'You have been added as {role} to proposal "{proposal.title}"',
-        entity_type="proposal", entity_id=proposal_id
+        title="Proposal Collaboration Invite",
+        message=f'{current_user.name} invited you to collaborate on "{proposal.title}" as {role}',
+        entity_type="proposal",
+        entity_id=proposal_id,
+        link=f"/researcher/grants/proposals/{proposal_id}/collab/{collaborator.id}",
+        notification_type=NotificationType.PROPOSAL_INVITATION,
     )
-    
-    return {"id": collaborator.id, "user_id": user_id, "role": role}
+    await db.commit()
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    try:
+        sent = await EmailService.send_collaboration_invite_email(
+            email=user.email,
+            inviter_name=current_user.name,
+            proposal_title=proposal.title,
+            role=role,
+            proposal_url=f"{frontend_url}/researcher/grants/proposals/{proposal_id}",
+        )
+        print(f"Invite email to {user.email}: {'ok' if sent else 'FAILED'}")
+    except Exception as e:
+        print(f"Failed to send invite email to {user.email}: {e}")
+
+    return {"id": collaborator.id, "user_id": user_id, "role": role, "status": "pending"}
 
 
 @router.post("/{proposal_id}/collaborators/{collaborator_id}/accept")
@@ -1143,6 +1411,10 @@ async def accept_collaboration_invite(
     collab.status = "accepted"
     collab.user_id = current_user.id
     collab.responded_at = datetime.now(timezone.utc)
+
+    await _resolve_collab_invite_notifications(
+        db, current_user.id, proposal_id, collaborator_id
+    )
     
     # Notify the lead PI
     await create_notification(
@@ -1185,6 +1457,10 @@ async def decline_collaboration_invite(
     # Update collaborator status
     collab.status = "declined"
     collab.responded_at = datetime.now(timezone.utc)
+
+    await _resolve_collab_invite_notifications(
+        db, current_user.id, proposal_id, collaborator_id
+    )
     
     # Notify the lead PI
     await create_notification(
@@ -1205,48 +1481,41 @@ async def link_invitation_after_signup(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Link invitation to user account after signup - called automatically after registration"""
-    # Find pending invitation with this token
-    result = await db.execute(
-        select(ProposalCollaborator).where(
-            ProposalCollaborator.invitation_token == invitation_token,
-            ProposalCollaborator.status == "pending",
-            ProposalCollaborator.user_id == None
-        )
+    """Link invitation to user account after signup — also claims other pending invites for this email."""
+    from services.proposal_invites import claim_pending_proposal_invites
+
+    claimed = await claim_pending_proposal_invites(
+        db, current_user, invitation_token=invitation_token
     )
-    collab = result.scalar_one_or_none()
-    
-    if not collab:
+    if not claimed:
         raise HTTPException(404, "Invitation not found or already claimed")
-    
-    # Verify email matches
-    if collab.invited_email and collab.invited_email.lower() != current_user.email.lower():
-        raise HTTPException(403, "This invitation is for a different email address")
-    
-    # Link invitation to user
-    collab.user_id = current_user.id
-    collab.responded_at = datetime.now(timezone.utc)
-    # Keep status as pending until they explicitly accept
-    
-    # Get proposal details
-    proposal = await db.get(Proposal, collab.proposal_id)
-    
-    # Create notification
-    await create_notification(
-        db, current_user.id,
-        title="Proposal Collaboration Invite",
-        message=f"You've been invited to collaborate on '{proposal.title}' as {collab.role}",
-        link=f"/researcher/grants/proposals/{proposal.id}/collab/{collab.id}"
-    )
-    
-    await db.commit()
-    
+
+    first = claimed[0]
     return {
         "message": "Invitation linked to your account",
-        "proposal_id": collab.proposal_id,
-        "proposal_title": proposal.title,
-        "role": collab.role
+        "proposal_id": first["proposal_id"],
+        "proposal_title": first["proposal_title"],
+        "role": first["role"],
+        "claimed": claimed,
     }
+
+
+@router.post("/invitations/claim")
+async def claim_pending_invitations(
+    invitation_token: Optional[str] = Query(None, description="Optional invitation token from email"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Claim any pending proposal invites for the current user's email.
+    Called after login / registration so invites sent before account creation appear as notifications.
+    """
+    from services.proposal_invites import claim_pending_proposal_invites
+
+    claimed = await claim_pending_proposal_invites(
+        db, current_user, invitation_token=invitation_token
+    )
+    return {"message": "Pending invitations claimed", "count": len(claimed), "claimed": claimed}
 
 
 @router.delete("/{proposal_id}/collaborators/{collaborator_id}")
@@ -1256,7 +1525,7 @@ async def remove_collaborator(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
 ):
-    """Remove a collaborator from a proposal"""
+    """Remove a collaborator / withdraw invite and email the invitee."""
     result = await db.execute(select(Proposal).where(
         Proposal.id == proposal_id,
         Proposal.lead_pi_id == current_user.id
@@ -1264,14 +1533,151 @@ async def remove_collaborator(
     proposal = result.scalar_one_or_none()
     if not proposal:
         raise HTTPException(404, "Proposal not found or you're not the lead PI")
-    
+
     collaborator = await db.get(ProposalCollaborator, collaborator_id)
     if not collaborator or collaborator.proposal_id != proposal_id:
         raise HTTPException(404, "Collaborator not found")
-    
+
+    invitee_user = await db.get(User, collaborator.user_id) if collaborator.user_id else None
+    invite_email = (
+        (collaborator.invited_email or "").strip()
+        or ((invitee_user.email or "").strip() if invitee_user else "")
+    )
+    role = collaborator.role or "Collaborator"
+    was_pending = (collaborator.status or "").lower() == "pending"
+
+    if invitee_user and was_pending:
+        await create_notification(
+            db,
+            invitee_user.id,
+            title="Proposal Invitation Withdrawn",
+            message=f'{current_user.name} withdrew your invitation to "{proposal.title}"',
+            entity_type="proposal",
+            entity_id=proposal_id,
+            link=f"/researcher/grants/proposals",
+            notification_type=NotificationType.PROPOSAL_INVITATION,
+        )
+
     await db.delete(collaborator)
     await db.commit()
-    return {"message": "Collaborator removed"}
+
+    if invite_email and was_pending:
+        try:
+            sent = await EmailService.send_collaboration_invite_cancelled_email(
+                email=invite_email,
+                inviter_name=current_user.name or "A colleague",
+                proposal_title=proposal.title,
+                role=role,
+            )
+            print(f"Cancel invite email to {invite_email}: {'ok' if sent else 'FAILED'}")
+        except Exception as e:
+            print(f"Failed to send cancel invite email to {invite_email}: {e}")
+
+    return {"message": "Collaborator removed", "email_notified": bool(invite_email and was_pending)}
+
+
+@router.post("/{proposal_id}/collaborators/{collaborator_id}/remind")
+async def remind_collaborator(
+    proposal_id: str,
+    collaborator_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR]))
+):
+    """Resend invitation email for a pending collaborator invite."""
+    result = await db.execute(select(Proposal).where(
+        Proposal.id == proposal_id,
+        Proposal.lead_pi_id == current_user.id
+    ))
+    proposal = result.scalar_one_or_none()
+    if not proposal:
+        raise HTTPException(404, "Proposal not found or you're not the lead PI")
+
+    collaborator = await db.get(ProposalCollaborator, collaborator_id)
+    if not collaborator or collaborator.proposal_id != proposal_id:
+        raise HTTPException(404, "Collaborator not found")
+
+    if (collaborator.status or "").lower() != "pending":
+        raise HTTPException(400, "Reminders can only be sent for pending invitations")
+
+    invitee_user = await db.get(User, collaborator.user_id) if collaborator.user_id else None
+    invite_email = (
+        (collaborator.invited_email or "").strip()
+        or ((invitee_user.email or "").strip() if invitee_user else "")
+    )
+    if not invite_email:
+        raise HTTPException(400, "No email address on this invitation")
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    role = collaborator.role or "Collaborator"
+    # Extend response due date when a reminder is sent
+    collaborator.invite_due_at = _invite_due_from_now()
+
+    if invitee_user:
+        proposal_url = f"{frontend_url}/researcher/grants/proposals/{proposal_id}"
+        await create_notification(
+            db,
+            invitee_user.id,
+            title="Proposal Collaboration Invite Reminder",
+            message=f"{current_user.name} reminded you to respond to the invitation for '{proposal.title}' as {role}",
+            entity_type="proposal",
+            entity_id=proposal_id,
+            link=f"/researcher/grants/proposals/{proposal_id}/collab/{collaborator.id}",
+            notification_type=NotificationType.PROPOSAL_INVITATION,
+        )
+        await db.commit()
+        try:
+            sent = await EmailService.send_collaboration_invite_email(
+                email=invite_email,
+                inviter_name=current_user.name or "A colleague",
+                proposal_title=proposal.title,
+                role=role,
+                proposal_url=proposal_url,
+            )
+            print(f"Reminder invite email to {invite_email}: {'ok' if sent else 'FAILED'}")
+            if not sent:
+                raise HTTPException(502, "Failed to send reminder email")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Failed to send reminder email to {invite_email}: {e}")
+            raise HTTPException(502, "Failed to send reminder email")
+    else:
+        import secrets
+        if not collaborator.invitation_token:
+            collaborator.invitation_token = secrets.token_urlsafe(32)
+        await db.commit()
+        registration_url = f"{frontend_url}/register?invitation={collaborator.invitation_token}"
+        try:
+            account_sent = await EmailService.send_account_creation_invite_email(
+                email=invite_email,
+                inviter_name=current_user.name or "A colleague",
+                invitation_token=collaborator.invitation_token,
+            )
+            collab_sent = await EmailService.send_collaboration_invite_email(
+                email=invite_email,
+                inviter_name=current_user.name or "A colleague",
+                proposal_title=proposal.title,
+                role=role,
+                proposal_url=registration_url,
+            )
+            print(
+                f"Reminder new-user emails to {invite_email}: "
+                f"account={'ok' if account_sent else 'FAILED'}, "
+                f"collab={'ok' if collab_sent else 'FAILED'}"
+            )
+            if not (account_sent or collab_sent):
+                raise HTTPException(502, "Failed to send reminder email")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Failed to send reminder emails to {invite_email}: {e}")
+            raise HTTPException(502, "Failed to send reminder email")
+
+    return {
+        "message": "Reminder sent",
+        "email": invite_email,
+        "invite_due_at": collaborator.invite_due_at.isoformat() if collaborator.invite_due_at else None,
+    }
 
 
 @router.get("/{proposal_id}/completion")
@@ -1522,12 +1928,11 @@ async def assign_stage_reviewer(
     current_user: User = Depends(get_current_user),
 ):
     """Assign a reviewer to multiple review stages of a proposal. Can create new reviewers."""
-    is_admin = current_user.is_institution_admin or current_user.is_global_admin
-    if not is_admin:
-        roles_res = await db.execute(text("SELECT role::text FROM user_roles WHERE user_id = :uid"), {"uid": current_user.id})
-        staff_role_names = [r[0] for r in roles_res.fetchall()]
-        if not any(r in {"GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN"} for r in staff_role_names):
-            raise HTTPException(403, "Only grant staff or institution admins can assign reviewers")
+    if not await _can_assign_stage_reviewers(db, current_user):
+        raise HTTPException(
+            403,
+            "Only Director of Research or Research Administrator can assign reviewers",
+        )
 
     proposal = await db.get(Proposal, proposal_id)
     if not proposal:
@@ -1657,12 +2062,11 @@ async def remove_stage_reviewer(
     current_user: User = Depends(get_current_user),
 ):
     """Remove a reviewer assignment from a proposal stage."""
-    is_admin = current_user.is_institution_admin or current_user.is_global_admin
-    if not is_admin:
-        roles_res = await db.execute(text("SELECT role::text FROM user_roles WHERE user_id = :uid"), {"uid": current_user.id})
-        user_roles = [r[0] for r in roles_res.fetchall()]
-        if not any(r in {"GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN"} for r in user_roles):
-            raise HTTPException(403, "Only grant staff or institution admins can remove reviewers")
+    if not await _can_assign_stage_reviewers(db, current_user):
+        raise HTTPException(
+            403,
+            "Only Director of Research or Research Administrator can remove reviewers",
+        )
     
     assignment = await db.get(ProposalStageAssignment, assignment_id)
     if not assignment or assignment.proposal_id != proposal_id:
@@ -1681,8 +2085,15 @@ async def list_available_reviewers(
 ):
     """Return users who can act as reviewers (grant_officer, external_reviewer, etc.).
     If no reviewers with reviewer roles are found, defaults to current user."""
-    reviewer_roles = ("GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD",
-                      "EXTERNAL_REVIEWER", "ETHICS_REVIEWER")
+    # ResearchRole enum values are lowercase; include uppercase aliases for legacy rows
+    reviewer_roles = (
+        "grant_officer", "GRANT_OFFICER",
+        "research_admin", "RESEARCH_ADMIN",
+        "institutional_lead", "INSTITUTIONAL_LEAD",
+        "external_reviewer", "EXTERNAL_REVIEWER",
+        "ethics_reviewer", "ETHICS_REVIEWER",
+        "director_research", "DIRECTOR_RESEARCH",
+    )
     result = await db.execute(
         text("""
             SELECT DISTINCT u.id, u.name, u.email,

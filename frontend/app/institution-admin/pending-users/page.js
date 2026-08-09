@@ -39,14 +39,12 @@ import {
   Work,
 } from '@mui/icons-material';
 
-const roleOptions = [
-  { value: 'GRANT_MANAGER', label: 'Grant Manager' },
-  { value: 'FINANCE_OFFICER', label: 'Finance Officer' },
-  { value: 'DATA_STEWARD', label: 'Data Steward' },
-  { value: 'DATA_ENGINEER', label: 'Data Engineer' },
-  { value: 'ETHICS_COMMITTEE_MEMBER', label: 'Ethics Committee Member' },
-  { value: 'INSTITUTIONAL_LEADERSHIP', label: 'Institutional Leadership' },
-];
+import {
+  PRIMARY_ACCOUNT_TYPES,
+  getPrimaryAccountTypeLabel,
+} from '../../../lib/institutionAdminRoles';
+
+const roleOptions = PRIMARY_ACCOUNT_TYPES;
 
 export default function PendingUsersPage() {
   const theme = useTheme();
@@ -266,7 +264,6 @@ export default function PendingUsersPage() {
                 <TableRow>
                   <TableCell sx={{ color: theme.palette.text.secondary, fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}` }}>Name</TableCell>
                   <TableCell sx={{ color: theme.palette.text.secondary, fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}` }}>Email</TableCell>
-                  <TableCell sx={{ color: theme.palette.text.secondary, fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}` }}>Department</TableCell>
                   <TableCell sx={{ color: theme.palette.text.secondary, fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}` }}>Role</TableCell>
                   <TableCell sx={{ color: theme.palette.text.secondary, fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}` }}>Status</TableCell>
                   <TableCell sx={{ color: theme.palette.text.secondary, fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}` }}>Registered</TableCell>
@@ -301,11 +298,9 @@ export default function PendingUsersPage() {
                       )}
                     </TableCell>
                     <TableCell sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>
-                      <Typography variant="body2" sx={{ color: theme.palette.text.primary }}>{user.department || '-'}</Typography>
-                    </TableCell>
-                    <TableCell sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>
                       <Chip
-                        label={user.primary_account_type?.replace('_', ' ')}
+                        label={(roleOptions.find((r) => r.value === user.primary_account_type)?.label
+                          || getPrimaryAccountTypeLabel(user.primary_account_type))}
                         size="small"
                         sx={{ bgcolor: '#1ca7a1', color: '#fff', fontWeight: 600 }}
                       />

@@ -32,6 +32,10 @@ class PrimaryAccountType(str, enum.Enum):
     DATA_STEWARD = "DATA_STEWARD"
     DATA_ENGINEER = "DATA_ENGINEER"
     INSTITUTIONAL_LEADERSHIP = "INSTITUTIONAL_LEADERSHIP"
+    DVC_RESEARCH = "DVC_RESEARCH"
+    DIRECTOR_RESEARCH = "DIRECTOR_RESEARCH"
+    RESEARCH_ADMINISTRATOR = "RESEARCH_ADMINISTRATOR"
+    LIBRARIAN = "LIBRARIAN"
     EXTERNAL_REVIEWER = "EXTERNAL_REVIEWER"
     GUEST_COLLABORATOR = "GUEST_COLLABORATOR"
     EXTERNAL_FUNDER = "EXTERNAL_FUNDER"
@@ -68,6 +72,9 @@ class ResearchRole(str, enum.Enum):
     DATA_STEWARD = "data_steward"
     DATA_ENGINEER = "data_engineer"
     INSTITUTIONAL_LEAD = "institutional_lead"
+    DVC_RESEARCH = "dvc_research"
+    DIRECTOR_RESEARCH = "director_research"
+    LIBRARIAN = "librarian"
     SYSTEM_ADMIN = "system_admin"
     EXTERNAL_REVIEWER = "external_reviewer"
     GUEST_COLLABORATOR = "guest_collaborator"
@@ -117,6 +124,12 @@ class Institution(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    departments = relationship(
+        "Department",
+        back_populates="institution",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
 
 class InstitutionTypeAssignment(Base):
@@ -134,6 +147,28 @@ class InstitutionTypeAssignment(Base):
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
 
     institution = relationship("Institution", back_populates="type_assignments")
+
+
+class Department(Base):
+    __tablename__ = "departments"
+    __table_args__ = (
+        UniqueConstraint('institution_id', 'name', name='unique_department_name_per_institution'),
+    )
+
+    id = Column(String, primary_key=True, index=True, default=generate_uuid)
+    institution_id = Column(String, ForeignKey('institutions.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    institution_type = Column(
+        Enum(InstitutionType, name='institutiontype', values_callable=lambda x: [e.value for e in x], create_type=False),
+        nullable=True,
+    )
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    institution = relationship("Institution", back_populates="departments")
 
 class User(Base):
     __tablename__ = "users"
@@ -519,6 +554,7 @@ class ProposalCollaborator(Base):
     invited_name = Column(String(200))  # For pending invites
     invited_affiliation = Column(String(500))  # For pending invites
     invited_at = Column(DateTime(timezone=True), server_default=func.now())
+    invite_due_at = Column(DateTime(timezone=True), nullable=True)  # Response due date for pending invites
     responded_at = Column(DateTime(timezone=True))
     invitation_token = Column(String(100), unique=True, nullable=True)  # Token for invitation link
 

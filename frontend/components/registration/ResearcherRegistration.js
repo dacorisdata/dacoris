@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import { Badge, CheckCircleOutline, InfoOutlined, CheckCircle, Cancel, Close } from '@mui/icons-material';
 import { useLanguage } from '../../contexts/LanguageContext';
+import DepartmentSelect from './DepartmentSelect';
 
 const institutions = [
   'University of Nairobi',
@@ -67,7 +68,7 @@ export default function ResearcherRegistration({
     if (!email || !email.includes('@')) {
       setEmailVerified(false);
       setVerificationMessage('');
-      onChange({ ...formData, institution: '', institution_id: null });
+      onChange({ ...formData, institution: '', institution_id: null, institution_types: [], department: '' });
       return;
     }
 
@@ -90,17 +91,19 @@ export default function ResearcherRegistration({
         onChange({ 
           ...formData, 
           institution: data.institution_name,
-          institution_id: data.institution_id 
+          institution_id: data.institution_id,
+          institution_types: data.institution_types || [],
+          department: '',
         });
       } else {
         setEmailVerified(false);
         setVerificationMessage(data.message);
-        onChange({ ...formData, institution: '', institution_id: null });
+        onChange({ ...formData, institution: '', institution_id: null, institution_types: [], department: '' });
       }
     } catch (error) {
       console.error('Email verification error:', error);
       setVerificationMessage(t('registerResearcher.emailVerifyFailed'));
-      onChange({ ...formData, institution: '', institution_id: null });
+      onChange({ ...formData, institution: '', institution_id: null, institution_types: [], department: '' });
     } finally {
       setVerifyingEmail(false);
     }
@@ -517,6 +520,32 @@ export default function ResearcherRegistration({
                     WebkitTextFillColor: 'text.primary',
                   },
                 }}
+              />
+            </Box>
+          )}
+
+          {emailVerified && formData.institution_id && (
+            <Box>
+              <Typography
+                variant="caption"
+                sx={{
+                  mb: 1,
+                  display: 'block',
+                  color: 'text.primary',
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}
+              >
+                {t('registerResearcher.departmentLabel')}
+              </Typography>
+              <DepartmentSelect
+                institutionId={formData.institution_id}
+                value={formData.department}
+                onChange={(val) => onChange({ ...formData, department: val })}
+                error={!!errors.department}
+                helperText={errors.department || undefined}
               />
             </Box>
           )}

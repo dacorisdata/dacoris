@@ -17,6 +17,7 @@ import {
   TableHead,
   TableRow,
   Button,
+  Snackbar,
 } from '@mui/material';
 import {
   Assignment as AssignmentIcon,
@@ -26,6 +27,9 @@ import {
   RocketLaunch as RocketIcon,
   Handshake as HandshakeIcon,
   Verified as VerifiedIcon,
+  MailOutline as InviteIcon,
+  Check as CheckIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -160,9 +164,12 @@ export default function ResearcherOverview() {
   const [error, setError] = useState('');
   const [projects, setProjects] = useState([]);
   const [proposals, setProposals] = useState([]);
+  const [pendingInvites, setPendingInvites] = useState([]);
   const [ethicsApps, setEthicsApps] = useState([]);
   const [awards, setAwards] = useState([]);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [inviteActionId, setInviteActionId] = useState(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const fmtDate = (d) => d
     ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -224,14 +231,16 @@ export default function ResearcherOverview() {
     setError('');
     try {
       const headers = authHeaders();
-      const [projectsRes, proposalsRes, ethicsRes, awardsRes] = await Promise.all([
+      const [projectsRes, proposalsRes, invitesRes, ethicsRes, awardsRes] = await Promise.all([
         axios.get(`${API}/research/projects`, { headers }).catch(() => ({ data: [] })),
         axios.get(`${API}/grants/proposals`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/grants/proposals/invitations`, { headers }).catch(() => ({ data: [] })),
         axios.get(`${API}/research/ethics/my`, { headers }).catch(() => ({ data: [] })),
         axios.get(`${API}/grants/awards`, { headers }).catch(() => ({ data: [] })),
       ]);
       setProjects(projectsRes.data || []);
       setProposals(proposalsRes.data || []);
+      setPendingInvites(invitesRes.data || []);
       setEthicsApps(ethicsRes.data || []);
       setAwards(awardsRes.data || []);
       setLastUpdated(new Date());
@@ -239,6 +248,51 @@ export default function ResearcherOverview() {
       setError(t('researcher.overview.errorLoad'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const isWorkspaceProposal = (p) => {
+    if (!user?.id) return false;
+    if (p.lead_pi_id === user.id) return true;
+    const mine = (p.collaborators || []).find(c => c.user_id === user.id);
+    return Boolean(mine && normalize(mine.status) === 'accepted');
+  };
+
+  // Only lead PI / accepted collaborators count toward submissions (not pending invites)
+  const workspaceProposals = useMemo(
+    () => proposals.filter(isWorkspaceProposal),
+    [proposals, user],
+  );
+
+  const handleInviteRespond = async (invite, action) => {
+    setInviteActionId(`${invite.collaborator_id}-${action}`);
+    try {
+      const headers = { ...authHeaders(), 'Content-Type': 'application/json' };
+      await axios.post(
+        `${API}/grants/proposals/${invite.proposal_id}/collaborators/${invite.collaborator_id}/${action}`,
+        {},
+        { headers },
+      );
+      setPendingInvites(prev => prev.filter(i => i.collaborator_id !== invite.collaborator_id));
+      setSnackbar({
+        open: true,
+        severity: 'success',
+        message: action === 'accept'
+          ? t('researcher.overview.invites.accepted')
+          : t('researcher.overview.invites.declined'),
+      });
+      if (action === 'accept') {
+        await loadDashboard();
+        router.push(`/researcher/grants/proposals/${invite.proposal_id}`);
+      }
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        severity: 'error',
+        message: err?.response?.data?.detail || t('researcher.overview.invites.actionFailed'),
+      });
+    } finally {
+      setInviteActionId(null);
     }
   };
 
@@ -250,7 +304,7 @@ export default function ResearcherOverview() {
   const submissions = useMemo(() => {
     const items = [];
 
-    proposals
+    workspaceProposals
       .filter(p => !TERMINAL_PROPOSAL.has(normalize(p.status)))
       .forEach(p => {
         const status = normalize(p.status);
@@ -287,7 +341,7 @@ export default function ResearcherOverview() {
       });
 
     return items.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-  }, [proposals, ethicsApps, t]);
+  }, [workspaceProposals, ethicsApps, t]);
 
   const projectChartData = useMemo(
     () => countBy(projects, p => normalize(p.status)),
@@ -295,8 +349,8 @@ export default function ResearcherOverview() {
   );
 
   const submissionChartData = useMemo(() => {
-    const grantDraft = proposals.filter(p => normalize(p.status) === 'draft').length;
-    const grantReview = proposals.filter(p => ['returned', 'submitted', 'internal_review', 'under_review'].includes(normalize(p.status))).length;
+    const grantDraft = workspaceProposals.filter(p => normalize(p.status) === 'draft').length;
+    const grantReview = workspaceProposals.filter(p => ['returned', 'submitted', 'internal_review', 'under_review'].includes(normalize(p.status))).length;
     const ethicsDraft = ethicsApps.filter(a => normalize(a.status) === 'draft').length;
     const ethicsReview = ethicsApps.filter(a => ['submitted', 'assigned', 'screened', 'under_review', 'decision'].includes(normalize(a.status))).length;
     return [
@@ -305,7 +359,7 @@ export default function ResearcherOverview() {
       { key: 'ethics_draft', count: ethicsDraft },
       { key: 'ethics_review', count: ethicsReview },
     ].filter(d => d.count > 0);
-  }, [proposals, ethicsApps]);
+  }, [workspaceProposals, ethicsApps]);
 
   const stats = useMemo(() => {
     const proposedProjects = projects.filter(p => normalize(p.status) === 'proposed').length;
@@ -313,8 +367,8 @@ export default function ResearcherOverview() {
     const totalAwardValue = activeAwardsList.reduce((s, a) => s + (a.total_amount || 0), 0);
     const awardCurrency = activeAwardsList[0]?.currency || 'USD';
 
-    const grantDraft = proposals.filter(p => !TERMINAL_PROPOSAL.has(normalize(p.status)) && normalize(p.status) === 'draft').length;
-    const grantInReview = proposals.filter(p => !TERMINAL_PROPOSAL.has(normalize(p.status)) && normalize(p.status) !== 'draft').length;
+    const grantDraft = workspaceProposals.filter(p => !TERMINAL_PROPOSAL.has(normalize(p.status)) && normalize(p.status) === 'draft').length;
+    const grantInReview = workspaceProposals.filter(p => !TERMINAL_PROPOSAL.has(normalize(p.status)) && normalize(p.status) !== 'draft').length;
     const ethicsDraft = ethicsApps.filter(a => !TERMINAL_ETHICS.has(normalize(a.status)) && normalize(a.status) === 'draft').length;
     const ethicsInReview = ethicsApps.filter(a => !TERMINAL_ETHICS.has(normalize(a.status)) && normalize(a.status) !== 'draft').length;
 
@@ -332,8 +386,9 @@ export default function ResearcherOverview() {
       inReviewSubmissions: grantInReview + ethicsInReview,
       ethicsApproved,
       ethicsPending,
+      pendingInvites: pendingInvites.length,
     };
-  }, [activeProjects, awards, submissions, proposals, ethicsApps, projects]);
+  }, [activeProjects, awards, submissions, workspaceProposals, ethicsApps, projects, pendingInvites]);
 
   const submissionColorMap = {
     grant_draft: '#f59e0b',
@@ -708,6 +763,112 @@ export default function ResearcherOverview() {
         )}
       </Card>
 
+      {pendingInvites.length > 0 && (
+        <Card sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
+            <Box>
+              <Typography sx={{ color: '#0ea5e9', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 0.5 }}>
+                {t('researcher.overview.invites.eyebrow')}
+              </Typography>
+              <Typography sx={{ color: 'text.primary', fontSize: 16, fontWeight: 600 }}>
+                {t('researcher.overview.invites.title')}
+              </Typography>
+              <Typography sx={{ color: 'text.secondary', fontSize: 12.5, mt: 0.5 }}>
+                {t('researcher.overview.invites.subtitle')}
+              </Typography>
+            </Box>
+            <Chip
+              icon={<InviteIcon sx={{ fontSize: 16 }} />}
+              label={t('researcher.overview.invites.count', { count: pendingInvites.length })}
+              size="small"
+              sx={{
+                fontWeight: 700,
+                bgcolor: 'rgba(14,165,233,0.12)',
+                color: '#0284c7',
+                border: '1px solid rgba(14,165,233,0.28)',
+              }}
+            />
+          </Box>
+
+          <Paper elevation={0} variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
+                    <TableCell sx={headCell}>{t('researcher.overview.invites.table.proposal')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.invites.table.invitedBy')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.invites.table.role')}</TableCell>
+                    <TableCell sx={headCell}>{t('researcher.overview.invites.table.due')}</TableCell>
+                    <TableCell sx={headCell} align="right">{t('researcher.overview.table.action')}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {pendingInvites.map(invite => {
+                    const accepting = inviteActionId === `${invite.collaborator_id}-accept`;
+                    const declining = inviteActionId === `${invite.collaborator_id}-decline`;
+                    const busy = Boolean(inviteActionId);
+                    return (
+                      <TableRow key={invite.collaborator_id} hover>
+                        <TableCell>
+                          <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{invite.proposal_title}</Typography>
+                          <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+                            {invite.opportunity_title || t('researcher.overview.kind.proposal')}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 13 }}>
+                          {invite.lead_pi_name || '—'}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 13 }}>
+                          {invite.role || '—'}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                          {fmtDate(invite.invite_due_at || invite.invited_at)}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', justifyContent: 'flex-end' }}>
+                            <Button
+                              size="small"
+                              variant="contained"
+                              startIcon={accepting ? <CircularProgress size={14} color="inherit" /> : <CheckIcon sx={{ fontSize: 16 }} />}
+                              disabled={busy}
+                              onClick={() => handleInviteRespond(invite, 'accept')}
+                              sx={{
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                bgcolor: '#10b981',
+                                '&:hover': { bgcolor: '#059669' },
+                              }}
+                            >
+                              {t('researcher.overview.invites.accept')}
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={declining ? <CircularProgress size={14} color="inherit" /> : <CloseIcon sx={{ fontSize: 16 }} />}
+                              disabled={busy}
+                              onClick={() => handleInviteRespond(invite, 'decline')}
+                              sx={{
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                borderColor: '#ef4444',
+                                color: '#ef4444',
+                                '&:hover': { borderColor: '#dc2626', bgcolor: 'rgba(239,68,68,0.06)' },
+                              }}
+                            >
+                              {t('researcher.overview.invites.decline')}
+                            </Button>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </Card>
+      )}
+
       <Card>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
           <Box>
@@ -796,6 +957,22 @@ export default function ResearcherOverview() {
           </Paper>
         )}
       </Card>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

@@ -7,8 +7,22 @@ from datetime import datetime
 
 from database import get_db
 from models import User, Institution, AccountType, UserStatus, ResearchRole, PrimaryAccountType, user_roles
+from account_types import get_default_roles
+from services.research_roles import parse_research_role, research_role_db_label
 from auth import require_institution_admin
 from services.institution_types import institution_types_as_strings, sync_institution_types
+from services.departments import (
+    department_to_dict,
+    list_departments_for_institution,
+    seed_departments_for_institution,
+)
+from models import Department, InstitutionType
+from services.institution_domains import (
+    get_admin_institution,
+    get_institution_email_domains,
+    ensure_user_in_institution,
+    user_email_domain_filter,
+)
 from sqlalchemy.orm import selectinload
 
 router = APIRouter(prefix="/api/institution-admin", tags=["institution-admin"])
@@ -60,36 +74,27 @@ async def get_institution_stats(
     current_user: User = Depends(require_institution_admin)
 ):
     """Get institution statistics"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
-    
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+    domain_filter = user_email_domain_filter(User, domains)
+
     # Total users
     total_result = await db.execute(
-        select(func.count(User.id))
-        .where(User.primary_institution_id == current_user.primary_institution_id)
+        select(func.count(User.id)).where(domain_filter)
     )
     total_users = total_result.scalar()
     
     # Active users
     active_result = await db.execute(
         select(func.count(User.id))
-        .where(
-            User.primary_institution_id == current_user.primary_institution_id,
-            User.status == UserStatus.ACTIVE
-        )
+        .where(domain_filter, User.status == UserStatus.ACTIVE)
     )
     active_users = active_result.scalar()
     
     # Pending users
     pending_result = await db.execute(
         select(func.count(User.id))
-        .where(
-            User.primary_institution_id == current_user.primary_institution_id,
-            User.status == UserStatus.PENDING
-        )
+        .where(domain_filter, User.status == UserStatus.PENDING)
     )
     pending_users = pending_result.scalar()
     
@@ -107,15 +112,12 @@ async def list_institution_users(
     current_user: User = Depends(require_institution_admin)
 ):
     """List all users in the institution"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
-    
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+
     result = await db.execute(
         select(User)
-        .where(User.primary_institution_id == current_user.primary_institution_id)
+        .where(user_email_domain_filter(User, domains))
         .offset(skip)
         .limit(limit)
     )
@@ -147,16 +149,13 @@ async def list_pending_users(
     current_user: User = Depends(require_institution_admin)
 ):
     """List pending users awaiting approval"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
-    
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+
     result = await db.execute(
         select(User)
         .where(
-            User.primary_institution_id == current_user.primary_institution_id,
+            user_email_domain_filter(User, domains),
             User.status == UserStatus.PENDING
         )
     )
@@ -171,11 +170,7 @@ async def approve_user(
     current_user: User = Depends(require_institution_admin)
 ):
     """Approve or reject a pending user"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
+    institution = await get_admin_institution(db, current_user)
     
     # Get user
     result = await db.execute(select(User).where(User.id == user_id))
@@ -187,12 +182,7 @@ async def approve_user(
             detail="User not found"
         )
     
-    # Verify user belongs to same institution
-    if user.primary_institution_id != current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot manage users from other institutions"
-        )
+    ensure_user_in_institution(user, institution)
     
     # Update status
     if approval.status == "active":
@@ -206,6 +196,13 @@ async def approve_user(
         )
     
     await db.commit()
+
+    if user.status == UserStatus.ACTIVE:
+        try:
+            from services.proposal_invites import claim_pending_proposal_invites
+            await claim_pending_proposal_invites(db, user)
+        except Exception as e:
+            print(f"Failed to claim proposal invites after approval for {user.email}: {e}")
     
     return {"message": f"User {approval.status} successfully"}
 
@@ -216,11 +213,7 @@ async def reject_user(
     current_user: User = Depends(require_institution_admin)
 ):
     """Reject a pending user"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
+    institution = await get_admin_institution(db, current_user)
     
     # Get user
     result = await db.execute(select(User).where(User.id == user_id))
@@ -232,12 +225,7 @@ async def reject_user(
             detail="User not found"
         )
     
-    # Verify user belongs to same institution
-    if user.primary_institution_id != current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot manage users from other institutions"
-        )
+    ensure_user_in_institution(user, institution)
     
     # Update status to suspended
     user.status = UserStatus.SUSPENDED
@@ -254,11 +242,7 @@ async def assign_roles(
     current_user: User = Depends(require_institution_admin)
 ):
     """Assign roles to a user"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
+    institution = await get_admin_institution(db, current_user)
     
     # Get user
     result = await db.execute(select(User).where(User.id == user_id))
@@ -270,12 +254,35 @@ async def assign_roles(
             detail="User not found"
         )
     
-    # Verify user belongs to same institution
-    if user.primary_institution_id != current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot manage users from other institutions"
-        )
+    ensure_user_in_institution(user, institution)
+    
+    roles_to_assign = list(role_data.roles or [])
+    if role_data.primary_account_type and not roles_to_assign:
+        try:
+            account_type = PrimaryAccountType(role_data.primary_account_type)
+            roles_to_assign = [r.value for r in get_default_roles(account_type)]
+        except ValueError:
+            pass
+
+    # Normalize: permission roles only (lowercase researchrole values)
+    normalized_roles: List[str] = []
+    for role_str in roles_to_assign:
+        if not role_str:
+            continue
+        try:
+            PrimaryAccountType(role_str)
+            continue
+        except ValueError:
+            pass
+        try:
+            role = parse_research_role(role_str)
+            normalized_roles.append(research_role_db_label(role))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid role: {role_str}",
+            )
+    roles_to_assign = list(dict.fromkeys(normalized_roles))
     
     # Delete existing roles
     await db.execute(
@@ -283,21 +290,14 @@ async def assign_roles(
     )
     
     # Add new roles
-    for role_str in role_data.roles:
-        try:
-            role = ResearchRole(role_str)
-            await db.execute(
-                user_roles.insert().values(
-                    user_id=user_id,
-                    role=role,
-                    assigned_by=current_user.id
-                )
+    for role_value in roles_to_assign:
+        await db.execute(
+            user_roles.insert().values(
+                user_id=user_id,
+                role=role_value,
+                assigned_by=current_user.id
             )
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid role: {role_str}"
-            )
+        )
     
     # Update primary_account_type if provided
     if role_data.primary_account_type:
@@ -311,7 +311,7 @@ async def assign_roles(
 
     await db.commit()
     
-    return {"message": "Roles assigned successfully", "roles": role_data.roles}
+    return {"message": "Roles assigned successfully", "roles": roles_to_assign, "primary_account_type": role_data.primary_account_type}
 
 @router.get("/users/{user_id}/roles")
 async def get_user_roles(
@@ -320,11 +320,7 @@ async def get_user_roles(
     current_user: User = Depends(require_institution_admin)
 ):
     """Get roles for a user"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
+    institution = await get_admin_institution(db, current_user)
     
     # Get user
     result = await db.execute(select(User).where(User.id == user_id))
@@ -336,12 +332,7 @@ async def get_user_roles(
             detail="User not found"
         )
     
-    # Verify user belongs to same institution
-    if user.primary_institution_id != current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot view users from other institutions"
-        )
+    ensure_user_in_institution(user, institution)
     
     # Get roles
     result = await db.execute(
@@ -358,11 +349,7 @@ async def delete_user(
     current_user: User = Depends(require_institution_admin)
 ):
     """Delete a user from the institution"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
+    institution = await get_admin_institution(db, current_user)
     
     # Get user
     result = await db.execute(select(User).where(User.id == user_id))
@@ -374,12 +361,7 @@ async def delete_user(
             detail="User not found"
         )
     
-    # Verify user belongs to same institution
-    if user.primary_institution_id != current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot delete users from other institutions"
-        )
+    ensure_user_in_institution(user, institution)
     
     # Prevent deleting global or institution admins
     if user.is_global_admin or user.is_institution_admin:
@@ -406,11 +388,7 @@ async def suspend_user(
     current_user: User = Depends(require_institution_admin)
 ):
     """Suspend a user account"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
+    institution = await get_admin_institution(db, current_user)
     
     # Get user
     result = await db.execute(select(User).where(User.id == user_id))
@@ -422,12 +400,7 @@ async def suspend_user(
             detail="User not found"
         )
     
-    # Verify user belongs to same institution
-    if user.primary_institution_id != current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot manage users from other institutions"
-        )
+    ensure_user_in_institution(user, institution)
     
     # Update status to suspended
     user.status = UserStatus.SUSPENDED
@@ -442,11 +415,7 @@ async def activate_user(
     current_user: User = Depends(require_institution_admin)
 ):
     """Activate a suspended user account"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
+    institution = await get_admin_institution(db, current_user)
     
     # Get user
     result = await db.execute(select(User).where(User.id == user_id))
@@ -458,12 +427,7 @@ async def activate_user(
             detail="User not found"
         )
     
-    # Verify user belongs to same institution
-    if user.primary_institution_id != current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot manage users from other institutions"
-        )
+    ensure_user_in_institution(user, institution)
     
     # Update status to active
     user.status = UserStatus.ACTIVE
@@ -476,16 +440,59 @@ async def list_roles(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_institution_admin)
 ):
-    """List all available roles"""
-    # Return the available research roles
-    roles = [
-        {"id": 1, "name": "Principal Investigator", "description": "Lead researcher on projects", "user_count": 0},
-        {"id": 2, "name": "Co-Investigator", "description": "Collaborating researcher", "user_count": 0},
-        {"id": 3, "name": "Postdoctoral Researcher", "description": "Postdoctoral research fellow", "user_count": 0},
-        {"id": 4, "name": "PhD Student", "description": "Doctoral student", "user_count": 0},
-        {"id": 5, "name": "Research Assistant", "description": "Research support staff", "user_count": 0},
+    """List all available permission roles with user counts for this institution."""
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+    domain_filter = user_email_domain_filter(User, domains)
+
+    role_result = await db.execute(
+        select(user_roles.c.role, func.count(user_roles.c.user_id))
+        .join(User, User.id == user_roles.c.user_id)
+        .where(domain_filter)
+        .group_by(user_roles.c.role)
+    )
+    users_by_role = {row[0].value: row[1] for row in role_result.fetchall()}
+
+    role_labels = {
+        ResearchRole.RESEARCHER: "Researcher",
+        ResearchRole.PRINCIPAL_INVESTIGATOR: "Principal Investigator",
+        ResearchRole.CO_INVESTIGATOR: "Co-Investigator",
+        ResearchRole.GRANT_OFFICER: "Grant Officer",
+        ResearchRole.RESEARCH_ADMIN: "Research Administrator",
+        ResearchRole.FINANCE_OFFICER: "Finance Officer",
+        ResearchRole.ETHICS_REVIEWER: "Ethics Reviewer",
+        ResearchRole.ETHICS_CHAIR: "Ethics Chair",
+        ResearchRole.DATA_STEWARD: "Data Steward",
+        ResearchRole.DATA_ENGINEER: "Data Engineer",
+        ResearchRole.INSTITUTIONAL_LEAD: "Institutional Lead",
+        ResearchRole.DVC_RESEARCH: "DVC (Research)",
+        ResearchRole.DIRECTOR_RESEARCH: "Director of Research",
+        ResearchRole.LIBRARIAN: "Librarian / RDM Specialist",
+        ResearchRole.SYSTEM_ADMIN: "System Administrator",
+        ResearchRole.EXTERNAL_REVIEWER: "External Reviewer",
+        ResearchRole.GUEST_COLLABORATOR: "Guest Collaborator",
+        ResearchRole.EXTERNAL_FUNDER: "External Funder",
+        ResearchRole.APPLICANT: "Applicant",
+        ResearchRole.MOU_ADMIN: "MoU Administrator",
+        ResearchRole.LEGAL_OFFICER: "Legal Officer",
+        ResearchRole.PARTNERSHIP_COORDINATOR: "Partnership Coordinator",
+        ResearchRole.EXTERNAL_PARTNER: "External Partner",
+        ResearchRole.POSTGRADUATE_STUDENT: "Postgraduate Student",
+        ResearchRole.SUPERVISOR: "Supervisor",
+        ResearchRole.EXTERNAL_SUPERVISOR: "External Supervisor",
+        ResearchRole.PG_COORDINATOR: "PG Coordinator",
+        ResearchRole.HEAD_OF_PG_STUDIES: "Head of Postgraduate Studies",
+    }
+
+    return [
+        {
+            "id": role.value,
+            "name": role_labels.get(role, role.value.replace("_", " ").title()),
+            "description": role_labels.get(role, ""),
+            "user_count": users_by_role.get(role.value, 0),
+        }
+        for role in ResearchRole
     ]
-    return roles
 
 @router.post("/roles")
 async def create_role(
@@ -501,16 +508,12 @@ async def get_institution_settings(
     current_user: User = Depends(require_institution_admin)
 ):
     """Get institution settings"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
+    institution = await get_admin_institution(db, current_user)
     
     result = await db.execute(
         select(Institution)
         .options(selectinload(Institution.type_assignments))
-        .where(Institution.id == current_user.primary_institution_id)
+        .where(Institution.id == institution.id)
     )
     institution = result.scalar_one_or_none()
     
@@ -539,16 +542,12 @@ async def update_institution_settings(
     current_user: User = Depends(require_institution_admin)
 ):
     """Update institution settings"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
+    institution = await get_admin_institution(db, current_user)
     
     result = await db.execute(
         select(Institution)
         .options(selectinload(Institution.type_assignments))
-        .where(Institution.id == current_user.primary_institution_id)
+        .where(Institution.id == institution.id)
     )
     institution = result.scalar_one_or_none()
     
@@ -592,36 +591,27 @@ async def get_institution_analytics(
     current_user: User = Depends(require_institution_admin)
 ):
     """Get institution analytics"""
-    if not current_user.primary_institution_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Institution admin must be associated with an institution"
-        )
-    
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+    domain_filter = user_email_domain_filter(User, domains)
+
     # Total users
     total_result = await db.execute(
-        select(func.count(User.id))
-        .where(User.primary_institution_id == current_user.primary_institution_id)
+        select(func.count(User.id)).where(domain_filter)
     )
     total_users = total_result.scalar()
     
     # Active users
     active_result = await db.execute(
         select(func.count(User.id))
-        .where(
-            User.primary_institution_id == current_user.primary_institution_id,
-            User.status == UserStatus.ACTIVE
-        )
+        .where(domain_filter, User.status == UserStatus.ACTIVE)
     )
     active_users = active_result.scalar()
     
     # Pending users
     pending_result = await db.execute(
         select(func.count(User.id))
-        .where(
-            User.primary_institution_id == current_user.primary_institution_id,
-            User.status == UserStatus.PENDING
-        )
+        .where(domain_filter, User.status == UserStatus.PENDING)
     )
     pending_users = pending_result.scalar()
     
@@ -629,7 +619,7 @@ async def get_institution_analytics(
     role_result = await db.execute(
         select(user_roles.c.role, func.count(user_roles.c.user_id))
         .join(User, User.id == user_roles.c.user_id)
-        .where(User.primary_institution_id == current_user.primary_institution_id)
+        .where(domain_filter)
         .group_by(user_roles.c.role)
     )
     
@@ -641,3 +631,151 @@ async def get_institution_analytics(
         pending_users=pending_users,
         users_by_role=users_by_role
     )
+
+
+class DepartmentCreate(BaseModel):
+    name: str
+    institution_type: Optional[str] = None
+    description: Optional[str] = None
+    is_active: bool = True
+    sort_order: int = 0
+
+
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = None
+    institution_type: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+@router.get("/departments")
+async def list_departments(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    institution = await get_admin_institution(db, current_user)
+    departments = await list_departments_for_institution(
+        db, institution.id, active_only=False, registration_only=False
+    )
+    return [department_to_dict(d) for d in departments]
+
+
+@router.post("/departments", status_code=status.HTTP_201_CREATED)
+async def create_department(
+    payload: DepartmentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    institution = await get_admin_institution(db, current_user)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Department name is required")
+
+    inst_type = None
+    if payload.institution_type:
+        try:
+            inst_type = InstitutionType(payload.institution_type)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid institution type: {payload.institution_type}")
+
+    existing = await db.execute(
+        select(Department).where(
+            Department.institution_id == institution.id,
+            func.lower(Department.name) == name.lower(),
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="A department with this name already exists")
+
+    department = Department(
+        institution_id=institution.id,
+        name=name,
+        institution_type=inst_type,
+        description=(payload.description or "").strip() or None,
+        is_active=payload.is_active,
+        sort_order=payload.sort_order,
+    )
+    db.add(department)
+    await db.commit()
+    await db.refresh(department)
+    return department_to_dict(department)
+
+
+@router.put("/departments/{department_id}")
+async def update_department(
+    department_id: str,
+    payload: DepartmentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    institution = await get_admin_institution(db, current_user)
+    result = await db.execute(
+        select(Department).where(
+            Department.id == department_id,
+            Department.institution_id == institution.id,
+        )
+    )
+    department = result.scalar_one_or_none()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Department name is required")
+        department.name = name
+
+    if payload.institution_type is not None:
+        if payload.institution_type == "":
+            department.institution_type = None
+        else:
+            try:
+                department.institution_type = InstitutionType(payload.institution_type)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid institution type: {payload.institution_type}")
+
+    if payload.description is not None:
+        department.description = payload.description.strip() or None
+    if payload.is_active is not None:
+        department.is_active = payload.is_active
+    if payload.sort_order is not None:
+        department.sort_order = payload.sort_order
+
+    await db.commit()
+    await db.refresh(department)
+    return department_to_dict(department)
+
+
+@router.delete("/departments/{department_id}")
+async def delete_department(
+    department_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    institution = await get_admin_institution(db, current_user)
+    result = await db.execute(
+        select(Department).where(
+            Department.id == department_id,
+            Department.institution_id == institution.id,
+        )
+    )
+    department = result.scalar_one_or_none()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    await db.delete(department)
+    await db.commit()
+    return {"message": "Department deleted successfully"}
+
+
+@router.post("/departments/seed-defaults")
+async def seed_default_departments(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    institution = await get_admin_institution(db, current_user)
+    await db.refresh(institution, ["type_assignments", "departments"])
+    created = await seed_departments_for_institution(db, institution)
+    await db.commit()
+    return {"message": f"Seeded {created} department(s)", "created": created}

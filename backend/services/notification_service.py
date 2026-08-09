@@ -1,12 +1,59 @@
+import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
-from models import Notification, NotificationType, NotificationPriority, User, UserStatus
+from models import (
+    Notification,
+    NotificationType,
+    NotificationPriority,
+    User,
+    UserStatus,
+    ProposalCollaborator,
+)
+
+_COLLAB_INVITE_URL_RE = re.compile(r"/proposals/([^/]+)/collab/([^/]+)")
+
 
 class NotificationService:
     """Service for managing notifications"""
-    
+
+    @staticmethod
+    async def _filter_pending_invite_notifications(
+        db: AsyncSession,
+        notifications: List[Notification],
+    ) -> List[Notification]:
+        """Hide collaboration invites that are no longer pending (accepted/declined/removed)."""
+        collab_ids = []
+        for n in notifications:
+            match = _COLLAB_INVITE_URL_RE.search(n.action_url or "")
+            if match:
+                collab_ids.append(match.group(2))
+            elif n.type == NotificationType.PROPOSAL_INVITATION:
+                # Invite without a collab link — keep unless we can prove otherwise
+                continue
+
+        status_by_id = {}
+        if collab_ids:
+            result = await db.execute(
+                select(ProposalCollaborator.id, ProposalCollaborator.status).where(
+                    ProposalCollaborator.id.in_(collab_ids)
+                )
+            )
+            status_by_id = {row[0]: row[1] for row in result.all()}
+
+        filtered = []
+        for n in notifications:
+            match = _COLLAB_INVITE_URL_RE.search(n.action_url or "")
+            if match or n.type == NotificationType.PROPOSAL_INVITATION:
+                if not match:
+                    # Orphan invite notification without collab id — hide
+                    continue
+                if status_by_id.get(match.group(2)) != "pending":
+                    continue
+            filtered.append(n)
+        return filtered
+
     @staticmethod
     async def create_notification(
         db: AsyncSession,
@@ -146,7 +193,7 @@ class NotificationService:
         unread_only: bool = False,
         limit: int = 50
     ) -> List[Notification]:
-        """Get notifications for a user"""
+        """Get notifications for a user (pending collaboration invites only)."""
         
         query = select(Notification).where(Notification.recipient_id == user_id)
         
@@ -161,17 +208,22 @@ class NotificationService:
             )
         )
         
-        query = query.order_by(Notification.created_at.desc()).limit(limit)
+        # Oversample so resolved invites filtered below don't shrink the page too much
+        query = query.order_by(Notification.created_at.desc()).limit(max(limit * 3, limit))
         
         result = await db.execute(query)
-        return result.scalars().all()
+        notifications = list(result.scalars().all())
+        filtered = await NotificationService._filter_pending_invite_notifications(
+            db, notifications
+        )
+        return filtered[:limit]
     
     @staticmethod
     async def get_unread_count(db: AsyncSession, user_id: int) -> int:
         """Get count of unread notifications for a user"""
         
         result = await db.execute(
-            select(func.count(Notification.id)).where(
+            select(Notification).where(
                 and_(
                     Notification.recipient_id == user_id,
                     Notification.is_read == False,
@@ -182,7 +234,11 @@ class NotificationService:
                 )
             )
         )
-        return result.scalar()
+        notifications = list(result.scalars().all())
+        filtered = await NotificationService._filter_pending_invite_notifications(
+            db, notifications
+        )
+        return len(filtered)
     
     @staticmethod
     async def mark_as_read(

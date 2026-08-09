@@ -551,8 +551,7 @@ async def list_my_assignments(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """All assignments for the logged-in reviewer."""
-    _require_reviewer(current_user)
+    """All review assignments for the logged-in user (any account type)."""
     result = await db.execute(
         select(ReviewerAssignment)
         .where(ReviewerAssignment.reviewer_id == current_user.id)

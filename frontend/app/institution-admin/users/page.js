@@ -7,7 +7,7 @@ import {
   TextField, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Chip, Alert, CircularProgress, Avatar, FormControl, InputLabel, Select,
   MenuItem, useTheme, Checkbox, FormControlLabel, FormGroup, Divider, Tooltip,
-  IconButton, Paper,
+  IconButton, Paper, ListSubheader,
 } from '@mui/material';
 import {
   Search as SearchIcon, ManageAccounts as RoleIcon,
@@ -17,84 +17,18 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import { institutionAdminAPI } from '../../../lib/api';
+import {
+  PERMISSION_ROLE_GROUPS,
+  ALL_PERMISSION_ROLES,
+  ALL_ADMIN_STAFF_PERMISSION_ROLES,
+  getPrimaryAccountTypeLabel,
+  getPermissionRoleLabel,
+  getDefaultRolesForPrimaryType,
+  getPrimaryTypesForInstitution,
+  mergeRoles,
+} from '../../../lib/institutionAdminRoles';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-
-const PRIMARY_ACCOUNT_TYPES = [
-  { value: 'RESEARCHER',              label: 'Researcher' },
-  { value: 'ADMIN_STAFF',             label: 'Admin Staff (General)' },
-  { value: 'GRANT_MANAGER',           label: 'Grant Manager' },
-  { value: 'FINANCE_OFFICER',         label: 'Finance Officer' },
-  { value: 'ETHICS_COMMITTEE_MEMBER', label: 'Ethics Committee Member' },
-  { value: 'DATA_STEWARD',            label: 'Data Steward' },
-  { value: 'DATA_ENGINEER',           label: 'Data Engineer' },
-  { value: 'INSTITUTIONAL_LEADERSHIP',label: 'Institutional Leadership' },
-  { value: 'EXTERNAL_REVIEWER',       label: 'External Reviewer' },
-  { value: 'GUEST_COLLABORATOR',      label: 'Guest Collaborator' },
-  { value: 'EXTERNAL_FUNDER',         label: 'External Funder' },
-  { value: 'POSTGRADUATE_STUDENT',    label: 'Postgraduate Student' },
-  { value: 'SUPERVISOR',              label: 'Supervisor' },
-  { value: 'EXTERNAL_SUPERVISOR',     label: 'External Supervisor' },
-  { value: 'PG_COORDINATOR',          label: 'PG Coordinator' },
-  { value: 'HEAD_OF_PG_STUDIES',      label: 'Head of PG Studies' },
-];
-
-const ROLE_GROUPS = [
-  {
-    label: 'Research Roles',
-    color: '#3b82f6',
-    roles: [
-      { value: 'researcher',           label: 'Researcher' },
-      { value: 'principal_investigator',label: 'Principal Investigator (PI)' },
-      { value: 'co_investigator',       label: 'Co-Investigator (Co-I)' },
-      { value: 'applicant',             label: 'Applicant' },
-    ],
-  },
-  {
-    label: 'Grant & Finance',
-    color: '#8b5cf6',
-    roles: [
-      { value: 'grant_officer',  label: 'Grant Officer' },
-      { value: 'research_admin', label: 'Research Administrator' },
-      { value: 'finance_officer',label: 'Finance Officer' },
-      { value: 'external_funder',label: 'External Funder' },
-    ],
-  },
-  {
-    label: 'Ethics & Compliance',
-    color: '#10b981',
-    roles: [
-      { value: 'ethics_reviewer', label: 'Ethics Reviewer' },
-      { value: 'ethics_chair',    label: 'Ethics Chair' },
-      { value: 'external_reviewer',label: 'External Reviewer' },
-    ],
-  },
-  {
-    label: 'Data & Systems',
-    color: '#0ea5e9',
-    roles: [
-      { value: 'data_steward',    label: 'Data Steward' },
-      { value: 'data_engineer',   label: 'Data Engineer' },
-      { value: 'system_admin',    label: 'System Administrator' },
-    ],
-  },
-  {
-    label: 'Leadership & Guests',
-    color: '#ef4444',
-    roles: [
-      { value: 'institutional_lead', label: 'Institutional Lead' },
-      { value: 'guest_collaborator', label: 'Guest Collaborator' },
-    ],
-  },
-];
-
-const ALL_ADMIN_STAFF_ROLES = [
-  'grant_officer','research_admin','finance_officer','ethics_reviewer','ethics_chair',
-  'data_steward','data_engineer','institutional_lead','system_admin','external_reviewer',
-  'external_funder',
-];
-
-const ALL_ROLES = ROLE_GROUPS.flatMap(g => g.roles.map(r => r.value));
 
 export default function InstitutionAdminUsersPage() {
   const router  = useRouter();
@@ -115,6 +49,8 @@ export default function InstitutionAdminUsersPage() {
   const [selectedRoles, setSelectedRoles]   = useState([]);
   const [primaryType, setPrimaryType]       = useState('');
   const [savingRoles, setSavingRoles]       = useState(false);
+  const [loadingRoles, setLoadingRoles]     = useState(false);
+  const [institutionTypes, setInstitutionTypes] = useState([]);
 
   useEffect(() => { checkAuth(); }, []);
 
@@ -125,6 +61,7 @@ export default function InstitutionAdminUsersPage() {
       router.push(u.is_global_admin ? '/global-admin/dashboard' : '/login');
       return;
     }
+    setInstitutionTypes(u.institution_types || []);
     loadData();
   };
 
@@ -178,31 +115,66 @@ export default function InstitutionAdminUsersPage() {
     } catch { setError('Failed to activate user'); }
   };
 
-  const openRoleDialog = (user) => {
+  const openRoleDialog = async (user) => {
     setRoleTarget(user);
-    setSelectedRoles(user.roles || []);
     setPrimaryType(user.primary_account_type || '');
     setRoleDialogOpen(true);
+    setLoadingRoles(true);
+    setError('');
+    try {
+      const res = await institutionAdminAPI.getUserRoles(user.id);
+      let roles = res.data?.roles || user.roles || [];
+      if (roles.length === 0 && user.primary_account_type) {
+        roles = getDefaultRolesForPrimaryType(user.primary_account_type);
+      }
+      setSelectedRoles(roles);
+    } catch {
+      const fallback = user.roles?.length
+        ? user.roles
+        : getDefaultRolesForPrimaryType(user.primary_account_type);
+      setSelectedRoles(fallback || []);
+    } finally {
+      setLoadingRoles(false);
+    }
+  };
+
+  const handlePrimaryTypeChange = (nextType) => {
+    setPrimaryType(nextType);
+    if (!nextType) return;
+    const defaults = getDefaultRolesForPrimaryType(nextType);
+    if (defaults.length > 0) {
+      setSelectedRoles((prev) => mergeRoles(prev, defaults));
+    }
   };
 
   const toggleRole = (val) =>
     setSelectedRoles(prev => prev.includes(val) ? prev.filter(r => r !== val) : [...prev, val]);
 
-  const handleSelectAdminStaff = () => setSelectedRoles(ALL_ADMIN_STAFF_ROLES);
-  const handleSelectAll        = () => setSelectedRoles(ALL_ROLES);
+  const handleSelectAdminStaff = () => setSelectedRoles(ALL_ADMIN_STAFF_PERMISSION_ROLES);
+  const handleSelectAll        = () => setSelectedRoles(ALL_PERMISSION_ROLES);
+  const handleApplyDefaults    = () => {
+    if (!primaryType) return;
+    setSelectedRoles(getDefaultRolesForPrimaryType(primaryType));
+  };
   const handleClearAll         = () => setSelectedRoles([]);
 
   const handleSaveRoles = async () => {
     if (!roleTarget) return;
+    if (!primaryType) {
+      setError('Please select a primary account type');
+      return;
+    }
+    const rolesToSave = selectedRoles.filter((r) => ALL_PERMISSION_ROLES.includes(r));
     setSavingRoles(true); setError('');
     try {
-      await institutionAdminAPI.assignRoles(roleTarget.id, selectedRoles, primaryType || undefined);
+      await institutionAdminAPI.assignRoles(roleTarget.id, rolesToSave, primaryType);
       setSuccess(`Roles updated for ${roleTarget.name || roleTarget.email}`);
       setTimeout(() => setSuccess(''), 4000);
       setRoleDialogOpen(false);
       await loadData();
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to save roles');
+      const detail = e.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map((d) => d.msg || d).join(', ') : 'Failed to save roles');
     } finally { setSavingRoles(false); }
   };
 
@@ -291,14 +263,14 @@ export default function InstitutionAdminUsersPage() {
                   </TableCell>
                   <TableCell sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>
                     {u.primary_account_type ? (
-                      <Chip label={u.primary_account_type.replace(/_/g, ' ')} size="small"
+                      <Chip label={getPrimaryAccountTypeLabel(u.primary_account_type)} size="small"
                         sx={{ bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1', fontWeight: 600, fontSize: 11 }} />
                     ) : <Typography sx={{ color: 'text.disabled', fontSize: 12 }}>—</Typography>}
                   </TableCell>
                   <TableCell sx={{ borderBottom: `1px solid ${theme.palette.divider}`, maxWidth: 220 }}>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                       {(u.roles || []).slice(0, 3).map(r => (
-                        <Chip key={r} label={r.replace(/_/g, ' ')} size="small"
+                        <Chip key={r} label={getPermissionRoleLabel(r)} size="small"
                           sx={{ fontSize: 10, fontWeight: 600, bgcolor: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)', color: 'text.secondary' }} />
                       ))}
                       {(u.roles || []).length > 3 && (
@@ -398,16 +370,24 @@ export default function InstitutionAdminUsersPage() {
               <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 1 }}>
                 Primary Account Type
               </Typography>
-              <FormControl fullWidth size="small" sx={{ mb: 3 }}>
-                <Select value={primaryType} onChange={e => setPrimaryType(e.target.value)}
-                  displayEmpty renderValue={v => v ? PRIMARY_ACCOUNT_TYPES.find(t => t.value === v)?.label || v : 'Select account type…'}
+              <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+                <Select value={primaryType} onChange={e => handlePrimaryTypeChange(e.target.value)}
+                  displayEmpty renderValue={v => v ? getPrimaryAccountTypeLabel(v) : 'Select account type…'}
                   sx={{ borderRadius: 2 }}>
                   <MenuItem value=""><em>— None —</em></MenuItem>
-                  {PRIMARY_ACCOUNT_TYPES.map(t => (
-                    <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
-                  ))}
+                  {getPrimaryTypesForInstitution(institutionTypes).map((group) => [
+                    <ListSubheader key={`header-${group.label}`} sx={{ fontWeight: 700, color: 'text.secondary' }}>
+                      {group.label}
+                    </ListSubheader>,
+                    ...group.types.map((t) => (
+                      <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
+                    )),
+                  ])}
                 </Select>
               </FormControl>
+              <Typography sx={{ color: 'text.secondary', fontSize: 12, mb: 3 }}>
+                Primary account type sets the user&apos;s main dashboard. You can also assign multiple permission roles below.
+              </Typography>
 
               <Divider sx={{ mb: 2.5 }} />
 
@@ -424,6 +404,10 @@ export default function InstitutionAdminUsersPage() {
                   sx={{ textTransform: 'none', fontSize: 12, fontWeight: 600, borderRadius: 2, borderColor: '#1ca7a1', color: '#1ca7a1', '&:hover': { bgcolor: 'rgba(28,167,161,0.08)', borderColor: '#1ca7a1' } }}>
                   Select All
                 </Button>
+                <Button size="small" variant="outlined" onClick={handleApplyDefaults} disabled={!primaryType}
+                  sx={{ textTransform: 'none', fontSize: 12, fontWeight: 600, borderRadius: 2, borderColor: '#f59e0b', color: '#f59e0b', '&:hover': { bgcolor: 'rgba(245,158,11,0.08)', borderColor: '#f59e0b' } }}>
+                  Apply Defaults
+                </Button>
                 <Button size="small" variant="outlined" startIcon={<UncheckIcon />} onClick={handleClearAll}
                   sx={{ textTransform: 'none', fontSize: 12, fontWeight: 600, borderRadius: 2, borderColor: 'divider', color: 'text.secondary', '&:hover': { bgcolor: 'action.hover' } }}>
                   Clear All
@@ -433,8 +417,13 @@ export default function InstitutionAdminUsersPage() {
               </Box>
 
               {/* Role Groups */}
+              {loadingRoles ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+                  <CircularProgress size={28} />
+                </Box>
+              ) : (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-                {ROLE_GROUPS.map(group => (
+                {PERMISSION_ROLE_GROUPS.map(group => (
                   <Paper key={group.label} elevation={0} sx={{
                     flex: '1 1 240px', border: `1px solid ${theme.palette.divider}`, borderRadius: 2.5,
                     p: 2, bgcolor: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
@@ -458,6 +447,7 @@ export default function InstitutionAdminUsersPage() {
                   </Paper>
                 ))}
               </Box>
+              )}
             </DialogContent>
 
             <DialogActions sx={{ px: 3, pb: 3, pt: 2, borderTop: `1px solid ${theme.palette.divider}`, gap: 1 }}>

@@ -74,16 +74,16 @@ deploy_remote() {
     fi
     
     # Create deployment directory
-    ssh $REMOTE_USER@$REMOTE_HOST "mkdir -p /home/dacoris"
+    ssh $REMOTE_USER@$REMOTE_HOST "mkdir -p /opt/dacoris/rims"
     
     # Copy files
     echo "📤 Copying deployment files..."
-    scp docker-compose.prod.yml $REMOTE_USER@$REMOTE_HOST:/home/dacoris/docker-compose.yml
-    scp -r nginx $REMOTE_USER@$REMOTE_HOST:/home/dacoris/
+    scp docker-compose.prod.yml $REMOTE_USER@$REMOTE_HOST:/opt/dacoris/rims/docker-compose.yml
+    scp -r nginx $REMOTE_USER@$REMOTE_HOST:/opt/dacoris/rims/
     
     # Check if .env file exists
     if [ -f ".env.$ENVIRONMENT" ]; then
-        scp .env.$ENVIRONMENT $REMOTE_USER@$REMOTE_HOST:/home/dacoris/.env.production
+        scp .env.$ENVIRONMENT $REMOTE_USER@$REMOTE_HOST:/opt/dacoris/rims/.env.production
     else
         echo "⚠️  Warning: .env.$ENVIRONMENT not found. Make sure to create it on the server."
     fi
@@ -91,7 +91,7 @@ deploy_remote() {
     # Deploy on remote server
     echo "🚀 Deploying on remote server..."
     ssh $REMOTE_USER@$REMOTE_HOST << EOF
-        cd /home/dacoris
+        cd /opt/dacoris/rims
         
         # Pull latest images (if using registry)
         # docker-compose pull

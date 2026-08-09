@@ -5,6 +5,7 @@ import {
   Dashboard as DashboardIcon,
   People as PeopleIcon,
   PersonAdd as PersonAddIcon,
+  Business as BusinessIcon,
   Settings as SettingsIcon,
   ExitToApp as LogoutIcon,
 } from '@mui/icons-material';
@@ -17,6 +18,7 @@ import { sidebarTheme, SIDEBAR_FONTS } from '../lib/sidebarTheme';
 const NAV_ITEMS = [
   { icon: DashboardIcon, label: 'Overview', path: '/institution-admin/overview' },
   { icon: PeopleIcon, label: 'Users', path: '/institution-admin/users' },
+  { icon: BusinessIcon, label: 'Departments', path: '/institution-admin/departments' },
   { icon: PersonAddIcon, label: 'Roles', path: '/institution-admin/roles' },
   { icon: SettingsIcon, label: 'Settings', path: '/institution-admin/settings' },
 ];

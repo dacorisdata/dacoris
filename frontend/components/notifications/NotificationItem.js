@@ -241,8 +241,8 @@ export default function NotificationItem({
               {formatTimeAgo(notification.created_at)}
             </Typography>
 
-            {/* Accept/Decline Buttons for Collaboration Invites */}
-            {isCollaborationInvite && ids && !notification.is_read && (
+            {/* Accept/Decline for pending collaboration invites only */}
+            {isCollaborationInvite && ids && (
               <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
                 <Button
                   variant="contained"

@@ -20,8 +20,8 @@ The deployment workflow automatically deploys to production (41.89.92.140) whene
 
 Ensure your production server has:
 - ✅ Docker and Docker Compose installed
-- ✅ Git repository cloned at `/home/dacoris/`
-- ✅ `.env.production` file configured at `/home/dacoris/.env.production`
+- ✅ Git repository cloned at `/opt/dacoris/rims/`
+- ✅ `.env.production` file configured at `/opt/dacoris/rims/.env.production`
 - ✅ SSH access configured for `dacoris` user
 
 ### 2. GitHub Repository
@@ -108,7 +108,7 @@ SSH to the server and verify the environment file exists:
 
 ```bash
 ssh dacoris@41.89.92.140
-cd /home/dacoris
+cd /opt/dacoris/rims
 ls -la .env.production
 ```
 
@@ -166,7 +166,7 @@ If deployment fails, SSH to the server to investigate:
 
 ```bash
 ssh dacoris@41.89.92.140
-cd /home/dacoris
+cd /opt/dacoris/rims
 
 # Check container status
 docker compose -f docker-compose.prod.yml --env-file .env.production ps
@@ -213,7 +213,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production logs -f
 
 **Solution:**
 1. SSH to server
-2. Create `.env.production` at `/home/dacoris/.env.production`
+2. Create `.env.production` at `/opt/dacoris/rims/.env.production`
 3. Follow the deployment guide to configure it
 
 ---
@@ -225,7 +225,7 @@ If deployment fails and you need to rollback:
 ```bash
 # SSH to server
 ssh dacoris@41.89.92.140
-cd /home/dacoris
+cd /opt/dacoris/rims
 
 # View commit history
 git log --oneline

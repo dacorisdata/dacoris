@@ -9,6 +9,11 @@ from database import get_db
 from routes.auth import get_current_user
 from models import User, UserStatus, PrimaryAccountType
 from services.notification_service import NotificationService
+from services.institution_domains import (
+    get_admin_institution,
+    get_institution_email_domains,
+    user_email_domain_filter,
+)
 
 router = APIRouter(prefix="/api/institution-admin/pending-users", tags=["institution-admin"])
 
@@ -53,11 +58,14 @@ async def get_pending_users(
             detail="Only institution administrators can view pending users"
         )
     
-    # Get pending users from the same institution
+    # Get pending users from the same institution (by email domain)
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+
     result = await db.execute(
         select(User).where(
             and_(
-                User.primary_institution_id == current_user.primary_institution_id,
+                user_email_domain_filter(User, domains),
                 User.status == UserStatus.PENDING
             )
         ).order_by(User.created_at.desc())
@@ -95,11 +103,14 @@ async def get_pending_user(
             detail="Only institution administrators can view pending users"
         )
     
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+
     result = await db.execute(
         select(User).where(
             and_(
                 User.id == user_id,
-                User.primary_institution_id == current_user.primary_institution_id,
+                user_email_domain_filter(User, domains),
                 User.status == UserStatus.PENDING
             )
         )
@@ -140,12 +151,15 @@ async def approve_user(
             detail="Only institution administrators can approve users"
         )
     
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+
     # Get the user to approve
     result = await db.execute(
         select(User).where(
             and_(
                 User.id == request.user_id,
-                User.primary_institution_id == current_user.primary_institution_id,
+                user_email_domain_filter(User, domains),
                 User.status == UserStatus.PENDING
             )
         )
@@ -175,6 +189,12 @@ async def approve_user(
     
     await db.commit()
     await db.refresh(user)
+
+    try:
+        from services.proposal_invites import claim_pending_proposal_invites
+        await claim_pending_proposal_invites(db, user)
+    except Exception as e:
+        print(f"Failed to claim proposal invites after approval for {user.email}: {e}")
     
     # Send notification to user
     await NotificationService.notify_account_approved(
@@ -203,12 +223,15 @@ async def reject_user(
             detail="Only institution administrators can reject users"
         )
     
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+
     # Get the user to reject
     result = await db.execute(
         select(User).where(
             and_(
                 User.id == request.user_id,
-                User.primary_institution_id == current_user.primary_institution_id,
+                user_email_domain_filter(User, domains),
                 User.status == UserStatus.PENDING
             )
         )
@@ -252,12 +275,15 @@ async def assign_role(
             detail="Only institution administrators can assign roles"
         )
     
+    institution = await get_admin_institution(db, current_user)
+    domains = get_institution_email_domains(institution)
+
     # Get the user
     result = await db.execute(
         select(User).where(
             and_(
                 User.id == request.user_id,
-                User.primary_institution_id == current_user.primary_institution_id
+                user_email_domain_filter(User, domains)
             )
         )
     )

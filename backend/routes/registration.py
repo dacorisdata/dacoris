@@ -16,11 +16,18 @@ from models import User, Institution, AccountType, UserStatus, PrimaryAccountTyp
 from account_types import (
     get_self_registration_account_types,
     validate_account_type_for_registration,
+    validate_admin_staff_registration_role,
     requires_orcid,
     get_default_roles
 )
 from auth import get_password_hash
 from services.email_service import EmailService
+from services.institution_types import institution_types_as_strings, load_institution_with_types
+from services.departments import (
+    department_to_dict,
+    list_departments_for_institution,
+    validate_department_for_institution,
+)
 import sys
 sys.path.append('..')
 
@@ -330,8 +337,14 @@ class ResearcherRegistrationRequest(BaseModel):
     orcid_id: Optional[str] = None
     password: str
     confirm_password: str
-    department: Optional[str] = None
+    department: str
     phone: Optional[str] = None
+
+    @validator('department')
+    def validate_department(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Department is required')
+        return v.strip()
     
     @validator('confirm_password')
     def passwords_match(cls, v, values):
@@ -344,11 +357,24 @@ class AdminStaffRegistrationRequest(BaseModel):
     """Admin staff registration"""
     name: str
     email: EmailStr
-    department: Optional[str] = None
+    role: str
+    department: str
     job_title: Optional[str] = None
     phone: Optional[str] = None
     password: str
     confirm_password: str
+    
+    @validator('role')
+    def validate_role(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Role is required')
+        return v.strip()
+
+    @validator('department')
+    def validate_department(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Department is required')
+        return v.strip()
     
     @validator('confirm_password')
     def passwords_match(cls, v, values):
@@ -380,6 +406,16 @@ async def register_researcher(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Institution not found"
+        )
+
+    try:
+        department_name = await validate_department_for_institution(
+            db, institution.id, request.department
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
         )
     
     # Validate email domain
@@ -434,7 +470,7 @@ async def register_researcher(
         orcid_id=request.orcid_id,
         primary_institution_id=institution.id,
         primary_account_type=PrimaryAccountType.RESEARCHER,
-        department=request.department,
+        department=department_name,
         phone=request.phone,
         is_global_admin=False,
         is_institution_admin=False,
@@ -500,6 +536,26 @@ async def register_admin_staff(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email domain not recognized. Please use your institutional email address."
         )
+
+    institution = await load_institution_with_types(db, institution.id)
+    institution_type_values = institution_types_as_strings(institution)
+
+    role_enum = validate_admin_staff_registration_role(request.role, institution_type_values)
+    if not role_enum:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid role for this institution type."
+        )
+
+    try:
+        department_name = await validate_department_for_institution(
+            db, institution.id, request.department
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
     
     # Check if user already exists
     result = await db.execute(
@@ -525,8 +581,8 @@ async def register_admin_staff(
         status=UserStatus.PENDING,
         email_verified=False,
         primary_institution_id=institution.id,
-        primary_account_type=PrimaryAccountType.ADMIN_STAFF,
-        department=request.department,
+        primary_account_type=role_enum,
+        department=department_name,
         job_title=request.job_title,
         phone=request.phone,
         is_global_admin=False,
@@ -537,6 +593,21 @@ async def register_admin_staff(
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
+
+    default_roles = get_default_roles(role_enum)
+    if default_roles:
+        from sqlalchemy import insert
+        from models import user_roles
+
+        for role in default_roles:
+            await db.execute(
+                insert(user_roles).values(
+                    user_id=new_user.id,
+                    role=role,
+                    assigned_by=None
+                )
+            )
+        await db.commit()
     
     # Send verification email
     try:
@@ -573,26 +644,44 @@ async def register_admin_staff(
     )
 
 
-@router.get("/departments/{institution_domain}")
-async def get_departments(
-    institution_domain: str,
-    db: AsyncSession = Depends(get_db)
+@router.get("/departments")
+async def list_registration_departments(
+    institution_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
-    """Get list of departments for an institution (placeholder - to be implemented)"""
-    # This would query a Department table when implemented
-    # For now, return common departments
+    """List active departments for registration, filtered by institution type."""
+    departments = await list_departments_for_institution(
+        db, institution_id, active_only=True, registration_only=True
+    )
     return {
-        "departments": [
-            "Faculty of Science",
-            "Faculty of Arts",
-            "Faculty of Engineering",
-            "Faculty of Medicine",
-            "Faculty of Business",
-            "Faculty of Law",
-            "Faculty of Education",
-            "Research Administration",
-            "Finance Department",
-            "IT Department",
-            "Other"
-        ]
+        "departments": [department_to_dict(d) for d in departments],
+    }
+
+
+@router.get("/departments/{institution_domain}")
+async def get_departments_by_domain(
+    institution_domain: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Legacy path — resolve institution by domain and return department catalog."""
+    domain = institution_domain.lower().strip()
+    result = await db.execute(select(Institution))
+    institution = None
+    for inst in result.scalars().all():
+        domains = {inst.domain.lower()} if inst.domain else set()
+        if inst.verified_domains:
+            domains.update(d.strip().lower() for d in inst.verified_domains.split(",") if d.strip())
+        if domain in domains:
+            institution = inst
+            break
+
+    if not institution:
+        raise HTTPException(status_code=404, detail="Institution not found")
+
+    departments = await list_departments_for_institution(
+        db, institution.id, active_only=True, registration_only=True
+    )
+    return {
+        "departments": [d.name for d in departments],
+        "items": [department_to_dict(d) for d in departments],
     }

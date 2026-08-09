@@ -29,10 +29,14 @@ export const PROJECT_TEAM_ROLES = ['co_investigator', 'research_assistant', 'dat
 export const PROPOSAL_TEAM_ROLES = ['Co-Investigator', 'Consultant', 'Advisor', 'Collaborator'];
 export const MANUSCRIPT_TEAM_ROLES = ['author', 'corresponding_author', 'contributor'];
 
-export const getInviteeKey = (inv) => (inv.user_id || inv.orcid || inv.email || '').toString().toLowerCase();
+export const getInviteeKey = (inv) =>
+  (inv.clientKey || inv.user_id || inv.orcid || inv.email || '').toString().toLowerCase();
 
 export const getDisplayName = (inv) =>
   inv.name || `${inv.given_name || ''} ${inv.family_name || ''}`.trim() || inv.email;
+
+export const teamMembersMissingEmail = (invitees = []) =>
+  invitees.filter((inv) => !inv.email?.trim());
 
 export const buildTeamInvitePayload = (inv) => ({
   role: inv.role,
@@ -44,6 +48,11 @@ export const buildTeamInvitePayload = (inv) => ({
   family_name: inv.family_name?.trim() || undefined,
   name: inv.name?.trim() || getDisplayName(inv) || undefined,
 });
+
+const newClientKey = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `invitee-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
 
 function SubLabel({ label, action }) {
   return (
@@ -71,16 +80,17 @@ function parseNameParts(fullName, fallbackGiven = '', fallbackFamily = '') {
   };
 }
 
-function ResearcherProfileModal({
+export function TeamMemberProfileModal({
   open,
   onClose,
   researcher,
   snapshot,
   loading,
-  accent,
+  accent = '#1ca7a1',
   onInvite,
   alreadyAdded,
   inviteLabel,
+  viewOnly = false,
 }) {
   const { t } = useLanguage();
   const data = snapshot || researcher;
@@ -184,19 +194,24 @@ function ResearcherProfileModal({
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5 }}>
         <Button onClick={onClose} sx={{ textTransform: 'none' }}>{t('researcher.teamInvite.close')}</Button>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          disabled={alreadyAdded || loading}
-          onClick={onInvite}
-          sx={{ bgcolor: accent, textTransform: 'none', borderRadius: 2, '&:hover': { bgcolor: '#0e8a85' } }}
-        >
-          {alreadyAdded ? t('researcher.teamInvite.alreadyOnTeam') : (inviteLabel || t('researcher.teamInvite.inviteToTeam'))}
-        </Button>
+        {!viewOnly && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            disabled={alreadyAdded || loading}
+            onClick={onInvite}
+            sx={{ bgcolor: accent, textTransform: 'none', borderRadius: 2, '&:hover': { bgcolor: '#0e8a85' } }}
+          >
+            {alreadyAdded ? t('researcher.teamInvite.alreadyOnTeam') : (inviteLabel || t('researcher.teamInvite.inviteToTeam'))}
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );
 }
+
+/** @deprecated Use TeamMemberProfileModal */
+const ResearcherProfileModal = TeamMemberProfileModal;
 
 export function TeamInvitePanel({
   invitees = [],
@@ -310,7 +325,11 @@ export function TeamInvitePanel({
       setError(t('researcher.teamInvite.alreadyOnList'));
       return false;
     }
-    onChange([...invitees, { ...invitee, role: invitee.role || form.role }]);
+    onChange([...invitees, {
+      ...invitee,
+      role: invitee.role || form.role,
+      clientKey: invitee.clientKey || newClientKey(),
+    }]);
     clearEntryForm();
     setGivenName('');
     setFamilyName('');
@@ -807,16 +826,19 @@ export function TeamInvitePanel({
                     {inv.affiliation && (
                       <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{inv.affiliation}</Typography>
                     )}
-                    {!inv.email?.trim() ? (
-                      <TextField size="small" label={t('researcher.teamInvite.emailForNotifications')} type="email"
-                        value={inv.email || ''}
-                        onChange={e => updateInviteeEmail(key, e.target.value)}
-                        sx={{ mt: 1, width: '100%', ...inp }} />
-                    ) : (
-                      <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>{inv.email}</Typography>
-                    )}
+                    <TextField
+                      size="small"
+                      required
+                      label={t('researcher.teamInvite.emailForNotifications')}
+                      type="email"
+                      value={inv.email || ''}
+                      onChange={e => updateInviteeEmail(key, e.target.value)}
+                      error={!inv.email?.trim()}
+                      helperText={!inv.email?.trim() ? t('researcher.teamInvite.emailRequiredBeforeCreate') : undefined}
+                      sx={{ mt: 1, width: '100%', ...inp }}
+                    />
                     <FormControl size="small" sx={{ mt: 1, minWidth: 180, ...inp }}>
-                      <InputLabel>Role</InputLabel>
+                      <InputLabel>{t('researcher.teamInvite.role')}</InputLabel>
                       <Select value={inv.role} label={t('researcher.teamInvite.role')} onChange={e => updateInviteeRole(key, e.target.value)}>
                         {roles.map(r => (
                           <MenuItem key={r} value={r} sx={{ textTransform: 'capitalize', fontSize: 12 }}>

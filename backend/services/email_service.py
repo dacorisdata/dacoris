@@ -306,98 +306,62 @@ class EmailService:
         except Exception as e:
             print(f"Failed to send email to {email}: {e}")
             return False
-    
+
     @staticmethod
-    async def send_new_user_invitation_email(
+    async def send_collaboration_invite_cancelled_email(
         email: str,
         inviter_name: str,
         proposal_title: str,
         role: str,
-        invitation_token: str
     ) -> bool:
-        """
-        Send invitation email to unregistered users
-        
-        Args:
-            email: Recipient email address
-            inviter_name: Name of person sending invitation
-            proposal_title: Title of the proposal
-            role: Collaborator role
-            invitation_token: Unique invitation token
-            
-        Returns:
-            bool: True if email sent successfully, False otherwise
-        """
+        """Notify an invitee that their collaboration invitation was withdrawn."""
         smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
         smtp_port = int(os.getenv("SMTP_PORT", "587"))
         smtp_user = os.getenv("SMTP_USER")
         smtp_password = os.getenv("SMTP_PASSWORD")
         from_email = os.getenv("FROM_EMAIL", smtp_user)
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-        
+
         if not smtp_user or not smtp_password:
             print("ERROR: SMTP credentials not configured")
             return False
-        
-        # Create registration link with invitation token
-        registration_url = f"{frontend_url}/register?invitation={invitation_token}"
-        
-        # Create message
+
         message = MIMEMultipart("alternative")
-        message["Subject"] = f"You're Invited to Collaborate: {proposal_title}"
+        message["Subject"] = f"Invitation withdrawn: {proposal_title}"
         message["From"] = from_email
         message["To"] = email
-        
+
         text_content = f"""
-        Collaboration Invitation
-        
-        {inviter_name} has invited you to collaborate on a grant proposal:
+        Invitation Withdrawn
+
+        {inviter_name} has withdrawn your invitation to collaborate on:
         "{proposal_title}"
-        
-        Your role: {role}
-        
-        To accept this invitation, you need to create a DACORIS account:
-        {registration_url}
-        
-        Once you register, you'll automatically be added to the proposal team!
+
+        Role that was invited: {role}
+
+        You no longer need to take action on this invitation.
         """
-        
+
         html_content = f"""
         <html>
           <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-              <h2 style="color: #1ca7a1;">You're Invited to Collaborate!</h2>
-              <p><strong>{inviter_name}</strong> has invited you to collaborate on a grant proposal:</p>
-              
-              <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #1ca7a1; border-radius: 5px;">
-                <h3 style="margin: 0 0 10px 0; color: #1ca7a1;">{proposal_title}</h3>
-                <p style="margin: 0; color: #666;"><strong>Your role:</strong> {role}</p>
+              <h2 style="color: #ef4444;">Invitation Withdrawn</h2>
+              <p><strong>{inviter_name}</strong> has withdrawn your invitation to collaborate on:</p>
+              <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #ef4444; border-radius: 5px;">
+                <h3 style="margin: 0 0 10px 0; color: #333;">{proposal_title}</h3>
+                <p style="margin: 0; color: #666;"><strong>Role:</strong> {role}</p>
               </div>
-              
-              <p>To accept this invitation, you need to create a DACORIS account:</p>
-              
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="{registration_url}" 
-                   style="display: inline-block; padding: 15px 30px; background-color: #1ca7a1; color: white; 
-                          text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
-                  Create Account & Accept Invitation
-                </a>
-              </div>
-              
-              <p style="color: #666; font-size: 14px;">Once you register, you'll automatically be added to the proposal team!</p>
-              
+              <p style="color: #666; font-size: 14px;">You no longer need to take action on this invitation.</p>
               <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
               <p style="color: #999; font-size: 12px;">This is an automated message from DACORIS. Please do not reply to this email.</p>
             </div>
           </body>
         </html>
         """
-        
-        part1 = MIMEText(text_content, "plain")
-        part2 = MIMEText(html_content, "html")
-        message.attach(part1)
-        message.attach(part2)
-        
+
+        message.attach(MIMEText(text_content, "plain"))
+        message.attach(MIMEText(html_content, "html"))
+
         try:
             await aiosmtplib.send(
                 message,
@@ -407,11 +371,117 @@ class EmailService:
                 password=smtp_password,
                 start_tls=True,
             )
-            print(f"New user invitation sent to {email}")
+            print(f"Collaboration cancel email sent to {email}")
             return True
         except Exception as e:
-            print(f"Failed to send email to {email}: {e}")
+            print(f"Failed to send cancel email to {email}: {e}")
             return False
+    
+    @staticmethod
+    async def send_account_creation_invite_email(
+        email: str,
+        inviter_name: str,
+        invitation_token: str,
+    ) -> bool:
+        """Send a create-account email to an unregistered collaborator invitee."""
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        from_email = os.getenv("FROM_EMAIL", smtp_user)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+        if not smtp_user or not smtp_password:
+            print("ERROR: SMTP credentials not configured")
+            return False
+
+        registration_url = f"{frontend_url}/register?invitation={invitation_token}"
+
+        message = MIMEMultipart("alternative")
+        message["Subject"] = "Create your DACORIS account"
+        message["From"] = from_email
+        message["To"] = email
+
+        text_content = f"""
+        Create your DACORIS account
+
+        {inviter_name} invited you to collaborate on DACORIS.
+
+        You do not have an account yet. Create one to accept invitations and work on proposals:
+        {registration_url}
+
+        After you register, you can log in and join the proposal team.
+        """
+
+        html_content = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #1ca7a1;">Create your DACORIS account</h2>
+              <p><strong>{inviter_name}</strong> invited you to collaborate on DACORIS.</p>
+              <p>You do not have an account yet. Create one to accept invitations and work on proposals.</p>
+
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="{registration_url}"
+                   style="display: inline-block; padding: 15px 30px; background-color: #1ca7a1; color: white;
+                          text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  Create Account
+                </a>
+              </div>
+
+              <p style="color: #666; font-size: 14px;">After you register, you can log in and join the proposal team.</p>
+
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+              <p style="color: #999; font-size: 12px;">This is an automated message from DACORIS. Please do not reply to this email.</p>
+            </div>
+          </body>
+        </html>
+        """
+
+        message.attach(MIMEText(text_content, "plain"))
+        message.attach(MIMEText(html_content, "html"))
+
+        try:
+            await aiosmtplib.send(
+                message,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user,
+                password=smtp_password,
+                start_tls=True,
+            )
+            print(f"Account creation invite sent to {email}")
+            return True
+        except Exception as e:
+            print(f"Failed to send account creation email to {email}: {e}")
+            return False
+
+    @staticmethod
+    async def send_new_user_invitation_email(
+        email: str,
+        inviter_name: str,
+        proposal_title: str,
+        role: str,
+        invitation_token: str
+    ) -> bool:
+        """
+        Legacy combined invite for unregistered users.
+        Prefer send_account_creation_invite_email + send_collaboration_invite_email.
+        """
+        account_ok = await EmailService.send_account_creation_invite_email(
+            email=email,
+            inviter_name=inviter_name,
+            invitation_token=invitation_token,
+        )
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        collab_ok = await EmailService.send_collaboration_invite_email(
+            email=email,
+            inviter_name=inviter_name,
+            proposal_title=proposal_title,
+            role=role,
+            proposal_url=f"{frontend_url}/register?invitation={invitation_token}",
+        )
+        return account_ok and collab_ok
 
     @staticmethod
     async def send_reviewer_signup_email(

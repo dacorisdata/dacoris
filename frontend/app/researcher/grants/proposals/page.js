@@ -8,13 +8,19 @@ import {
   Stepper, Step, StepLabel, Table, TableBody, TableCell, TableRow, Avatar,
   TableHead, TableContainer, Paper, TablePagination, AvatarGroup, Tooltip,
 } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Send as SubmitIcon, Search as SearchIcon, PersonAdd as InviteIcon, Delete as DeleteIcon, People as PeopleIcon } from '@mui/icons-material';
+import {
+  Add as AddIcon, Edit as EditIcon, Send as SubmitIcon, Search as SearchIcon,
+  PersonAdd as InviteIcon, Delete as DeleteIcon, People as PeopleIcon,
+  NotificationsActive as RemindIcon,
+} from '@mui/icons-material';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLanguage } from '../../../../contexts/LanguageContext';
 import axios from 'axios';
 import {
   TeamInvitePanel, PROPOSAL_TEAM_ROLES, buildTeamInvitePayload, getDisplayName,
+  teamMembersMissingEmail,
 } from '../../../../components/TeamInvitePanel';
+import { collabAvatarSx } from '../../../../lib/pendingAvatar';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#16a699';
@@ -118,6 +124,29 @@ const formatCollabStatus = (status, t) => {
   return status;
 };
 
+const INVITE_RESPONSE_DAYS = 7;
+
+const getInviteDueInfo = (collab) => {
+  if ((collab?.status || '').toLowerCase() !== 'pending') return null;
+  let due = collab.invite_due_at ? new Date(collab.invite_due_at) : null;
+  if (!due && collab.invited_at) {
+    due = new Date(collab.invited_at);
+    due.setDate(due.getDate() + INVITE_RESPONSE_DAYS);
+  }
+  if (!due || Number.isNaN(due.getTime())) return null;
+
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+  const daysLeft = Math.round((dueDay - startToday) / (24 * 60 * 60 * 1000));
+  return {
+    dueAt: due,
+    daysLeft,
+    isOverdue: daysLeft < 0,
+    isDueToday: daysLeft === 0,
+  };
+};
+
 const fmtDate = (d, locale, options = { year: 'numeric', month: 'short', day: 'numeric' }) =>
   d ? new Date(d).toLocaleDateString(LOCALE_MAP[locale] || 'en-US', options) : '—';
 
@@ -164,6 +193,8 @@ function MyProposalsContent() {
   
   // Team members for new proposal
   const [teamMembers, setTeamMembers] = useState([]);
+  const [creating, setCreating] = useState(false);
+  const [teamAction, setTeamAction] = useState(null); // { id, type: 'remove' | 'remind' }
   
   // Pagination
   const [page, setPage] = useState(0);
@@ -270,6 +301,14 @@ function MyProposalsContent() {
   };
 
   const createProposal = async () => {
+    if (creating) return;
+    const missingEmail = teamMembersMissingEmail(teamMembers);
+    if (missingEmail.length > 0) {
+      setError(t('researcher.grantsProposals.createDialog.emailRequiredForTeam'));
+      setActiveStep(1);
+      return;
+    }
+    setCreating(true);
     try {
       const token = localStorage.getItem('token');
       const res = await axios.post(
@@ -292,10 +331,79 @@ function MyProposalsContent() {
       setError(t('researcher.grantsProposals.errorCreate', {
         detail: e.response?.data?.detail || e.message,
       }));
+    } finally {
+      setCreating(false);
     }
   };
 
-  const handleNext = () => setActiveStep((prev) => prev + 1);
+  const teamEmailsComplete = teamMembersMissingEmail(teamMembers).length === 0;
+
+  const refreshSelectedProposalTeam = async (proposalId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const [listRes, detailRes] = await Promise.all([
+        axios.get(`${API_URL}/grants/proposals`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/grants/proposals/${proposalId}`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      setProposals(listRes.data || []);
+      setSelectedProposal(detailRes.data);
+    } catch (e) {
+      console.error(e);
+      await loadProposals();
+    }
+  };
+
+  const removeCollaborator = async (collab) => {
+    if (!selectedProposal?.id || !collab?.id || teamAction) return;
+    const name = collab.user?.name || collab.invited_name || collab.invited_email || 'this collaborator';
+    if (!confirm(t('researcher.grantsProposals.collab.removeConfirm', { name }))) return;
+
+    setTeamAction({ id: collab.id, type: 'remove' });
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(
+        `${API_URL}/grants/proposals/${selectedProposal.id}/collaborators/${collab.id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setSuccess(t('researcher.grantsProposals.collab.removeSuccess', { name }));
+      await refreshSelectedProposalTeam(selectedProposal.id);
+    } catch (e) {
+      setError(e.response?.data?.detail || t('researcher.grantsProposals.collab.removeError'));
+    } finally {
+      setTeamAction(null);
+    }
+  };
+
+  const remindCollaborator = async (collab) => {
+    if (!selectedProposal?.id || !collab?.id || teamAction) return;
+    if ((collab.status || '').toLowerCase() !== 'pending') return;
+
+    setTeamAction({ id: collab.id, type: 'remind' });
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(
+        `${API_URL}/grants/proposals/${selectedProposal.id}/collaborators/${collab.id}/remind`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const name = collab.user?.name || collab.invited_name || collab.invited_email || '';
+      setSuccess(t('researcher.grantsProposals.collab.remindSuccess', { name }));
+      await refreshSelectedProposalTeam(selectedProposal.id);
+    } catch (e) {
+      setError(e.response?.data?.detail || t('researcher.grantsProposals.collab.remindError'));
+    } finally {
+      setTeamAction(null);
+    }
+  };
+
+  const handleNext = () => {
+    if (activeStep === 1 && !teamEmailsComplete) {
+      setError(t('researcher.grantsProposals.createDialog.emailRequiredForTeam'));
+      return;
+    }
+    setError('');
+    setActiveStep((prev) => prev + 1);
+  };
   const handleBack = () => setActiveStep((prev) => prev - 1);
 
   const sortedProposals = sortProposalsForResearcher(proposals, t);
@@ -519,15 +627,14 @@ function MyProposalsContent() {
                               arrow
                             >
                               <Avatar 
-                                sx={{ 
+                                sx={collabAvatarSx(collab.status, { 
                                   bgcolor: '#8b5cf6', 
                                   width: 32, 
                                   height: 32, 
                                   fontSize: 13,
                                   border: `2px solid ${theme.palette.background.paper}`,
                                   transition: 'transform 0.2s',
-                                  opacity: collab.status === 'pending' ? 0.6 : 1
-                                }}
+                                })}
                               >
                                 {collab.user?.name?.charAt(0) || collab.invited_name?.charAt(0) || 'C'}
                               </Avatar>
@@ -692,6 +799,7 @@ function MyProposalsContent() {
       <Dialog 
         open={createDialog} 
         onClose={() => {
+          if (creating) return;
           setCreateDialog(false);
           setActiveStep(0);
           setTeamMembers([]);
@@ -817,15 +925,18 @@ function MyProposalsContent() {
         </DialogContent>
 
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => {
-            setCreateDialog(false);
-            setActiveStep(0);
-            setTeamMembers([]);
-          }}>
+          <Button
+            disabled={creating}
+            onClick={() => {
+              setCreateDialog(false);
+              setActiveStep(0);
+              setTeamMembers([]);
+            }}
+          >
             {t('researcher.grantsProposals.common.cancel')}
           </Button>
           {activeStep > 0 && (
-            <Button onClick={handleBack}>
+            <Button onClick={handleBack} disabled={creating}>
               {t('researcher.grantsProposals.common.back')}
             </Button>
           )}
@@ -833,7 +944,10 @@ function MyProposalsContent() {
             <Button 
               onClick={handleNext} 
               variant="contained"
-              disabled={activeStep === 0 && !newTitle.trim()}
+              disabled={
+                (activeStep === 0 && !newTitle.trim())
+                || (activeStep === 1 && !teamEmailsComplete)
+              }
               sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
             >
               {t('researcher.grantsProposals.common.next')}
@@ -842,10 +956,13 @@ function MyProposalsContent() {
             <Button 
               onClick={createProposal} 
               variant="contained"
-              disabled={!newTitle.trim()}
-              sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' } }}
+              disabled={creating || !newTitle.trim() || !teamEmailsComplete}
+              startIcon={creating ? <CircularProgress size={16} color="inherit" /> : null}
+              sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, minWidth: 160 }}
             >
-              {t('researcher.grantsProposals.createDialog.createProposal')}
+              {creating
+                ? t('researcher.grantsProposals.createDialog.creating')
+                : t('researcher.grantsProposals.createDialog.createProposal')}
             </Button>
           )}
         </DialogActions>
@@ -1039,29 +1156,75 @@ function MyProposalsContent() {
                 
                 {selectedProposal.collaborators && selectedProposal.collaborators.length > 0 ? (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {selectedProposal.collaborators.map((collab, idx) => (
+                    {(() => {
+                      const pending = selectedProposal.collaborators.filter(c => (c.status || '').toLowerCase() === 'pending');
+                      const overdueCount = pending.filter(c => getInviteDueInfo(c)?.isOverdue).length;
+                      if (!pending.length) return null;
+                      return (
+                        <Alert
+                          severity={overdueCount ? 'warning' : 'info'}
+                          sx={{ borderRadius: 2, py: 0.5, '& .MuiAlert-message': { fontSize: 12.5 } }}
+                        >
+                          {overdueCount
+                            ? t('researcher.grantsProposals.collab.overdueSummary', {
+                              overdue: overdueCount,
+                              pending: pending.length,
+                            })
+                            : t('researcher.grantsProposals.collab.pendingSummary', {
+                              pending: pending.length,
+                              days: INVITE_RESPONSE_DAYS,
+                            })}
+                        </Alert>
+                      );
+                    })()}
+                    {selectedProposal.collaborators.map((collab, idx) => {
+                      const dueInfo = getInviteDueInfo(collab);
+                      return (
                       <Box 
-                        key={idx}
+                        key={collab.id || idx}
                         sx={{ 
                           display: 'flex', 
                           alignItems: 'center', 
                           gap: 2, 
                           p: 2, 
-                          border: `1px solid ${theme.palette.divider}`, 
+                          border: `1px solid ${dueInfo?.isOverdue ? '#f59e0b66' : theme.palette.divider}`, 
                           borderRadius: 2,
+                          bgcolor: dueInfo?.isOverdue
+                            ? (dark ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.06)')
+                            : 'transparent',
                           '&:hover': { bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }
                         }}
                       >
-                        <Avatar sx={{ bgcolor: '#8b5cf6', width: 40, height: 40 }}>
+                        <Avatar sx={collabAvatarSx(collab.status, { bgcolor: '#8b5cf6', width: 40, height: 40 })}>
                           {collab.user?.name?.charAt(0) || collab.invited_name?.charAt(0) || 'C'}
                         </Avatar>
-                        <Box sx={{ flex: 1 }}>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
                             {collab.user?.name || collab.invited_name || t('researcher.grantsProposals.roles.pending')}
                           </Typography>
                           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
                             {collab.user?.email || collab.invited_email || '—'}
                           </Typography>
+                          {dueInfo && (
+                            <Typography sx={{
+                              fontSize: 11,
+                              mt: 0.4,
+                              fontWeight: 600,
+                              color: dueInfo.isOverdue ? '#d97706' : dueInfo.isDueToday ? '#ea580c' : 'text.secondary',
+                            }}>
+                              {dueInfo.isOverdue
+                                ? t('researcher.grantsProposals.collab.overdueBy', {
+                                  days: Math.abs(dueInfo.daysLeft),
+                                  date: fmtDate(dueInfo.dueAt, locale),
+                                })
+                                : dueInfo.isDueToday
+                                  ? t('researcher.grantsProposals.collab.dueToday', { date: fmtDate(dueInfo.dueAt, locale) })
+                                  : t('researcher.grantsProposals.collab.dueIn', {
+                                    days: dueInfo.daysLeft,
+                                    date: fmtDate(dueInfo.dueAt, locale),
+                                  })}
+                            </Typography>
+                          )}
                         </Box>
                         <FormControl size="small" sx={{ minWidth: 150 }}>
                           <Select
@@ -1079,29 +1242,57 @@ function MyProposalsContent() {
                           </Select>
                         </FormControl>
                         <Chip 
-                          label={formatCollabStatus(collab.status, t)} 
+                          label={dueInfo?.isOverdue
+                            ? t('researcher.grantsProposals.collab.statusOverdue')
+                            : formatCollabStatus(collab.status, t)} 
                           size="small" 
                           sx={{ 
                             fontSize: 11, 
                             fontWeight: 600,
-                            bgcolor: collab.status === 'accepted' ? '#10b98122' : '#f59e0b22',
-                            color: collab.status === 'accepted' ? '#10b981' : '#f59e0b'
+                            bgcolor: collab.status === 'accepted'
+                              ? '#10b98122'
+                              : dueInfo?.isOverdue
+                                ? '#ef444422'
+                                : '#f59e0b22',
+                            color: collab.status === 'accepted'
+                              ? '#10b981'
+                              : dueInfo?.isOverdue
+                                ? '#ef4444'
+                                : '#f59e0b'
                           }} 
                         />
-                        <IconButton 
-                          size="small"
-                          onClick={() => {
-                            if (confirm(t('researcher.grantsProposals.collab.removeConfirm', { name: collab.user?.name || collab.invited_name }))) {
-                              // TODO: Remove collaborator
-                              console.log('Remove collaborator:', collab.id);
-                            }
-                          }}
-                          sx={{ color: '#ef4444' }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
+                        {(collab.status || '').toLowerCase() === 'pending' && (
+                          <Tooltip title={t('researcher.grantsProposals.collab.remindTooltip')} arrow>
+                            <span>
+                              <IconButton
+                                size="small"
+                                disabled={!!teamAction}
+                                onClick={() => remindCollaborator(collab)}
+                                sx={{ color: ACCENT }}
+                              >
+                                {teamAction?.id === collab.id && teamAction?.type === 'remind'
+                                  ? <CircularProgress size={16} color="inherit" />
+                                  : <RemindIcon fontSize="small" />}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        )}
+                        <Tooltip title={t('researcher.grantsProposals.collab.removeTooltip')} arrow>
+                          <span>
+                            <IconButton
+                              size="small"
+                              disabled={!!teamAction}
+                              onClick={() => removeCollaborator(collab)}
+                              sx={{ color: '#ef4444' }}
+                            >
+                              {teamAction?.id === collab.id && teamAction?.type === 'remove'
+                                ? <CircularProgress size={16} color="inherit" />
+                                : <DeleteIcon fontSize="small" />}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                       </Box>
-                    ))}
+                    );})}
                   </Box>
                 ) : (
                   <Box sx={{ textAlign: 'center', py: 4, bgcolor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderRadius: 2 }}>

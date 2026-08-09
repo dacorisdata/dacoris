@@ -15,6 +15,7 @@ import {
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { subtleScrollbarSx } from '../lib/scrollStyles';
 import { sidebarTheme, SIDEBAR_FONTS } from '../lib/sidebarTheme';
@@ -22,26 +23,26 @@ import { sidebarTheme, SIDEBAR_FONTS } from '../lib/sidebarTheme';
 const NAV_SECTIONS = [
   {
     key: 'dashboard',
-    label: 'Dashboard',
+    labelKey: 'globalAdmin.sidebar.sections.dashboard',
     items: [
-      { icon: DashboardIcon, label: 'Overview', path: '/global-admin/overview' },
-      { icon: AnalyticsIcon, label: 'Analytics', path: '/global-admin/analytics' },
+      { icon: DashboardIcon, labelKey: 'globalAdmin.sidebar.overview', path: '/global-admin/overview' },
+      { icon: AnalyticsIcon, labelKey: 'globalAdmin.sidebar.analytics', path: '/global-admin/analytics' },
     ],
   },
   {
     key: 'platform',
-    label: 'Platform Management',
+    labelKey: 'globalAdmin.sidebar.sections.platform',
     items: [
-      { icon: BusinessIcon, label: 'Institutions', path: '/global-admin/institutions' },
-      { icon: PeopleIcon, label: 'All Users', path: '/global-admin/users' },
+      { icon: BusinessIcon, labelKey: 'globalAdmin.sidebar.institutions', path: '/global-admin/institutions' },
+      { icon: PeopleIcon, labelKey: 'globalAdmin.sidebar.allUsers', path: '/global-admin/users' },
     ],
   },
   {
     key: 'curation',
-    label: 'Opportunity Curation',
+    labelKey: 'globalAdmin.sidebar.sections.curation',
     items: [
-      { icon: OpportunitiesIcon, label: 'Opportunities', path: '/global-admin/opportunities' },
-      { icon: CategoryIcon, label: 'Categories', path: '/global-admin/categories' },
+      { icon: OpportunitiesIcon, labelKey: 'globalAdmin.sidebar.opportunities', path: '/global-admin/opportunities' },
+      { icon: CategoryIcon, labelKey: 'globalAdmin.sidebar.categories', path: '/global-admin/categories' },
     ],
   },
 ];
@@ -50,6 +51,7 @@ export default function GlobalAdminSidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
   const theme = useMuiTheme();
   const dark = theme.palette.mode === 'dark';
   const tokens = sidebarTheme(dark);
@@ -127,17 +129,17 @@ export default function GlobalAdminSidebar() {
               color: tokens.name, fontSize: SIDEBAR_FONTS.userName, fontWeight: 650,
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             }}>
-              {user?.name || 'Global Admin'}
+              {user?.name || t('globalAdmin.sidebar.role')}
             </Typography>
             <Typography sx={{ color: tokens.role, fontSize: SIDEBAR_FONTS.userRole, fontWeight: 500 }}>
-              Global Admin
+              {t('globalAdmin.sidebar.role')}
             </Typography>
           </Box>
         </Box>
       </Box>
 
       <Box sx={{ flex: 1, py: 0.5, overflowY: 'auto', ...subtleScrollbarSx(dark) }}>
-        {NAV_SECTIONS.map(({ key, label, items }) => {
+        {NAV_SECTIONS.map(({ key, labelKey, items }) => {
           const hasActive = items.some(item => isActive(item.path));
           const isOpen = open[key] !== false;
           return (
@@ -154,7 +156,7 @@ export default function GlobalAdminSidebar() {
                   letterSpacing: 1.2, textTransform: 'uppercase', flex: 1,
                   color: hasActive ? tokens.sectionActive : tokens.section,
                 }}>
-                  {label}
+                  {t(labelKey)}
                 </Typography>
                 {isOpen
                   ? <CollapseIcon sx={{ fontSize: 16, color: hasActive ? tokens.sectionActive : tokens.muted }} />
@@ -162,7 +164,14 @@ export default function GlobalAdminSidebar() {
               </Box>
               {isOpen && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                  {items.map(item => <NavItem key={item.path} {...item} />)}
+                  {items.map(item => (
+                    <NavItem
+                      key={item.path}
+                      icon={item.icon}
+                      label={t(item.labelKey)}
+                      path={item.path}
+                    />
+                  ))}
                 </Box>
               )}
             </Box>
@@ -178,7 +187,7 @@ export default function GlobalAdminSidebar() {
           '&:hover': { bgcolor: 'rgba(239,68,68,0.08)', color: '#ef4444' },
         }}>
           <LogoutIcon sx={{ fontSize: SIDEBAR_FONTS.itemIcon }} />
-          <Typography sx={{ fontSize: SIDEBAR_FONTS.signOut, fontWeight: 500 }}>Logout</Typography>
+          <Typography sx={{ fontSize: SIDEBAR_FONTS.signOut, fontWeight: 500 }}>{t('globalAdmin.sidebar.signOut')}</Typography>
         </Box>
       </Box>
     </Box>

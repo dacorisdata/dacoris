@@ -22,7 +22,7 @@ fi
 rollback_local() {
     echo "🔄 Rolling back local deployment..."
     
-    cd /home/dacoris 2>/dev/null || {
+    cd /opt/dacoris/rims 2>/dev/null || {
         echo "❌ Deployment directory not found"
         exit 1
     }
@@ -68,7 +68,7 @@ rollback_remote() {
     echo "🔄 Rolling back remote deployment on $REMOTE_HOST..."
     
     ssh $REMOTE_USER@$REMOTE_HOST << EOF
-        cd /home/dacoris
+        cd /opt/dacoris/rims
         
         # Check for backup
         if [ ! -f "docker-compose.yml.backup" ]; then

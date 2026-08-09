@@ -966,7 +966,10 @@ export default function ProposalWorkspacePage() {
                       title={`${collab.user?.name || collab.invited_name || t('researcher.grantsProposals.roles.pending')} (${formatRole(collab.role || 'Co-Investigator', t)})`}
                       arrow
                     >
-                      <Avatar sx={{ bgcolor: '#8b5cf6', opacity: collab.status === 'pending' ? 0.6 : 1 }}>
+                      <Avatar sx={{
+                        bgcolor: '#8b5cf6',
+                        ...(collab.status !== 'accepted' ? { opacity: 0.42, filter: 'grayscale(0.9)', borderStyle: 'dashed' } : {}),
+                      }}>
                         {collab.user?.name?.charAt(0) || collab.invited_name?.charAt(0) || 'C'}
                       </Avatar>
                     </Tooltip>
