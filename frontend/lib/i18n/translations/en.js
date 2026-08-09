@@ -1454,6 +1454,7 @@ const en = {
         saving: 'Saving…',
         success: 'Funding status updated',
         error: 'Failed to update funding status',
+        amountRequired: 'Award amount is required when marking as awarded',
       },
       table: {
         title: 'Proposal Title',

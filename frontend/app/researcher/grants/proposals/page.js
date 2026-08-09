@@ -17,6 +17,7 @@ import {
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLanguage } from '../../../../contexts/LanguageContext';
 import axios from 'axios';
+import { grantsAPI } from '../../../../lib/apiModules';
 import {
   TeamInvitePanel, TeamInviteDialog, PROPOSAL_TEAM_ROLES, buildTeamInvitePayload, getDisplayName,
   teamMembersMissingEmail,
@@ -367,22 +368,32 @@ function MyProposalsContent() {
   };
 
   const openFundingDialog = (proposal) => {
+    const statusKey = normalizeStatusKey(proposal.status);
     setFundingDialog(proposal);
     setFundingForm({
-      status: proposal.status === 'approved' ? 'applying' : proposal.status === 'applying' ? 'awarded' : 'applying',
+      status: statusKey === 'approved' ? 'applying' : statusKey === 'applying' ? 'awarded' : 'applying',
       total_amount: proposal.award?.total_amount?.toString() || '',
       currency: proposal.award?.currency || proposal.opportunity?.currency || 'KES',
       funder_name: proposal.award?.funder_name || proposal.opportunity?.sponsor || '',
       notes: '',
     });
     setAwardDocFile(null);
+    setError('');
   };
 
   const saveFundingStatus = async () => {
     if (!fundingDialog) return;
+    if (fundingForm.status === 'awarded') {
+      const amount = parseFloat(fundingForm.total_amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setError(t('researcher.grantsProposals.funding.amountRequired'));
+        return;
+      }
+    }
     setFundingSaving(true);
+    setError('');
+    setSuccess('');
     try {
-      const token = localStorage.getItem('token');
       const payload = {
         status: fundingForm.status,
         notes: fundingForm.notes || undefined,
@@ -392,18 +403,9 @@ function MyProposalsContent() {
       if (fundingForm.status === 'awarded') {
         payload.total_amount = parseFloat(fundingForm.total_amount);
       }
-      await axios.patch(
-        `${API_URL}/grants/proposals/${fundingDialog.id}/funding-status`,
-        payload,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      await grantsAPI.updateFundingStatus(fundingDialog.id, payload);
       if (awardDocFile && ['awarded', 'applying'].includes(fundingForm.status)) {
-        const fd = new FormData();
-        fd.append('document_type', 'funding_award');
-        fd.append('file', awardDocFile);
-        await axios.post(`${API_URL}/grants/proposals/${fundingDialog.id}/documents`, fd, {
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
-        });
+        await grantsAPI.uploadAwardDocument(fundingDialog.id, awardDocFile);
       }
       setSuccess(t('researcher.grantsProposals.funding.success'));
       setFundingDialog(null);
@@ -415,7 +417,7 @@ function MyProposalsContent() {
     }
   };
 
-  const canManageFunding = (p) => currentUserId && p.lead_pi_id === currentUserId
+  const canManageFunding = (p) => currentUserId && String(p.lead_pi_id) === String(currentUserId)
     && ['approved', 'applying'].includes(normalizeStatusKey(p.status));
 
   const refreshSelectedProposalTeam = async (proposalId) => {
@@ -1530,10 +1532,10 @@ function MyProposalsContent() {
               label={t('researcher.grantsProposals.funding.statusLabel')}
               onChange={(e) => setFundingForm((f) => ({ ...f, status: e.target.value }))}
             >
-              {fundingDialog?.status === 'approved' && (
+              {normalizeStatusKey(fundingDialog?.status) === 'approved' && (
                 <MenuItem value="applying">{t('researcher.grantsProposals.status.applying')}</MenuItem>
               )}
-              {fundingDialog?.status === 'applying' && [
+              {normalizeStatusKey(fundingDialog?.status) === 'applying' && [
                 <MenuItem key="awarded" value="awarded">{t('researcher.grantsProposals.status.awarded')}</MenuItem>,
                 <MenuItem key="funding_unsuccessful" value="funding_unsuccessful">{t('researcher.grantsProposals.status.funding_unsuccessful')}</MenuItem>,
               ]}

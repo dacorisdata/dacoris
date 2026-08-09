@@ -77,8 +77,28 @@ async def _can_assign_stage_reviewers(db: AsyncSession, user: User) -> bool:
     return bool(role_names & allowed)
 
 
+def _is_lead_pi(proposal: Proposal, user: User) -> bool:
+    return str(proposal.lead_pi_id) == str(user.id)
+
+
+def _coerce_proposal_status(status) -> ProposalStatus:
+    """Normalize DB/API status values (mixed-case Postgres enum labels)."""
+    if isinstance(status, ProposalStatus):
+        return status
+    if isinstance(status, str):
+        normalized = status.strip().lower()
+        try:
+            return ProposalStatus(normalized)
+        except ValueError:
+            try:
+                return ProposalStatus[status.strip().upper()]
+            except KeyError as exc:
+                raise HTTPException(400, f"Unknown proposal status: {status}") from exc
+    raise HTTPException(400, f"Unknown proposal status: {status}")
+
+
 async def _is_proposal_pi_or_collaborator(db: AsyncSession, proposal: Proposal, user: User) -> bool:
-    if proposal.lead_pi_id == user.id:
+    if _is_lead_pi(proposal, user):
         return True
     result = await db.execute(
         select(ProposalCollaborator).where(
@@ -134,7 +154,7 @@ async def _require_proposal_workspace_access(
     """
     if _can_view_all_institution_proposals(user):
         return
-    if proposal.lead_pi_id == user.id:
+    if _is_lead_pi(proposal, user):
         return
 
     result = await db.execute(
@@ -1047,19 +1067,17 @@ async def upload_document(
     file: UploadFile = File(...),
     requirement_id: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR, ResearchRole.GRANT_OFFICER]))
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Proposal).where(
-        Proposal.id == proposal_id,
-        Proposal.institution_id == current_user.primary_institution_id
-    ))
+    result = await db.execute(select(Proposal).where(Proposal.id == proposal_id))
     proposal = result.scalar_one_or_none()
     if not proposal:
         raise HTTPException(404, "Proposal not found")
 
-    if proposal.status == ProposalStatus.DRAFT:
-        pass
-    elif proposal.status in _post_approval_statuses():
+    current_status = _coerce_proposal_status(proposal.status)
+    if current_status == ProposalStatus.DRAFT:
+        await _require_proposal_workspace_access(db, proposal, current_user)
+    elif current_status in _post_approval_statuses():
         if not await _is_proposal_pi_or_collaborator(db, proposal, current_user):
             raise HTTPException(403, "Only the lead PI or accepted team members can upload funding documents")
         if not requirement_id:
@@ -1911,16 +1929,19 @@ async def advance_proposal_workflow(
     current_user: User = Depends(get_current_user),
 ):
     """Admin-only: advance, return, or decline a proposal through the workflow."""
-    # Role check — must be admin/grant staff
-    is_admin = current_user.is_institution_admin or current_user.is_global_admin
-    if not is_admin:
+    if not _can_view_all_institution_proposals(current_user):
         roles_res = await db.execute(
             text("SELECT role::text FROM user_roles WHERE user_id = :uid"),
-            {"uid": current_user.id}
+            {"uid": current_user.id},
         )
-        user_roles = [r[0] for r in roles_res.fetchall()]
-        admin_roles = {"GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN"}
-        if not any(r in admin_roles for r in user_roles):
+        user_roles_list = [r[0] for r in roles_res.fetchall()]
+        admin_roles = {
+            "GRANT_OFFICER", "RESEARCH_ADMIN", "INSTITUTIONAL_LEAD", "SYSTEM_ADMIN",
+            "DIRECTOR_RESEARCH", "RESEARCH_ADMINISTRATOR", "GRANT_MANAGER", "DVC_RESEARCH",
+            "grant_officer", "research_admin", "institutional_lead", "system_admin",
+            "director_research", "research_administrator", "grant_manager", "dvc_research",
+        }
+        if not any(r in admin_roles for r in user_roles_list):
             raise HTTPException(403, "Only grant staff or institution admins can advance proposals")
 
     result = await db.execute(select(Proposal).where(Proposal.id == proposal_id))
@@ -1994,18 +2015,17 @@ async def advance_proposal_workflow(
     if notes:
         proposal.stage_notes = notes
 
-    await db.commit()
-
-    # Notify lead PI
     action_labels = {"advance": "moved to", "approve": "approved at", "return": "returned from", "decline": "declined at"}
     await create_notification(
         db, proposal.lead_pi_id,
         title=f"Proposal status update: {new_stage}",
         message=f'Your proposal "{proposal.title}" has been {action_labels.get(action, "updated to")} "{new_stage}". {notes or ""}',
-        entity_type="proposal", entity_id=proposal_id
+        entity_type="proposal", entity_id=proposal_id,
     )
 
-    return {"id": proposal_id, "review_step": new_step, "review_stage_name": new_stage, "status": proposal.status}
+    await db.commit()
+
+    return {"id": proposal_id, "review_step": new_step, "review_stage_name": new_stage, "status": proposal.status.value if hasattr(proposal.status, 'value') else proposal.status}
 
 
 # ─── Stage History ──────────────────────────────────────────────
@@ -2897,15 +2917,12 @@ async def update_pi_funding_status(
     result = await db.execute(
         select(Proposal)
         .options(selectinload(Proposal.award), selectinload(Proposal.opportunity))
-        .where(
-            Proposal.id == proposal_id,
-            Proposal.institution_id == current_user.primary_institution_id,
-        )
+        .where(Proposal.id == proposal_id)
     )
     proposal = result.scalar_one_or_none()
     if not proposal:
         raise HTTPException(404, "Proposal not found")
-    if proposal.lead_pi_id != current_user.id:
+    if not _is_lead_pi(proposal, current_user):
         raise HTTPException(403, "Only the lead PI can update external funding status")
 
     try:
@@ -2913,14 +2930,15 @@ async def update_pi_funding_status(
     except ValueError:
         raise HTTPException(400, f"Invalid status: {body.status}")
 
+    current_status = _coerce_proposal_status(proposal.status)
     allowed_from = {
         ProposalStatus.APPROVED: {ProposalStatus.APPLYING},
         ProposalStatus.APPLYING: {ProposalStatus.AWARDED, ProposalStatus.FUNDING_UNSUCCESSFUL},
     }
-    if target not in allowed_from.get(proposal.status, set()):
+    if target not in allowed_from.get(current_status, set()):
         raise HTTPException(
             400,
-            f"Cannot transition from '{proposal.status.value}' to '{target.value}'",
+            f"Cannot transition from '{current_status.value}' to '{target.value}'",
         )
 
     if target == ProposalStatus.AWARDED:
