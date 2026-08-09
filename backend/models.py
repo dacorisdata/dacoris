@@ -655,13 +655,13 @@ class ProposalStageAssignment(Base):
             "uq_proposal_section_reviewer",
             "proposal_id", "section_id", "reviewer_id",
             unique=True,
-            postgresql_where=text("section_id IS NOT NULL"),
+            postgresql_where=text("section_id IS NOT NULL AND status = 'active'"),
         ),
         Index(
             "uq_proposal_stage_reviewer",
             "proposal_id", "stage_step", "reviewer_id",
             unique=True,
-            postgresql_where=text("section_id IS NULL"),
+            postgresql_where=text("section_id IS NULL AND status = 'active'"),
         ),
     )
 

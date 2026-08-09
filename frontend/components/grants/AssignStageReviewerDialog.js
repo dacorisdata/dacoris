@@ -17,6 +17,20 @@ import api from '../../lib/api';
 
 const ACCENT = COLORS.teal[600];
 
+function formatApiError(e, fallback) {
+  const detail = e.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
+  }
+  if (detail && typeof detail === 'object') return detail.message || fallback;
+  return fallback;
+}
+
+const toggleList = (list, value) => (
+  list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
+);
+
 const DEFAULT_STAGES = [
   { step: 1, label: 'Eligibility', days: 7 },
   { step: 2, label: 'Technical', days: 14 },
@@ -56,10 +70,10 @@ export default function AssignStageReviewerDialog({
   const [reviewers, setReviewers] = useState(reviewersProp || []);
   const [reviewersLoading, setReviewersLoading] = useState(false);
   const [assignments, setAssignments] = useState([]);
-  const [editingId, setEditingId] = useState(null);
+  const [editingReviewerId, setEditingReviewerId] = useState(null);
   const [editStages, setEditStages] = useState([]);
   const [removingId, setRemovingId] = useState(null);
-  const [updatingId, setUpdatingId] = useState(null);
+  const [updatingReviewerId, setUpdatingReviewerId] = useState(null);
 
   const activeAssignments = useMemo(() => {
     const source = existingAssignments ?? proposal?.stage_assignments ?? [];
@@ -85,13 +99,25 @@ export default function AssignStageReviewerDialog({
     return (stages || DEFAULT_STAGES).filter((s) => s.step > 0);
   }, [sections, sectionMode, stages]);
 
+  const groupedByReviewer = useMemo(() => {
+    const map = new Map();
+    for (const a of assignments) {
+      const rid = a.reviewer?.id || a.reviewer_id || 'unknown';
+      if (!map.has(rid)) {
+        map.set(rid, { reviewerId: rid, reviewer: a.reviewer, items: [] });
+      }
+      map.get(rid).items.push(a);
+    }
+    return [...map.values()];
+  }, [assignments]);
+
   useEffect(() => {
     if (!open) return;
     setAssignments(activeAssignments);
-    setEditingId(null);
+    setEditingReviewerId(null);
     setEditStages([]);
     setRemovingId(null);
-    setUpdatingId(null);
+    setUpdatingReviewerId(null);
 
     const assignedKeys = new Set(activeAssignments.map(assignmentStageKey));
     const initial = sectionMode
@@ -170,62 +196,76 @@ export default function AssignStageReviewerDialog({
       onAssigned?.(response.data);
       onClose?.();
     } catch (e) {
-      const detail = e.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : 'Failed to assign reviewer');
+      setError(formatApiError(e, 'Failed to assign reviewer'));
     } finally {
       setSaving(false);
     }
   };
 
-  const handleRemove = async (assignmentId) => {
-    if (!window.confirm('Remove this reviewer assignment?')) return;
-    setRemovingId(assignmentId);
+  const handleRemoveReviewer = async (group) => {
+    const label = group.reviewer?.name || 'this reviewer';
+    if (!window.confirm(`Remove all assignments for ${label}?`)) return;
+    setRemovingId(group.reviewerId);
     setError('');
     try {
-      await api.delete(`/grants/proposals/${proposal.id}/stage-reviewers/${assignmentId}`);
-      setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
-      onAssigned?.({ removed: assignmentId });
+      for (const item of group.items) {
+        await api.delete(`/grants/proposals/${proposal.id}/stage-reviewers/${item.id}`);
+      }
+      setAssignments((prev) => prev.filter(
+        (a) => (a.reviewer?.id || a.reviewer_id) !== group.reviewerId
+      ));
+      onAssigned?.({ removed: group.reviewerId });
     } catch (e) {
-      const detail = e.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : 'Failed to remove reviewer');
+      setError(formatApiError(e, 'Failed to remove reviewer'));
     } finally {
       setRemovingId(null);
     }
   };
 
-  const startEdit = (assignment) => {
-    setEditingId(assignment.id);
-    setEditStages([assignmentStageKey(assignment)]);
+  const startEdit = (group) => {
+    setEditingReviewerId(group.reviewerId);
+    setEditStages(group.items.map(assignmentStageKey));
     setError('');
   };
 
-  const handleUpdateStages = async (assignmentId) => {
+  const toggleEditStage = (step) => {
+    setEditStages((prev) => toggleList(prev, step));
+  };
+
+  const handleUpdateStages = async (group) => {
     if (editStages.length === 0) {
-      setError(sectionMode ? 'Select a section' : 'Select a stage');
+      setError(sectionMode ? 'Select at least one section' : 'Select at least one stage');
       return;
     }
-    setUpdatingId(assignmentId);
+    setUpdatingReviewerId(group.reviewerId);
     setError('');
     try {
-      const key = editStages[0];
       const payload = sectionMode
-        ? { section_id: key, stage_name: assignableStages.find((s) => s.step === key)?.label }
-        : { stage_step: key, stage_name: assignableStages.find((s) => s.step === key)?.label };
-      const response = await api.patch(
-        `/grants/proposals/${proposal.id}/stage-reviewers/${assignmentId}`,
+        ? { section_ids: editStages }
+        : { stage_steps: editStages };
+      const response = await api.put(
+        `/grants/proposals/${proposal.id}/stage-reviewers/reviewer/${group.reviewerId}`,
         payload,
       );
-      setAssignments((prev) => prev.map((a) => (
-        a.id === assignmentId ? { ...a, ...response.data } : a
-      )));
-      setEditingId(null);
+      const synced = response.data?.assignments || [];
+      setAssignments((prev) => {
+        const others = prev.filter(
+          (a) => (a.reviewer?.id || a.reviewer_id) !== group.reviewerId
+        );
+        const enriched = synced.map((a) => ({
+          ...a,
+          reviewer: group.reviewer,
+          status: 'active',
+        }));
+        return [...others, ...enriched];
+      });
+      setEditingReviewerId(null);
       setEditStages([]);
       onAssigned?.({ updated: response.data });
     } catch (e) {
-      const detail = e.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : 'Failed to update assignment');
+      setError(formatApiError(e, 'Failed to update assignment'));
     } finally {
-      setUpdatingId(null);
+      setUpdatingReviewerId(null);
     }
   };
 
@@ -315,11 +355,11 @@ export default function AssignStageReviewerDialog({
               CURRENT ASSIGNMENTS
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {assignments.map((assignment) => {
-                const isEditing = editingId === assignment.id;
+              {groupedByReviewer.map((group) => {
+                const isEditing = editingReviewerId === group.reviewerId;
                 return (
                   <Box
-                    key={assignment.id}
+                    key={group.reviewerId}
                     sx={{
                       p: 1.5,
                       borderRadius: 1.5,
@@ -330,34 +370,34 @@ export default function AssignStageReviewerDialog({
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
                       <Avatar sx={{ width: 32, height: 32, bgcolor: '#8b5cf6', fontSize: 13, fontWeight: 700 }}>
-                        {(assignment.reviewer?.name || '?').charAt(0).toUpperCase()}
+                        {(group.reviewer?.name || '?').charAt(0).toUpperCase()}
                       </Avatar>
                       <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography sx={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>
-                          {assignment.reviewer?.name || 'Reviewer'}
+                          {group.reviewer?.name || 'Reviewer'}
                         </Typography>
                         <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>
-                          {assignment.reviewer?.email || ''}
+                          {group.reviewer?.email || ''}
                         </Typography>
                       </Box>
                       {!isEditing && (
                         <Box sx={{ display: 'flex', gap: 0.25 }}>
                           <IconButton
                             size="small"
-                            aria-label="Edit assignment"
-                            onClick={() => startEdit(assignment)}
+                            aria-label="Edit assignments"
+                            onClick={() => startEdit(group)}
                             sx={{ color: 'text.secondary' }}
                           >
                             <EditIcon sx={{ fontSize: 16 }} />
                           </IconButton>
                           <IconButton
                             size="small"
-                            aria-label="Remove assignment"
-                            disabled={removingId === assignment.id}
-                            onClick={() => handleRemove(assignment.id)}
+                            aria-label="Remove all assignments"
+                            disabled={removingId === group.reviewerId}
+                            onClick={() => handleRemoveReviewer(group)}
                             sx={{ color: 'error.main' }}
                           >
-                            {removingId === assignment.id
+                            {removingId === group.reviewerId
                               ? <CircularProgress size={14} />
                               : <DeleteIcon sx={{ fontSize: 16 }} />}
                           </IconButton>
@@ -366,15 +406,20 @@ export default function AssignStageReviewerDialog({
                     </Box>
 
                     {!isEditing ? (
-                      <Chip
-                        label={stageLabel(assignment)}
-                        size="small"
-                        sx={{ mt: 1, height: 22, fontSize: 11, fontWeight: 600 }}
-                      />
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                        {group.items.map((assignment) => (
+                          <Chip
+                            key={assignment.id}
+                            label={stageLabel(assignment)}
+                            size="small"
+                            sx={{ height: 22, fontSize: 11, fontWeight: 600 }}
+                          />
+                        ))}
+                      </Box>
                     ) : (
                       <Box sx={{ mt: 1.25 }}>
                         <Typography sx={{ fontSize: 11.5, fontWeight: 600, color: 'text.secondary', mb: 0.75 }}>
-                          {sectionMode ? 'Change section' : 'Change stage'}
+                          {sectionMode ? 'Select sections (multiple allowed)' : 'Select stages (multiple allowed)'}
                         </Typography>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
                           {assignableStages.map((stage) => {
@@ -385,7 +430,7 @@ export default function AssignStageReviewerDialog({
                                 label={stage.label}
                                 size="small"
                                 clickable
-                                onClick={() => setEditStages([stage.step])}
+                                onClick={() => toggleEditStage(stage.step)}
                                 sx={{
                                   fontWeight: 600,
                                   bgcolor: selected ? ACCENT : 'transparent',
@@ -396,10 +441,15 @@ export default function AssignStageReviewerDialog({
                             );
                           })}
                         </Box>
+                        {editStages.length > 0 && (
+                          <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 1 }}>
+                            {editStages.length} selected
+                          </Typography>
+                        )}
                         <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
                           <Button
                             size="small"
-                            onClick={() => { setEditingId(null); setEditStages([]); }}
+                            onClick={() => { setEditingReviewerId(null); setEditStages([]); }}
                             sx={{ textTransform: 'none', fontSize: 12 }}
                           >
                             Cancel
@@ -407,8 +457,8 @@ export default function AssignStageReviewerDialog({
                           <Button
                             size="small"
                             variant="contained"
-                            disabled={updatingId === assignment.id || editStages.length === 0}
-                            onClick={() => handleUpdateStages(assignment.id)}
+                            disabled={updatingReviewerId === group.reviewerId || editStages.length === 0}
+                            onClick={() => handleUpdateStages(group)}
                             sx={{
                               textTransform: 'none',
                               fontSize: 12,
@@ -418,7 +468,7 @@ export default function AssignStageReviewerDialog({
                               '&:hover': { bgcolor: COLORS.teal[700], boxShadow: 'none' },
                             }}
                           >
-                            {updatingId === assignment.id ? 'Saving…' : 'Save'}
+                            {updatingReviewerId === group.reviewerId ? 'Saving…' : 'Save'}
                           </Button>
                         </Box>
                       </Box>

@@ -4,6 +4,7 @@ import os
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, or_, func
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
@@ -2064,6 +2065,141 @@ class AssignReviewerBody(BaseModel):
     new_reviewer_expertise: Optional[list[str]] = None
 
 
+async def _find_stage_assignment(
+    db: AsyncSession,
+    proposal_id: str,
+    reviewer_id: str,
+    *,
+    stage_step: int,
+    section_id: Optional[str],
+):
+    q = select(ProposalStageAssignment).where(
+        ProposalStageAssignment.proposal_id == proposal_id,
+        ProposalStageAssignment.reviewer_id == reviewer_id,
+    )
+    if section_id:
+        q = q.where(ProposalStageAssignment.section_id == section_id)
+    else:
+        q = q.where(
+            ProposalStageAssignment.stage_step == stage_step,
+            ProposalStageAssignment.section_id.is_(None),
+        )
+    return (await db.execute(q)).scalars().first()
+
+
+async def _ensure_proposal_review_and_portal(
+    db: AsyncSession,
+    *,
+    proposal: Proposal,
+    reviewer: User,
+    target: dict,
+    current_user: User,
+    needs_signup: bool,
+    signup_token: Optional[str],
+    notes: Optional[str],
+):
+    review_q = select(ProposalReview).where(
+        ProposalReview.proposal_id == proposal.id,
+        ProposalReview.reviewer_id == reviewer.id,
+    )
+    if target["section_id"]:
+        review_q = review_q.where(ProposalReview.section_id == target["section_id"])
+    else:
+        review_q = review_q.where(ProposalReview.section_id.is_(None))
+    proposal_review = (await db.execute(review_q)).scalars().first()
+    if not proposal_review:
+        proposal_review = ProposalReview(
+            proposal_id=proposal.id,
+            reviewer_id=reviewer.id,
+            section_id=target["section_id"],
+        )
+        db.add(proposal_review)
+        await db.flush()
+
+    portal_exists = await db.execute(
+        select(ReviewerAssignment).where(
+            ReviewerAssignment.review_type == ReviewType.PROPOSAL,
+            ReviewerAssignment.entity_review_id == proposal_review.id,
+            ReviewerAssignment.status.notin_([ReviewerAssignmentStatus.DECLINED]),
+        )
+    )
+    if not portal_exists.scalars().first():
+        db.add(ReviewerAssignment(
+            institution_id=current_user.primary_institution_id,
+            reviewer_id=reviewer.id,
+            invited_email=reviewer.email,
+            invited_name=reviewer.name,
+            review_type=ReviewType.PROPOSAL,
+            entity_id=proposal.id,
+            entity_review_id=proposal_review.id,
+            entity_title=proposal.title,
+            assigned_by_id=current_user.id,
+            status=ReviewerAssignmentStatus.PENDING_SIGNUP if needs_signup else ReviewerAssignmentStatus.ASSIGNED,
+            signup_token=signup_token if needs_signup else None,
+            notes=notes or target["stage_name"],
+        ))
+
+
+async def _create_or_reactivate_assignment(
+    db: AsyncSession,
+    *,
+    proposal: Proposal,
+    reviewer: User,
+    target: dict,
+    current_user: User,
+    body: AssignReviewerBody,
+    needs_signup: bool,
+    signup_token: Optional[str],
+) -> Optional[ProposalStageAssignment]:
+    existing = await _find_stage_assignment(
+        db, proposal.id, reviewer.id,
+        stage_step=target["stage_step"],
+        section_id=target["section_id"],
+    )
+    if existing:
+        if existing.status == "active":
+            return None
+        if existing.status == "removed":
+            existing.status = "active"
+            existing.notes = body.notes or existing.notes
+            existing.assigned_by_id = current_user.id
+            existing.stage_name = target["stage_name"]
+            await _ensure_proposal_review_and_portal(
+                db,
+                proposal=proposal,
+                reviewer=reviewer,
+                target=target,
+                current_user=current_user,
+                needs_signup=needs_signup,
+                signup_token=signup_token,
+                notes=body.notes,
+            )
+            return existing
+
+    assignment = ProposalStageAssignment(
+        proposal_id=proposal.id,
+        stage_step=target["stage_step"],
+        stage_name=target["stage_name"],
+        section_id=target["section_id"],
+        reviewer_id=reviewer.id,
+        assigned_by_id=current_user.id,
+        notes=body.notes,
+        status="active",
+    )
+    db.add(assignment)
+    await _ensure_proposal_review_and_portal(
+        db,
+        proposal=proposal,
+        reviewer=reviewer,
+        target=target,
+        current_user=current_user,
+        needs_signup=needs_signup,
+        signup_token=signup_token,
+        notes=body.notes,
+    )
+    return assignment
+
+
 @router.post("/{proposal_id}/stage-reviewers")
 async def assign_stage_reviewer(
     proposal_id: str,
@@ -2144,109 +2280,56 @@ async def assign_stage_reviewer(
     assignments = []
     stage_names = []
 
-    for target in assignment_targets:
-        existing_q = select(ProposalStageAssignment).where(
-            ProposalStageAssignment.proposal_id == proposal_id,
-            ProposalStageAssignment.reviewer_id == reviewer.id,
-            ProposalStageAssignment.status == "active",
-        )
-        if target["section_id"]:
-            existing_q = existing_q.where(ProposalStageAssignment.section_id == target["section_id"])
-        else:
-            existing_q = existing_q.where(
-                ProposalStageAssignment.stage_step == target["stage_step"],
-                ProposalStageAssignment.section_id.is_(None),
+    try:
+        for target in assignment_targets:
+            assignment = await _create_or_reactivate_assignment(
+                db,
+                proposal=proposal,
+                reviewer=reviewer,
+                target=target,
+                current_user=current_user,
+                body=body,
+                needs_signup=needs_signup,
+                signup_token=signup_token,
             )
-        existing = await db.execute(existing_q)
-        if existing.scalar_one_or_none():
-            continue
+            if not assignment:
+                continue
+            stage_names.append(target["stage_name"])
+            assignments.append(assignment)
 
-        stage_names.append(target["stage_name"])
-        assignment = ProposalStageAssignment(
-            proposal_id=proposal_id,
-            stage_step=target["stage_step"],
-            stage_name=target["stage_name"],
-            section_id=target["section_id"],
-            reviewer_id=reviewer.id,
-            assigned_by_id=current_user.id,
-            notes=body.notes,
-            status="active",
-        )
-        db.add(assignment)
-        assignments.append(assignment)
-
-        review_q = select(ProposalReview).where(
-            ProposalReview.proposal_id == proposal_id,
-            ProposalReview.reviewer_id == reviewer.id,
-        )
-        if target["section_id"]:
-            review_q = review_q.where(ProposalReview.section_id == target["section_id"])
-        else:
-            review_q = review_q.where(ProposalReview.section_id.is_(None))
-        existing_review = await db.execute(review_q)
-        proposal_review = existing_review.scalars().first()
-        if not proposal_review:
-            proposal_review = ProposalReview(
-                proposal_id=proposal_id,
-                reviewer_id=reviewer.id,
-                section_id=target["section_id"],
+        if not assignments:
+            raise HTTPException(
+                400,
+                "This reviewer is already assigned to the selected section(s) or stage(s). "
+                "Choose different stages or pick another reviewer.",
             )
-            db.add(proposal_review)
-            await db.flush()
 
-        portal_exists = await db.execute(
-            select(ReviewerAssignment).where(
-                ReviewerAssignment.review_type == ReviewType.PROPOSAL,
-                ReviewerAssignment.entity_review_id == proposal_review.id,
-                ReviewerAssignment.status.notin_([
-                    ReviewerAssignmentStatus.DECLINED,
-                ]),
-            )
-        )
-        if not portal_exists.scalars().first():
-            portal_assignment = ReviewerAssignment(
-                institution_id=current_user.primary_institution_id,
-                reviewer_id=reviewer.id,
-                invited_email=reviewer.email,
-                invited_name=reviewer.name,
-                review_type=ReviewType.PROPOSAL,
-                entity_id=proposal_id,
-                entity_review_id=proposal_review.id,
-                entity_title=proposal.title,
-                assigned_by_id=current_user.id,
-                status=ReviewerAssignmentStatus.PENDING_SIGNUP if needs_signup else ReviewerAssignmentStatus.ASSIGNED,
-                signup_token=signup_token if needs_signup else None,
-                notes=body.notes or target["stage_name"],
-            )
-            db.add(portal_assignment)
+        # Enter concurrent review phase when reviewers are assigned
+        if proposal.status in (ProposalStatus.SUBMITTED, ProposalStatus.INTERNAL_REVIEW):
+            proposal.status = ProposalStatus.UNDER_REVIEW
+            if not proposal.review_step or proposal.review_step < 1:
+                proposal.review_step = 1
+            if not proposal.review_stage_name:
+                proposal.review_stage_name = "Concurrent Section Review"
 
-    if not assignments:
+        stages_text = ", ".join(stage_names) if len(stage_names) > 1 else stage_names[0]
+
+        if not needs_signup:
+            await create_notification(
+                db, reviewer.id,
+                title=f"Review assignment: {stages_text}",
+                message=f'You have been assigned to review "{proposal.title}" at the following stage(s): {stages_text}.',
+                entity_type="proposal", entity_id=proposal_id,
+            )
+
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
         raise HTTPException(
             400,
-            "This reviewer is already assigned to the selected section(s) or stage(s). "
-            "Choose different stages or pick another reviewer.",
+            "Could not assign reviewer — a conflicting assignment already exists. "
+            "Try removing the old assignment first or choose different stages.",
         )
-
-    # Enter concurrent review phase when reviewers are assigned
-    if proposal.status in (ProposalStatus.SUBMITTED, ProposalStatus.INTERNAL_REVIEW):
-        proposal.status = ProposalStatus.UNDER_REVIEW
-        if not proposal.review_step or proposal.review_step < 1:
-            proposal.review_step = 1
-        if not proposal.review_stage_name:
-            proposal.review_stage_name = "Concurrent Section Review"
-
-    stages_text = ", ".join(stage_names) if len(stage_names) > 1 else stage_names[0]
-    
-    # In-app notification (skip until account is activated)
-    if not needs_signup:
-        await create_notification(
-            db, reviewer.id,
-            title=f"Review assignment: {stages_text}",
-            message=f'You have been assigned to review "{proposal.title}" at the following stage(s): {stages_text}.',
-            entity_type="proposal", entity_id=proposal_id,
-        )
-    
-    await db.commit()
 
     # Send emails after commit (don't fail assignment if email fails)
     try:
@@ -2346,6 +2429,154 @@ class UpdateAssignmentBody(BaseModel):
     section_id: Optional[str] = None
     stage_name: Optional[str] = None
     notes: Optional[str] = None
+    section_ids: Optional[list[str]] = None
+    stage_steps: Optional[list[int]] = None
+
+
+class SyncReviewerAssignmentsBody(BaseModel):
+    section_ids: list[str] = []
+    stage_steps: list[int] = []
+    notes: Optional[str] = None
+
+
+def _target_key(section_id: Optional[str], stage_step: int) -> str:
+    return f"section:{section_id}" if section_id else f"stage:{stage_step}"
+
+
+@router.put("/{proposal_id}/stage-reviewers/reviewer/{reviewer_id}")
+async def sync_reviewer_assignments(
+    proposal_id: str,
+    reviewer_id: str,
+    body: SyncReviewerAssignmentsBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Replace a reviewer's stage/section assignments with the provided set."""
+    if not await _can_assign_stage_reviewers(db, current_user):
+        raise HTTPException(
+            403,
+            "Only Director of Research or Research Administrator can update reviewer assignments",
+        )
+
+    proposal = await db.get(Proposal, proposal_id)
+    if not proposal:
+        raise HTTPException(404, "Proposal not found")
+    reviewer = await db.get(User, reviewer_id)
+    if not reviewer:
+        raise HTTPException(404, "Reviewer not found")
+
+    assignment_targets = []
+    if body.section_ids:
+        sections_result = await db.execute(
+            select(ProposalSection).where(
+                ProposalSection.proposal_id == proposal_id,
+                ProposalSection.id.in_(body.section_ids),
+            )
+        )
+        sections = {s.id: s for s in sections_result.scalars().all()}
+        for section_id in body.section_ids:
+            section = sections.get(section_id)
+            if not section:
+                continue
+            assignment_targets.append({
+                "stage_step": 1,
+                "stage_name": section.title,
+                "section_id": section.id,
+            })
+    elif body.stage_steps:
+        for stage_step in body.stage_steps:
+            assignment_targets.append({
+                "stage_step": stage_step,
+                "stage_name": f"Stage {stage_step}",
+                "section_id": None,
+            })
+    else:
+        raise HTTPException(400, "Provide section_ids or stage_steps")
+
+    desired_keys = {
+        _target_key(t["section_id"], t["stage_step"]) for t in assignment_targets
+    }
+
+    active_result = await db.execute(
+        select(ProposalStageAssignment).where(
+            ProposalStageAssignment.proposal_id == proposal_id,
+            ProposalStageAssignment.reviewer_id == reviewer_id,
+            ProposalStageAssignment.status == "active",
+        )
+    )
+    active_assignments = active_result.scalars().all()
+
+    needs_signup = not reviewer.password_hash
+    signup_token = None
+    if needs_signup:
+        import secrets
+        signup_token = secrets.token_urlsafe(32)
+
+    assign_body = AssignReviewerBody(notes=body.notes)
+    updated = []
+
+    try:
+        for assignment in active_assignments:
+            key = _target_key(assignment.section_id, assignment.stage_step)
+            if key in desired_keys:
+                updated.append(assignment)
+                continue
+
+            review_q = select(ProposalReview).where(
+                ProposalReview.proposal_id == proposal_id,
+                ProposalReview.reviewer_id == reviewer_id,
+                ProposalReview.status == ReviewStatus.SUBMITTED,
+            )
+            if assignment.section_id:
+                review_q = review_q.where(ProposalReview.section_id == assignment.section_id)
+            else:
+                review_q = review_q.where(ProposalReview.section_id.is_(None))
+            if (await db.execute(review_q)).scalars().first():
+                raise HTTPException(
+                    400,
+                    "Cannot remove a section/stage that already has a submitted review",
+                )
+            assignment.status = "removed"
+
+        existing_keys = {
+            _target_key(a.section_id, a.stage_step) for a in updated
+        }
+        for target in assignment_targets:
+            key = _target_key(target["section_id"], target["stage_step"])
+            if key in existing_keys:
+                continue
+            created = await _create_or_reactivate_assignment(
+                db,
+                proposal=proposal,
+                reviewer=reviewer,
+                target=target,
+                current_user=current_user,
+                body=assign_body,
+                needs_signup=needs_signup,
+                signup_token=signup_token,
+            )
+            if created:
+                updated.append(created)
+                existing_keys.add(key)
+
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(400, "Could not update assignments due to a conflict")
+
+    return {
+        "reviewer_id": reviewer.id,
+        "assignments": [
+            {
+                "id": a.id,
+                "stage_step": a.stage_step,
+                "stage_name": a.stage_name,
+                "section_id": a.section_id,
+                "status": a.status,
+            }
+            for a in updated
+        ],
+    }
 
 
 @router.patch("/{proposal_id}/stage-reviewers/{assignment_id}")
@@ -2356,7 +2587,7 @@ async def update_stage_reviewer(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Update the stage/section or notes on an existing reviewer assignment."""
+    """Update assignments for a reviewer — supports multi section/stage sync."""
     if not await _can_assign_stage_reviewers(db, current_user):
         raise HTTPException(
             403,
@@ -2368,6 +2599,16 @@ async def update_stage_reviewer(
         raise HTTPException(404, "Assignment not found")
     if assignment.status != "active":
         raise HTTPException(400, "Cannot update a removed assignment")
+
+    if body.section_ids is not None or body.stage_steps is not None:
+        sync_body = SyncReviewerAssignmentsBody(
+            section_ids=body.section_ids or [],
+            stage_steps=body.stage_steps or [],
+            notes=body.notes,
+        )
+        return await sync_reviewer_assignments(
+            proposal_id, assignment.reviewer_id, sync_body, db, current_user
+        )
 
     review_q = select(ProposalReview).where(
         ProposalReview.proposal_id == proposal_id,
