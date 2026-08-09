@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: http://41.89.92.140
+      url: https://rims.dacoris.com
     
     steps:
       
@@ -72,7 +72,7 @@ jobs:
             set -a
             . ./.env.production
             set +a
-            docker exec dacoris-db-prod pg_dump -U "${DB_USER:-dacoris}" "${DB_NAME:-dacoris_rims}" | gzip > /var/backups/dacoris/backup-$(date +%Y%m%d_%H%M%S).sql.gz || echo "⚠️  Database backup failed"
+            docker exec dacoris_rims_db pg_dump -U "${DB_USER:-dacoris}" "${DB_NAME:-dacoris_rims}" | gzip > /var/backups/dacoris/backup-$(date +%Y%m%d_%H%M%S).sql.gz || echo "⚠️  Database backup failed"
           '
       
       - name: Pull latest code
@@ -142,12 +142,13 @@ jobs:
           max_attempts=10
           attempt=1
           
+          # Nginx is published on host port 8081 (not 80). Check via SSH on the server.
           while [ $attempt -le $max_attempts ]; do
-            response=$(curl -s -o /dev/null -w "%{http_code}" http://41.89.92.140/api/health || echo "000")
+            response=$(ssh dacoris@41.89.92.140 'curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8081/api/health' || echo "000")
             if [ "$response" = "200" ]; then
               echo "✅ Production deployment successful!"
-              echo "🌐 Application: http://41.89.92.140"
-              echo "📚 API Docs: http://41.89.92.140/apiDocs"
+              echo "🌐 Application: https://rims.dacoris.com"
+              echo "📚 API Docs: https://rims.dacoris.com/apiDocs"
               exit 0
             fi
             echo "Attempt $attempt/$max_attempts: Health check returned $response. Retrying..."
@@ -188,5 +189,5 @@ jobs:
           echo "✨ Deployment completed successfully!"
           echo "📅 Time: $(date)"
           echo "🔗 Commit: ${{ github.sha }}"
-          echo "🌐 Application: http://41.89.92.140"
-          echo "📚 API Docs: http://41.89.92.140/apiDocs"
+          echo "🌐 Application: https://rims.dacoris.com"
+          echo "📚 API Docs: https://rims.dacoris.com/apiDocs"
