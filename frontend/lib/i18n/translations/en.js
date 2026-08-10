@@ -1832,10 +1832,11 @@ const en = {
         conditions: 'Award Conditions',
         budgetUtilisation: 'Budget utilisation',
         projectCreated: 'Research project created',
+        projectSetupPending: 'Project setup pending',
         noProject: 'No research project linked yet',
         viewProposal: 'View Proposal',
         openProject: 'Open Project',
-        convertToProject: 'Convert to Project',
+        setupProject: 'Setup Project',
       },
       status: {
         active: 'Active',

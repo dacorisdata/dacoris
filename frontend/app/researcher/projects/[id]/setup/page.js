@@ -494,10 +494,30 @@ export default function ProjectSetupPage() {
     return true;
   };
 
+  const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
+
+  const seedProposalTeamIfNeeded = async (p) => {
+    if (!p?.award_id || p.status !== 'draft') return false;
+    try {
+      const res = await axios.post(
+        `${API}/research/projects/${id}/members/seed-from-proposal`,
+        {},
+        { headers: authHeaders() },
+      );
+      return (res.data?.added || 0) > 0;
+    } catch {
+      return false;
+    }
+  };
+
   const loadProject = async () => {
     try {
       setLoading(true);
-      const bundle = await fetchProjectBundle();
+      let bundle = await fetchProjectBundle();
+      const seeded = await seedProposalTeamIfNeeded(bundle.p);
+      if (seeded) {
+        bundle = await fetchProjectBundle();
+      }
       await applyProjectBundle(bundle, { hydrateForm: true });
     } catch {
       setError('Failed to load project');
@@ -514,8 +534,6 @@ export default function ProjectSetupPage() {
       setError('Failed to refresh project data');
     }
   };
-
-  const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
   const uploadProjectDocument = async (file, documentType) => {
     const fd = new FormData();
@@ -1016,7 +1034,9 @@ export default function ProjectSetupPage() {
   const step2 = (
     <Box>
       <SectionHeader icon={TeamIcon} title="Research Team"
-        subtitle="Define the principal investigator and all team members involved in this project." />
+        subtitle={awardData
+          ? 'Proposal team members are preloaded below. Add or remove members as needed.'
+          : 'Define the principal investigator and all team members involved in this project.'} />
 
       <SubLabel label="2.1 Principal Investigator" />
       <Paper elevation={0} sx={{ mb: 2.5, p: 2.5, borderRadius: 2.5, bgcolor: dark ? 'rgba(255,255,255,0.02)' : '#fff', border: '1px solid', borderColor: 'divider' }}>

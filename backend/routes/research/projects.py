@@ -14,7 +14,8 @@ from models import (ResearchProject, ProjectStatus, ProjectMember,
                     ProjectTeam, ProjectTeamMember, ProjectDeliverable,
                     ProjectBudgetLine, ProjectPaymentRequest,
                     User, EthicsApplication, PrimaryAccountType, ReviewerAssignment,
-                    ReviewType, ReviewerAssignmentStatus, UserStatus, user_roles)
+                    ReviewType, ReviewerAssignmentStatus, UserStatus, user_roles,
+                    Award, Proposal, ProposalCollaborator)
 from auth import require_roles, ResearchRole
 from services.notifications import create_notification
 from services.file_upload import save_upload, get_file_path
@@ -400,6 +401,18 @@ async def _ensure_project_owner_editable(db: AsyncSession, project_id: str, user
     project = await _ensure_project_owner(db, project_id, user_id)
     await _ensure_project_editable(project)
     return project
+
+
+def _map_proposal_role_to_project(role: str) -> str:
+    """Map proposal collaborator labels to project member roles."""
+    normalized = (role or "co_investigator").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in {"co_investigator", "research_assistant", "data_manager", "external_collaborator"}:
+        return normalized
+    return {
+        "consultant": "external_collaborator",
+        "advisor": "external_collaborator",
+        "collaborator": "research_assistant",
+    }.get(normalized, "co_investigator")
 
 
 async def _ensure_project_owner_executable(db: AsyncSession, project_id: str, user_id: str) -> ResearchProject:
@@ -1141,6 +1154,82 @@ async def invite_member(
 
     await db.commit()
     return {"id": member.id, "status": member.status}
+
+
+@router.post("/{project_id}/members/seed-from-proposal")
+async def seed_members_from_proposal(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([ResearchRole.PRINCIPAL_INVESTIGATOR])),
+):
+    """Preload project team from the linked grant proposal's collaborators (idempotent)."""
+    project = await _ensure_project_owner_editable(db, project_id, current_user.id)
+
+    if not project.award_id:
+        return {"added": 0, "skipped": True, "reason": "no_award"}
+
+    award = await db.get(Award, project.award_id)
+    if not award:
+        return {"added": 0, "skipped": True, "reason": "award_not_found"}
+
+    proposal_result = await db.execute(
+        select(Proposal)
+        .options(selectinload(Proposal.collaborators).selectinload(ProposalCollaborator.user))
+        .where(Proposal.id == award.proposal_id)
+    )
+    proposal = proposal_result.scalar_one_or_none()
+    if not proposal:
+        return {"added": 0, "skipped": True, "reason": "proposal_not_found"}
+
+    members_result = await db.execute(
+        select(ProjectMember).where(ProjectMember.project_id == project_id)
+    )
+    existing_members = members_result.scalars().all()
+    existing_user_ids = {m.user_id for m in existing_members if m.user_id}
+    existing_emails = {(m.invited_email or "").strip().lower() for m in existing_members if m.invited_email}
+
+    added = 0
+    for collab in proposal.collaborators or []:
+        if collab.status == "declined":
+            continue
+
+        user_id = collab.user_id
+        email = (
+            collab.invited_email
+            or (collab.user.email if collab.user else None)
+            or ""
+        ).strip().lower()
+        name = collab.invited_name or (collab.user.name if collab.user else None) or email
+
+        if user_id and user_id in (proposal.lead_pi_id, project.pi_id):
+            continue
+        if user_id and user_id in existing_user_ids:
+            continue
+        if email and email in existing_emails:
+            continue
+        if not user_id and not email:
+            continue
+
+        is_accepted = collab.status == "accepted"
+        member = ProjectMember(
+            project_id=project_id,
+            user_id=user_id,
+            role=_map_proposal_role_to_project(collab.role),
+            status="accepted" if is_accepted and user_id else ("accepted" if user_id else "pending"),
+            invited_email=email or None,
+            invited_name=name or None,
+            joined_at=datetime.now(timezone.utc) if is_accepted and user_id else None,
+        )
+        db.add(member)
+        added += 1
+        if user_id:
+            existing_user_ids.add(user_id)
+        if email:
+            existing_emails.add(email)
+
+    if added:
+        await db.commit()
+    return {"added": added}
 
 
 @router.delete("/{project_id}/members/{member_id}", status_code=204)

@@ -1538,10 +1538,11 @@ const sw = {
         conditions: 'Masharti ya Tuzo',
         budgetUtilisation: 'Matumizi ya bajeti',
         projectCreated: 'Mradi wa utafiti umeundwa',
+        projectSetupPending: 'Usanidi wa mradi unasubiri',
         noProject: 'Bado hakuna mradi wa utafiti uliounganishwa',
         viewProposal: 'Angalia Pendekezo',
         openProject: 'Fungua Mradi',
-        convertToProject: 'Badilisha kuwa Mradi',
+        setupProject: 'Sanidi Mradi',
       },
       status: {
         active: 'Hai',

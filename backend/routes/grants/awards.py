@@ -60,6 +60,7 @@ class AwardOut(BaseModel):
     opportunity_title: Optional[str] = None
     opportunity_sponsor: Optional[str] = None
     project_id: Optional[str] = None
+    project_status: Optional[str] = None
     budget_lines: List[BudgetLineSummary] = []
 
     class Config:
@@ -86,6 +87,11 @@ def _enrich(award: Award) -> dict:
         "opportunity_sponsor": (award.proposal.opportunity.sponsor
                                 if award.proposal and award.proposal.opportunity else None),
         "project_id": award.research_project.id if award.research_project else None,
+        "project_status": (
+            award.research_project.status.value
+            if award.research_project and hasattr(award.research_project.status, "value")
+            else (award.research_project.status if award.research_project else None)
+        ),
         "budget_lines": [
             {
                 "id": bl.id,

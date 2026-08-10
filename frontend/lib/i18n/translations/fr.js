@@ -1669,10 +1669,11 @@ const fr = {
         conditions: 'Conditions de la subvention',
         budgetUtilisation: 'Utilisation du budget',
         projectCreated: 'Projet de recherche créé',
+        projectSetupPending: 'Configuration du projet en attente',
         noProject: 'Aucun projet de recherche associé pour le moment',
         viewProposal: 'Voir la proposition',
         openProject: 'Ouvrir le projet',
-        convertToProject: 'Convertir en projet',
+        setupProject: 'Configurer le projet',
       },
       status: {
         active: 'Active',

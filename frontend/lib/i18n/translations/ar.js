@@ -1671,10 +1671,11 @@ const ar = {
         conditions: 'شروط المنحة',
         budgetUtilisation: 'استخدام الميزانية',
         projectCreated: 'تم إنشاء مشروع البحث',
+        projectSetupPending: 'إعداد المشروع قيد الانتظار',
         noProject: 'لا يوجد مشروع بحث مرتبط بعد',
         viewProposal: 'عرض المقترح',
         openProject: 'فتح المشروع',
-        convertToProject: 'تحويل إلى مشروع',
+        setupProject: 'إعداد المشروع',
       },
       status: {
         active: 'نشطة',

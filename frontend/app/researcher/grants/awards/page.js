@@ -55,11 +55,14 @@ const fmtMoney = (amt, cur, locale) => {
 
 const sortAwardsForResearcher = (items) =>
   [...items].sort((a, b) => {
-    const aHasProject = Boolean(a.project_id);
-    const bHasProject = Boolean(b.project_id);
-    if (aHasProject !== bHasProject) return aHasProject ? 1 : -1;
+    const aReady = isProjectReady(a);
+    const bReady = isProjectReady(b);
+    if (aReady !== bReady) return aReady ? 1 : -1;
     return new Date(b.issued_at || 0) - new Date(a.issued_at || 0);
   });
+
+const isProjectReady = (award) =>
+  Boolean(award.project_id) && (award.project_status || '').toLowerCase() !== 'draft';
 
 function BudgetBar({ lines = [], t, locale }) {
   const total  = lines.reduce((s, l) => s + (l.amount || 0), 0);
@@ -243,10 +246,15 @@ function AwardCertificate({ award, onOpenProject, t, locale }) {
         {/* Footer actions */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Box>
-            {award.project_id ? (
+            {isProjectReady(award) ? (
               <Typography sx={{ fontSize: 12, color: ACCENT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <ProjectIcon sx={{ fontSize: 14 }} />
                 {t(`${GA}.certificate.projectCreated`)}
+              </Typography>
+            ) : award.project_id ? (
+              <Typography sx={{ fontSize: 12, color: GOLD, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <ProjectIcon sx={{ fontSize: 14 }} />
+                {t(`${GA}.certificate.projectSetupPending`)}
               </Typography>
             ) : (
               <Typography sx={{ fontSize: 12, color: 'text.disabled', fontStyle: 'italic' }}>
@@ -262,7 +270,7 @@ function AwardCertificate({ award, onOpenProject, t, locale }) {
               sx={{ textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5 }}>
               {t(`${GA}.certificate.viewProposal`)}
             </Button>
-            {award.project_id ? (
+            {isProjectReady(award) ? (
               <Button size="small" variant="contained"
                 startIcon={<ProjectIcon sx={{ fontSize: 13 }} />}
                 onClick={() => onOpenProject('project', award.project_id)}
@@ -275,12 +283,12 @@ function AwardCertificate({ award, onOpenProject, t, locale }) {
             ) : (
               <Button size="small" variant="contained"
                 startIcon={<ProjectIcon sx={{ fontSize: 13 }} />}
-                onClick={() => onOpenProject('convert', award)}
+                onClick={() => onOpenProject('setup', award)}
                 sx={{
                   textTransform: 'none', fontSize: 12, borderRadius: 2, py: 0.5,
                   bgcolor: GOLD, '&:hover': { bgcolor: '#d97706' },
                 }}>
-                {t(`${GA}.certificate.convertToProject`)}
+                {t(`${GA}.certificate.setupProject`)}
               </Button>
             )}
           </Box>
@@ -335,9 +343,9 @@ export default function ResearcherAwardsPage() {
       router.push(`/researcher/grants/proposals/${data}`);
     } else if (type === 'project') {
       router.push(`/researcher/projects/${data}`);
-    } else if (type === 'convert') {
+    } else if (type === 'setup') {
       if (data.project_id) {
-        router.push(`/researcher/projects/${data.project_id}`);
+        router.push(`/researcher/projects/${data.project_id}/setup`);
       } else {
         sessionStorage.setItem('awardData', JSON.stringify(data));
         router.push('/researcher/projects/create');
