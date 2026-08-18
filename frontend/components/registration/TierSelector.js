@@ -9,7 +9,6 @@ import {
   RadioGroup,
   FormControlLabel,
   FormControl,
-  Chip,
   alpha,
   Stack,
 } from '@mui/material';
@@ -25,16 +24,12 @@ export default function TierSelector({ selectedTier, onSelect }) {
       label: t('registerTierSelector.adminStaffLabel'),
       icon: Groups,
       description: t('registerTierSelector.adminStaffDesc'),
-      badge: t('registerTierSelector.adminStaffBadge'),
-      badgeColor: 'warning',
     },
     {
       value: 'researcher',
       label: t('registerTierSelector.researcherLabel'),
       icon: Science,
       description: t('registerTierSelector.researcherDesc'),
-      badge: t('registerTierSelector.researcherBadge'),
-      badgeColor: 'success',
     },
   ];
 
@@ -137,29 +132,17 @@ export default function TierSelector({ selectedTier, onSelect }) {
                           />
                         </Box>
                         <Box flex={1}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-                            <Typography
-                              variant="subtitle1"
-                              fontWeight="600"
-                              sx={{
-                                fontSize: '1rem',
-                                color: 'text.primary'
-                              }}
-                            >
-                              {tier.label}
-                            </Typography>
-                            <Chip
-                              label={tier.badge}
-                              size="small"
-                              color={tier.badgeColor}
-                              sx={{
-                                fontWeight: 600,
-                                fontSize: '0.6875rem',
-                                height: 22,
-                                borderRadius: 0.75,
-                              }}
-                            />
-                          </Box>
+                          <Typography
+                            variant="subtitle1"
+                            fontWeight="600"
+                            sx={{
+                              fontSize: '1rem',
+                              color: 'text.primary',
+                              mb: 0.5,
+                            }}
+                          >
+                            {tier.label}
+                          </Typography>
                           <Typography
                             variant="body2"
                             color="text.secondary"

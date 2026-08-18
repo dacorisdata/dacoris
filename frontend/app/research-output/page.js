@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Box, Container, Typography, Button, CircularProgress, Alert, Chip,
+  Box, Container, Typography, Button, CircularProgress, Alert,
   TextField, InputAdornment, Tab, Tabs, Divider, useTheme as useMuiTheme,
   TablePagination, alpha, Autocomplete, Paper,
 } from '@mui/material';
@@ -377,20 +377,6 @@ export default function ResearchOutputPage() {
                   rowsPerPageOptions={[10, 25, 50]}
                 />
               )}
-            </Box>
-
-            <Box sx={{ mt: 3, p: 2.5, bgcolor: alpha(TL[600], 0.04), border: `1px solid ${alpha(TL[600], 0.15)}`, borderRadius: 2.5 }}>
-              <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 0.5 }}>About this catalog</Typography>
-              <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.7 }}>
-                Inspired by OpenAlex and Google Scholar, this portal surfaces all research held in DACORIS —
-                including drafts, manuscripts, project outputs, and publication libraries — alongside
-                projects, teams, and funders. Unpublished work is labelled with its current status.
-              </Typography>
-              <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {['Findable', 'Accessible', 'Interoperable', 'Reusable'].map((l) => (
-                  <Chip key={l} label={l} size="small" sx={{ fontSize: 10, bgcolor: alpha(TL[600], 0.1), color: TL[700], fontWeight: 600 }} />
-                ))}
-              </Box>
             </Box>
           </Box>
         </Box>

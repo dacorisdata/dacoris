@@ -184,7 +184,7 @@ export default function Footer() {
           }}
         >
           <Typography sx={{ fontSize: '0.8125rem', color: '#ffffff' }}>
-            © {new Date().getFullYear()} DACORIS. All rights reserved.
+            {t('common.copyright', { year: new Date().getFullYear() })}
           </Typography>
         </Box>
       </Container>

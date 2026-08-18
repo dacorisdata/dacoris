@@ -5,10 +5,14 @@ import Image from 'next/image';
 import { Box, Container, Typography, Button, alpha } from '@mui/material';
 import { ArrowForward as ArrowForwardIcon } from '@mui/icons-material';
 import { COLORS } from '@/contexts/ThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const tl = COLORS.teal;
 
 export default function Home() {
+  const { t } = useLanguage();
+  const home = t('home');
+
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
       {/* ───── Hero Section ───── */}
@@ -36,10 +40,14 @@ export default function Home() {
                 mb: 1,
               }}
             >
-              An
-              <br />
+              {home.heroPrefix && (
+                <>
+                  {home.heroPrefix}
+                  <br />
+                </>
+              )}
               <Box component="span" sx={{ fontWeight: 800 }}>
-                End-to-End Research Lifecycle Workflow and Research Management System
+                {home.heroTitle}
               </Box>
             </Typography>
 
@@ -51,7 +59,7 @@ export default function Home() {
                 mb: 4,
               }}
             >
-              a comprehensive Current Research Information System (CRIS)
+              {home.heroSubtitle}
             </Typography>
 
             <Button
@@ -72,7 +80,7 @@ export default function Home() {
                 },
               }}
             >
-              Get Started
+              {home.getStarted}
             </Button>
           </Box>
         </Container>
@@ -100,7 +108,7 @@ export default function Home() {
           >
             <Image
               src="/about/lifecycle.png"
-              alt="DACORIS research lifecycle overview"
+              alt={home.lifecycleImageAlt}
               width={900}
               height={560}
               style={{ width: '100%', height: 'auto', display: 'block' }}
@@ -118,7 +126,7 @@ export default function Home() {
                 mb: 1.5,
               }}
             >
-              Introducing
+              {home.introducingKicker}
             </Typography>
 
             <Typography
@@ -130,9 +138,9 @@ export default function Home() {
                 mb: 3,
               }}
             >
-              Data Conveyance Research Information System{' '}
+              {home.introducingTitle}{' '}
               <Box component="span" sx={{ color: tl[500] }}>
-                DACORIS
+                {home.introducingBrand}
               </Box>
             </Typography>
 
@@ -143,16 +151,7 @@ export default function Home() {
                 color: 'text.secondary',
               }}
             >
-              DACORIS is a comprehensive Current Research Information System (CRIS) that manages
-              the entire research lifecycle &ndash; from initial grant proposals and projects
-              through to final research outputs and dissemination. It serves as a central hub for
-              an institution&apos;s research information, integrating various internal workflows
-              (e.g. approvals, reporting) and aggregating data from external and internal sources
-              into a single platform. By automating processes and linking systems, DACORIS
-              provides visibility, clarity, and efficiency for research operations.
-              Decision-makers (management, IT, research administrators) can thus obtain a
-              unified, real-time view of research activities, compliance, and performance across
-              the institution.
+              {home.introducingBody}
             </Typography>
           </Box>
         </Box>
@@ -179,8 +178,7 @@ export default function Home() {
                 maxWidth: 760,
               }}
             >
-              A modular, API-first Research Information Management System (RIMS) purpose-built
-              for universities, research institutes, and funding bodies in Africa and beyond.
+              {home.positioningText}
             </Typography>
 
             <Button
@@ -202,7 +200,7 @@ export default function Home() {
                 },
               }}
             >
-              Book Demo
+              {home.bookDemo}
             </Button>
           </Box>
         </Container>

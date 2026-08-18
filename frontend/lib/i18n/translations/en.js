@@ -247,6 +247,22 @@ const en = {
     registerAnother: 'Register Another',
   },
 
+  home: {
+    heroPrefix: 'An',
+    heroTitle: 'End-to-End Research Lifecycle Workflow and Research Management System',
+    heroSubtitle: 'a comprehensive Current Research Information System (CRIS)',
+    getStarted: 'Get Started',
+    lifecycleImageAlt: 'DACORIS research lifecycle overview',
+    introducingKicker: 'Introducing',
+    introducingTitle: 'Data Conveyance Research Information System',
+    introducingBrand: 'DACORIS',
+    introducingBody:
+      "DACORIS is a comprehensive Current Research Information System (CRIS) that manages the entire research lifecycle – from initial grant proposals and projects through to final research outputs and dissemination. It serves as a central hub for an institution's research information, integrating various internal workflows (e.g. approvals, reporting) and aggregating data from external and internal sources into a single platform. By automating processes and linking systems, DACORIS provides visibility, clarity, and efficiency for research operations. Decision-makers (management, IT, research administrators) can thus obtain a unified, real-time view of research activities, compliance, and performance across the institution.",
+    positioningText:
+      'A modular, API-first Research Information Management System (RIMS) purpose-built for universities, research institutes, and funding bodies in Africa and beyond.',
+    bookDemo: 'Book Demo',
+  },
+
   about: {
     section1: {
       kicker: '1',

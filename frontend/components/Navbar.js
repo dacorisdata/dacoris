@@ -88,7 +88,6 @@ export default function Navbar() {
         <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 0.5 }}>
           <Button color="inherit" component={Link} href="/">{t('navbar.home')}</Button>
           <Button color="inherit" component={Link} href="/about">{t('navbar.about')}</Button>
-          <Button color="inherit" component={Link} href="/research-output">{t('navbar.researchOutput')}</Button>
         </Box>
 
         {/* Language selector (desktop) */}
@@ -423,11 +422,6 @@ export default function Navbar() {
           <ListItem disablePadding>
             <ListItemButton component={Link} href="/about" onClick={handleMobileDrawerClose}>
               <ListItemText primary={t('navbar.about')} />
-            </ListItemButton>
-          </ListItem>
-          <ListItem disablePadding>
-            <ListItemButton component={Link} href="/research-output" onClick={handleMobileDrawerClose}>
-              <ListItemText primary={t('navbar.researchOutput')} />
             </ListItemButton>
           </ListItem>
         </List>

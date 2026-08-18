@@ -188,34 +188,17 @@ export default function ResearcherRegistration({
               <Typography variant="body2" sx={{ fontSize: '0.8125rem', lineHeight: 1.5 }}>
                 <strong>{t('registerResearcher.orcidInfoTitle')}</strong> {t('registerResearcher.orcidInfoText')}
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: '0.75rem', lineHeight: 1.4, mt: 0.5, fontStyle: 'italic', color: 'text.secondary' }}>
-                {t('registerResearcher.orcidSkipNote')}
-              </Typography>
             </Alert>
-            <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
-              <Button
-                variant="contained"
-                color="primary"
-                startIcon={<OrcidIcon />}
-                onClick={handleOrcidClick}
-                fullWidth
-                sx={{ py: 1.25, fontWeight: 600 }}
-              >
-                {t('registerResearcher.authenticateWithOrcid')}
-              </Button>
-              <Button
-                variant="outlined"
-                color="inherit"
-                fullWidth
-                onClick={() => {
-                  // Clear any partial ORCID data and allow user to proceed manually
-                  onChange({ ...formData, orcid_id: null });
-                }}
-                sx={{ py: 1.25, fontWeight: 600 }}
-              >
-                {t('registerResearcher.skipForNow')}
-              </Button>
-            </Box>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<OrcidIcon />}
+              onClick={handleOrcidClick}
+              fullWidth
+              sx={{ py: 1.25, fontWeight: 600 }}
+            >
+              {t('registerResearcher.authenticateWithOrcid')}
+            </Button>
           </Box>
         )}
 
