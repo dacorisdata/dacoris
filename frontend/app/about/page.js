@@ -8,7 +8,7 @@ const tl = COLORS.teal;
 const sl = COLORS.slate;
 const am = COLORS.amber;
 
-function SectionHeader({ kicker, title, intro }) {
+function SectionHeader({ title, intro }) {
   const words = (title || '').split(' ');
   return (
     <Box sx={{ mb: 4 }}>
@@ -20,9 +20,8 @@ function SectionHeader({ kicker, title, intro }) {
           letterSpacing: '-0.01em',
         }}
       >
-        <Box component="span" sx={{ color: tl[600] }}>{kicker}</Box>{' '}
-        <Box component="span" sx={{ textDecoration: 'underline' }}>{words[0]}</Box>{' '}
-        {words.slice(1).join(' ')}
+        <Box component="span" sx={{ color: tl[600], textDecoration: 'underline' }}>{words[0]}</Box>
+        {words.length > 1 ? ` ${words.slice(1).join(' ')}` : null}
       </Typography>
       <Box sx={{ height: 3, width: '100%', bgcolor: tl[600], mt: 1.5, mb: 2 }} />
       {intro && (
@@ -75,6 +74,34 @@ function DataTable({ table, dark, theme }) {
   );
 }
 
+function AudienceGrid({ rows, dark, theme }) {
+  if (!rows?.length) return null;
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+      }}
+    >
+      {rows.map((row, i) => (
+        <Box
+          key={i}
+          sx={{
+            bgcolor: dark ? alpha(tl[900], 0.15) : alpha(tl[50], 0.5),
+            border: `1px solid ${theme.palette.divider}`,
+            px: 2.5,
+            py: 2,
+          }}
+        >
+          <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'text.primary', lineHeight: 1.5 }}>
+            {row[0]}
+          </Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
 function Bullets({ items }) {
   if (!items) return null;
   return (
@@ -103,7 +130,7 @@ export default function AboutPage() {
       <Container maxWidth="md" sx={{ py: { xs: 5, md: 8 } }}>
 
         {/* ═══════════ Section 1 — About ═══════════ */}
-        <SectionHeader kicker={s1?.kicker} title={s1?.title} intro={s1?.intro} />
+        <SectionHeader title={s1?.title} intro={s1?.intro} />
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 5 }}>
           {s1?.paragraphs?.map((p, i) => (
@@ -213,10 +240,10 @@ export default function AboutPage() {
         </Box>
 
         {/* ═══════════ Section 2 — Who We Serve ═══════════ */}
-        <SectionHeader kicker={s2?.kicker} title={s2?.title} intro={s2?.intro} />
+        <SectionHeader title={s2?.title} intro={s2?.intro} />
 
         <Box sx={{ mb: 5 }}>
-          <DataTable table={s2?.audienceTable} dark={dark} theme={theme} />
+          <AudienceGrid rows={s2?.audienceTable?.rows} dark={dark} theme={theme} />
         </Box>
 
         <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 2 }}>

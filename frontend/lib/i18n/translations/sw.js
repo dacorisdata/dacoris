@@ -266,7 +266,7 @@ const sw = {
   about: {
     section1: {
       kicker: '1',
-      title: 'KUHUSU DACORIS RIMS',
+      title: 'DACORIS RIMS',
       intro: 'Mazingira kamili ya usimamizi wa utafiti wa kitaasisi na akili ya taarifa, yaliyoundwa kuzunguka mzunguko halisi wa utafiti.',
       paragraphs: [
         'DACORIS RIMS ni mfumo wa Taarifa za Utafiti wa Sasa (CRIS) na mfumo wa Usimamizi wa Taarifa za Utafiti uliojumuishwa, ulioundwa kusaidia vyuo vikuu, taasisi za utafiti, hospitali za mafunzo na mashirika yanayolenga utafiti kusimamia mzunguko kamili wa utafiti katika mazingira moja yaliyounganishwa. Inaunganisha watu, michakato, ushahidi, uidhinishaji, data, matokeo na ushirikiano vinavyofafanua shughuli za utafiti za taasisi.',

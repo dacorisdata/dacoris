@@ -266,7 +266,7 @@ const fr = {
   about: {
     section1: {
       kicker: '1',
-      title: 'À PROPOS DE DACORIS RIMS',
+      title: 'DACORIS RIMS',
       intro: 'Un environnement complet de gestion et d\'intelligence de la recherche institutionnelle, conçu autour du cycle de vie réel de la recherche.',
       paragraphs: [
         'DACORIS RIMS est un système intégré d\'information sur la recherche en cours (CRIS) et de gestion de l\'information de recherche, conçu pour aider les universités, institutions de recherche, hôpitaux universitaires et organisations axées sur la recherche à gérer l\'ensemble du cycle de vie de la recherche dans un environnement connecté. Il réunit les personnes, processus, preuves, approbations, données, productions et partenariats qui définissent collectivement l\'activité de recherche d\'un établissement.',

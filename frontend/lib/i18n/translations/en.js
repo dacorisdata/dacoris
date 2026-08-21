@@ -266,7 +266,7 @@ const en = {
   about: {
     section1: {
       kicker: '1',
-      title: 'ABOUT DACORIS RIMS',
+      title: 'DACORIS RIMS',
       intro: 'A complete institutional research management and intelligence environment built around the real lifecycle of research.',
       paragraphs: [
         "DACORIS RIMS is an integrated Current Research Information System and Research Information Management System designed to help universities, research institutions, teaching hospitals and research-focused organisations manage the full research lifecycle in one connected environment. It brings together the people, processes, evidence, approvals, data, outputs and partnerships that collectively define an institution's research enterprise.",
