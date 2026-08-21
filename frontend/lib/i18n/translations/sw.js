@@ -266,18 +266,18 @@ const sw = {
   about: {
     section1: {
       kicker: '1',
-      title: 'KUHUSU DACORIS CRIS',
+      title: 'KUHUSU DACORIS RIMS',
       intro: 'Mazingira kamili ya usimamizi wa utafiti wa kitaasisi na akili ya taarifa, yaliyoundwa kuzunguka mzunguko halisi wa utafiti.',
       paragraphs: [
-        'DACORIS CRIS ni mfumo wa Taarifa za Utafiti wa Sasa (CRIS) na mfumo wa Usimamizi wa Taarifa za Utafiti uliojumuishwa, ulioundwa kusaidia vyuo vikuu, taasisi za utafiti, hospitali za mafunzo na mashirika yanayolenga utafiti kusimamia mzunguko kamili wa utafiti katika mazingira moja yaliyounganishwa. Inaunganisha watu, michakato, ushahidi, uidhinishaji, data, matokeo na ushirikiano vinavyofafanua shughuli za utafiti za taasisi.',
-        'Tofauti na mifumo inayoorodhesha machapisho tu baada ya utafiti kukamilika, DACORIS CRIS huanza pale utafiti unapobuniwa. Inaunganisha fursa za ufadhili na utaalamu wa watafiti; inasaidia uandaaji wa mapendekezo na uidhinishaji wa kitaasisi; inasimamia rekodi za maadili na tuzo; inafuatilia miradi, hatua muhimu na data; inakusanya machapisho na matokeo mengine; inasaidia maendeleo ya utafiti wa kiwango cha uzamili; na inabadilisha ushahidi huo kuwa dashibodi za maamuzi ya kiutendaji na kimkakati.',
+        'DACORIS RIMS ni mfumo wa Taarifa za Utafiti wa Sasa (CRIS) na mfumo wa Usimamizi wa Taarifa za Utafiti uliojumuishwa, ulioundwa kusaidia vyuo vikuu, taasisi za utafiti, hospitali za mafunzo na mashirika yanayolenga utafiti kusimamia mzunguko kamili wa utafiti katika mazingira moja yaliyounganishwa. Inaunganisha watu, michakato, ushahidi, uidhinishaji, data, matokeo na ushirikiano vinavyofafanua shughuli za utafiti za taasisi.',
+        'Tofauti na mifumo inayoorodhesha machapisho tu baada ya utafiti kukamilika, DACORIS RIMS huanza pale utafiti unapobuniwa. Inaunganisha fursa za ufadhili na utaalamu wa watafiti; inasaidia uandaaji wa mapendekezo na uidhinishaji wa kitaasisi; inasimamia rekodi za maadili na tuzo; inafuatilia miradi, hatua muhimu na data; inakusanya machapisho na matokeo mengine; inasaidia maendeleo ya utafiti wa kiwango cha uzamili; na inabadilisha ushahidi huo kuwa dashibodi za maamuzi ya kiutendaji na kimkakati.',
       ],
-      problemTitle: 'Tatizo la kitaasisi ambalo DACORIS CRIS linatatua',
+      problemTitle: 'Tatizo la kitaasisi ambalo DACORIS RIMS linatatua',
       problemParagraphs: [
         'Taarifa za utafiti mara nyingi zimegawanyika katika karatasi za kazi, barua pepe, mifumo ya fedha, ofisi za maadili, shule za uzamili, faili za idara, hazina na wasifu wa watafiti binafsi. Ugawanyaji huu hufanya iwe vigumu kujibu maswali ya msingi ya kitaasisi kwa usahihi na kwa wakati halisi: Ruzuku zipi ziko hai? Mapendekezo yapi yanasubiri uidhinishaji? Miradi ipi imechelewa? Wanafunzi wapi wako hatarini kukosa hatua muhimu za maendeleo? Mandhari zipi za utafiti zinakua? Matokeo yalitokea kutoka ruzuku fulani? Ushirikiano na Makubaliano ya Uelewa yapi yako hai, yanakaribia kuisha au hayatumiwi vya kutosha?',
-        'DACORIS CRIS hupunguza ugawanyaji huu kwa kuanzisha rekodi ya utafiti ya kitaasisi inayodhibitiwa, inayotegemea majukumu na inayoweza kukaguliwa. Kila mhusika aliyeidhinishwa anaona taarifa na hatua zinazohusiana na jukumu lake, huku uongozi ukipata mtazamo wa pamoja wa utendaji, uzingatiaji, hatari, uwezo na athari.',
+        'DACORIS RIMS hupunguza ugawanyaji huu kwa kuanzisha rekodi ya utafiti ya kitaasisi inayodhibitiwa, inayotegemea majukumu na inayoweza kukaguliwa. Kila mhusika aliyeidhinishwa anaona taarifa na hatua zinazohusiana na jukumu lake, huku uongozi ukipata mtazamo wa pamoja wa utendaji, uzingatiaji, hatari, uwezo na athari.',
       ],
-      managesTitle: 'Kile DACORIS CRIS kinachosimamia',
+      managesTitle: 'Kile DACORIS RIMS kinachosimamia',
       managesTable: {
         headers: ['Uwezo', 'Kinachowezesha'],
         rows: [
@@ -308,9 +308,9 @@ const sw = {
         'Unganisha shughuli za utafiti na vipaumbele vya taasisi, Malengo ya Maendeleo Endelevu, ajenda za kitaifa na matokeo yanayopimika.',
       ],
       deploymentTitle: 'Usambazaji na uwezo wa kufanya kazi na mifumo mingine',
-      deploymentParagraph: 'DACORIS CRIS imeundwa kwa usanidi wa kitaasisi. Kulingana na upeo wa utekelezaji ulioafikiwa, inaweza kusambazwa kwenye wingu, wingu la kibinafsi, ndani ya taasisi au mazingira mchanganyiko na kuunganishwa na mifumo ya biashara iliyopo kupitia violesura salama. Sehemu zinazoweza kuunganishwa ni pamoja na usimamizi wa utambulisho na ufikiaji, rasilimali watu, fedha, ERP, mifumo ya usimamizi wa kujifunza, hazina, mifumo ya maktaba, majukwaa ya maadili, mifumo ya taarifa za wanafunzi, wasimamizi wa marejeo, vitambulisho vya kudumu na hifadhidata za kitaaluma za nje.',
+      deploymentParagraph: 'DACORIS RIMS imeundwa kwa usanidi wa kitaasisi. Kulingana na upeo wa utekelezaji ulioafikiwa, inaweza kusambazwa kwenye wingu, wingu la kibinafsi, ndani ya taasisi au mazingira mchanganyiko na kuunganishwa na mifumo ya biashara iliyopo kupitia violesura salama. Sehemu zinazoweza kuunganishwa ni pamoja na usimamizi wa utambulisho na ufikiaji, rasilimali watu, fedha, ERP, mifumo ya usimamizi wa kujifunza, hazina, mifumo ya maktaba, majukwaa ya maadili, mifumo ya taarifa za wanafunzi, wasimamizi wa marejeo, vitambulisho vya kudumu na hifadhidata za kitaaluma za nje.',
       principleTitle: 'Kanuni ya utekelezaji',
-      principleBody: 'DACORIS CRIS haihitaji taasisi kuondoa kila mfumo uliopo. Jukumu lake ni kuunganisha michakato ya utafiti iliyogawanyika, kuhifadhi umiliki wa data wa kitaasisi na kuunda safu ya akili ya taarifa za utafiti inayozunguka miundombinu iliyopo.',
+      principleBody: 'DACORIS RIMS haihitaji taasisi kuondoa kila mfumo uliopo. Jukumu lake ni kuunganisha michakato ya utafiti iliyogawanyika, kuhifadhi umiliki wa data wa kitaasisi na kuunda safu ya akili ya taarifa za utafiti inayozunguka miundombinu iliyopo.',
     },
     section2: {
       kicker: '2',
@@ -341,7 +341,7 @@ const sw = {
         { title: 'Timu za ICT na Data', desc: 'Muunganiko unaodhibitiwa, chaguo za uwekaji, utawala wa ufikiaji, uwezo wa ukaguzi, uangalizi wa data na usimamizi wa mfumo.' },
       ],
       ownershipTitle: 'Kwa nini taasisi za Afrika zinahitaji rekodi ya utafiti inayomilikiwa na taasisi',
-      ownershipParagraph: 'Taasisi nyingi zinaweza kupata vipande vya ushahidi wa utafiti kutoka kwa faharasa za wachapishaji wa nje, huduma za wasifu wa watafiti au rekodi za idara, lakini hazidhibiti kila mara akaunti kamili ya jinsi utafiti ulifadhiliwa, kuidhinishwa, kutekelezwa, kusimamiwa, kudhibitiwa na kutafsiriwa kuwa matokeo. DACORIS CRIS inakusudiwa kuweka rekodi hiyo ya kitaasisi chini ya utawala wa shirika lenyewe, huku ikipatana na miundombinu ya kitaaluma ya kimataifa.',
+      ownershipParagraph: 'Taasisi nyingi zinaweza kupata vipande vya ushahidi wa utafiti kutoka kwa faharasa za wachapishaji wa nje, huduma za wasifu wa watafiti au rekodi za idara, lakini hazidhibiti kila mara akaunti kamili ya jinsi utafiti ulifadhiliwa, kuidhinishwa, kutekelezwa, kusimamiwa, kudhibitiwa na kutafsiriwa kuwa matokeo. DACORIS RIMS inakusudiwa kuweka rekodi hiyo ya kitaasisi chini ya utawala wa shirika lenyewe, huku ikipatana na miundombinu ya kitaaluma ya kimataifa.',
     },
     architecture: {
       overline: 'Usanifu wa Mfumo',

@@ -266,18 +266,18 @@ const fr = {
   about: {
     section1: {
       kicker: '1',
-      title: 'À PROPOS DE DACORIS CRIS',
+      title: 'À PROPOS DE DACORIS RIMS',
       intro: 'Un environnement complet de gestion et d\'intelligence de la recherche institutionnelle, conçu autour du cycle de vie réel de la recherche.',
       paragraphs: [
-        'DACORIS CRIS est un système intégré d\'information sur la recherche en cours (CRIS) et de gestion de l\'information de recherche, conçu pour aider les universités, institutions de recherche, hôpitaux universitaires et organisations axées sur la recherche à gérer l\'ensemble du cycle de vie de la recherche dans un environnement connecté. Il réunit les personnes, processus, preuves, approbations, données, productions et partenariats qui définissent collectivement l\'activité de recherche d\'un établissement.',
-        'Contrairement aux systèmes qui ne cataloguent les publications qu\'après l\'achèvement de la recherche, DACORIS CRIS commence au moment où la recherche est conçue. Il relie les opportunités de financement à l\'expertise des chercheurs ; soutient l\'élaboration des propositions et les approbations institutionnelles ; gère les dossiers d\'éthique et d\'attribution ; suit les projets, jalons et données ; capture les publications et autres productions ; soutient la progression de la recherche de troisième cycle ; et transforme les preuves obtenues en tableaux de bord pour la prise de décision opérationnelle et stratégique.',
+        'DACORIS RIMS est un système intégré d\'information sur la recherche en cours (CRIS) et de gestion de l\'information de recherche, conçu pour aider les universités, institutions de recherche, hôpitaux universitaires et organisations axées sur la recherche à gérer l\'ensemble du cycle de vie de la recherche dans un environnement connecté. Il réunit les personnes, processus, preuves, approbations, données, productions et partenariats qui définissent collectivement l\'activité de recherche d\'un établissement.',
+        'Contrairement aux systèmes qui ne cataloguent les publications qu\'après l\'achèvement de la recherche, DACORIS RIMS commence au moment où la recherche est conçue. Il relie les opportunités de financement à l\'expertise des chercheurs ; soutient l\'élaboration des propositions et les approbations institutionnelles ; gère les dossiers d\'éthique et d\'attribution ; suit les projets, jalons et données ; capture les publications et autres productions ; soutient la progression de la recherche de troisième cycle ; et transforme les preuves obtenues en tableaux de bord pour la prise de décision opérationnelle et stratégique.',
       ],
-      problemTitle: 'Le problème institutionnel que DACORIS CRIS résout',
+      problemTitle: 'Le problème institutionnel que DACORIS RIMS résout',
       problemParagraphs: [
         'Les informations de recherche sont souvent fragmentées entre feuilles de calcul, courriels, systèmes financiers, bureaux d\'éthique, écoles doctorales, fichiers départementaux, dépôts et profils individuels de chercheurs. Cette fragmentation rend difficile de répondre avec précision et en temps réel à des questions institutionnelles de base : Quelles subventions sont actives ? Quelles propositions attendent une approbation ? Quels projets sont en retard ? Quels étudiants risquent de manquer des jalons de progression ? Quels thèmes de recherche se développent ? Quelles productions proviennent d\'une subvention donnée ? Quels partenariats et protocoles d\'accord sont actifs, expirés ou sous-utilisés ?',
-        'DACORIS CRIS résout cette fragmentation en établissant un dossier de recherche institutionnel gouverné, basé sur les rôles et auditable. Chaque partie prenante autorisée voit les informations et actions pertinentes pour son rôle, tandis que la direction obtient une vue consolidée de la performance, de la conformité, des risques, des capacités et de l\'impact.',
+        'DACORIS RIMS résout cette fragmentation en établissant un dossier de recherche institutionnel gouverné, basé sur les rôles et auditable. Chaque partie prenante autorisée voit les informations et actions pertinentes pour son rôle, tandis que la direction obtient une vue consolidée de la performance, de la conformité, des risques, des capacités et de l\'impact.',
       ],
-      managesTitle: 'Ce que DACORIS CRIS gère',
+      managesTitle: 'Ce que DACORIS RIMS gère',
       managesTable: {
         headers: ['Capacité', 'Ce qu\'elle permet'],
         rows: [
@@ -308,9 +308,9 @@ const fr = {
         'Relier l\'activité de recherche aux priorités institutionnelles, aux Objectifs de développement durable, aux agendas nationaux et aux résultats mesurables.',
       ],
       deploymentTitle: 'Déploiement et interopérabilité',
-      deploymentParagraph: 'DACORIS CRIS est conçu pour une configuration institutionnelle. Selon le périmètre d\'implémentation convenu, il peut être déployé en cloud, cloud privé, sur site ou en environnement hybride et intégré aux systèmes d\'entreprise existants via des interfaces sécurisées. Les points d\'intégration potentiels incluent la gestion des identités et des accès, les ressources humaines, la finance, l\'ERP, les systèmes de gestion de l\'apprentissage, les dépôts, les systèmes bibliothécaires, les plateformes d\'éthique, les systèmes d\'information étudiants, les gestionnaires de références, les identifiants persistants et les bases de données savantes externes.',
+      deploymentParagraph: 'DACORIS RIMS est conçu pour une configuration institutionnelle. Selon le périmètre d\'implémentation convenu, il peut être déployé en cloud, cloud privé, sur site ou en environnement hybride et intégré aux systèmes d\'entreprise existants via des interfaces sécurisées. Les points d\'intégration potentiels incluent la gestion des identités et des accès, les ressources humaines, la finance, l\'ERP, les systèmes de gestion de l\'apprentissage, les dépôts, les systèmes bibliothécaires, les plateformes d\'éthique, les systèmes d\'information étudiants, les gestionnaires de références, les identifiants persistants et les bases de données savantes externes.',
       principleTitle: 'Principe d\'implémentation',
-      principleBody: 'DACORIS CRIS n\'exige pas qu\'un établissement abandonne tous ses systèmes existants. Son rôle est de connecter les processus de recherche fragmentés, de préserver la propriété institutionnelle des données et de créer une couche fiable d\'intelligence de recherche autour de l\'infrastructure existante.',
+      principleBody: 'DACORIS RIMS n\'exige pas qu\'un établissement abandonne tous ses systèmes existants. Son rôle est de connecter les processus de recherche fragmentés, de préserver la propriété institutionnelle des données et de créer une couche fiable d\'intelligence de recherche autour de l\'infrastructure existante.',
     },
     section2: {
       kicker: '2',
@@ -341,7 +341,7 @@ const fr = {
         { title: 'Équipes TIC et données', desc: 'Intégration contrôlée, choix d\'hébergement, gouvernance des accès, auditabilité, gouvernance des données et administration du système.' },
       ],
       ownershipTitle: 'Pourquoi les établissements africains ont besoin d\'un dossier de recherche institutionnel',
-      ownershipParagraph: 'De nombreux établissements peuvent retrouver des fragments de leurs preuves de recherche dans des index d\'éditeurs externes, des services de profils de chercheurs ou des dossiers départementaux, mais ils ne contrôlent pas toujours un compte complet de la manière dont la recherche a été financée, approuvée, menée, supervisée, gouvernée et traduite en résultats. DACORIS CRIS vise à placer ce dossier institutionnel sous la gouvernance de l\'organisation elle-même, tout en restant interopérable avec l\'infrastructure savante mondiale.',
+      ownershipParagraph: 'De nombreux établissements peuvent retrouver des fragments de leurs preuves de recherche dans des index d\'éditeurs externes, des services de profils de chercheurs ou des dossiers départementaux, mais ils ne contrôlent pas toujours un compte complet de la manière dont la recherche a été financée, approuvée, menée, supervisée, gouvernée et traduite en résultats. DACORIS RIMS vise à placer ce dossier institutionnel sous la gouvernance de l\'organisation elle-même, tout en restant interopérable avec l\'infrastructure savante mondiale.',
     },
     architecture: {
       overline: 'Architecture du système',

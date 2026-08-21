@@ -266,18 +266,18 @@ const en = {
   about: {
     section1: {
       kicker: '1',
-      title: 'ABOUT DACORIS CRIS',
+      title: 'ABOUT DACORIS RIMS',
       intro: 'A complete institutional research management and intelligence environment built around the real lifecycle of research.',
       paragraphs: [
-        "DACORIS CRIS is an integrated Current Research Information System and Research Information Management System designed to help universities, research institutions, teaching hospitals and research-focused organisations manage the full research lifecycle in one connected environment. It brings together the people, processes, evidence, approvals, data, outputs and partnerships that collectively define an institution's research enterprise.",
-        'Unlike systems that only catalogue publications after research has been completed, DACORIS CRIS begins at the point where research is conceived. It connects funding opportunities to researcher expertise; supports proposal development and institutional approvals; manages ethics and award records; tracks projects, milestones and data; captures publications and other outputs; supports postgraduate research progression; and converts the resulting evidence into dashboards for operational and strategic decision-making.',
+        "DACORIS RIMS is an integrated Current Research Information System and Research Information Management System designed to help universities, research institutions, teaching hospitals and research-focused organisations manage the full research lifecycle in one connected environment. It brings together the people, processes, evidence, approvals, data, outputs and partnerships that collectively define an institution's research enterprise.",
+        'Unlike systems that only catalogue publications after research has been completed, DACORIS RIMS begins at the point where research is conceived. It connects funding opportunities to researcher expertise; supports proposal development and institutional approvals; manages ethics and award records; tracks projects, milestones and data; captures publications and other outputs; supports postgraduate research progression; and converts the resulting evidence into dashboards for operational and strategic decision-making.',
       ],
-      problemTitle: 'The institutional problem DACORIS CRIS solves',
+      problemTitle: 'The institutional problem DACORIS RIMS solves',
       problemParagraphs: [
         'Research information is often fragmented across spreadsheets, emails, finance systems, ethics offices, graduate schools, departmental files, repositories and individual researcher profiles. This fragmentation makes it difficult to answer basic institutional questions accurately and in real time: Which grants are active? Which proposals are awaiting approval? Which projects are delayed? Which students are at risk of missing progression milestones? Which research themes are growing? What outputs arose from a specific grant? Which partnerships and Memoranda of Understanding are active, expiring or underutilised?',
-        'DACORIS CRIS resolves this fragmentation by establishing a governed, role-based and auditable institutional research record. Each authorised stakeholder sees the information and actions relevant to their role, while leadership gains a consolidated view of performance, compliance, risk, capacity and impact.',
+        'DACORIS RIMS resolves this fragmentation by establishing a governed, role-based and auditable institutional research record. Each authorised stakeholder sees the information and actions relevant to their role, while leadership gains a consolidated view of performance, compliance, risk, capacity and impact.',
       ],
-      managesTitle: 'What DACORIS CRIS manages',
+      managesTitle: 'What DACORIS RIMS manages',
       managesTable: {
         headers: ['Capability', 'What it enables'],
         rows: [
@@ -308,9 +308,9 @@ const en = {
         'Connect research activity to institutional priorities, Sustainable Development Goals, national agendas and measurable outcomes.',
       ],
       deploymentTitle: 'Deployment and interoperability',
-      deploymentParagraph: 'DACORIS CRIS is designed for institutional configuration. Subject to the agreed implementation scope, it may be deployed in cloud, private-cloud, on-premises or hybrid environments and integrated with existing enterprise systems through secure interfaces. Potential integration points include identity and access management, human resources, finance, enterprise resource planning, learning-management systems, repositories, library systems, ethics platforms, student information systems, reference managers, persistent identifiers and external scholarly databases.',
+      deploymentParagraph: 'DACORIS RIMS is designed for institutional configuration. Subject to the agreed implementation scope, it may be deployed in cloud, private-cloud, on-premises or hybrid environments and integrated with existing enterprise systems through secure interfaces. Potential integration points include identity and access management, human resources, finance, enterprise resource planning, learning-management systems, repositories, library systems, ethics platforms, student information systems, reference managers, persistent identifiers and external scholarly databases.',
       principleTitle: 'Implementation principle',
-      principleBody: 'DACORIS CRIS does not require an institution to discard every existing system. Its role is to connect fragmented research processes, preserve institutional ownership of data and create a reliable research intelligence layer around existing infrastructure.',
+      principleBody: 'DACORIS RIMS does not require an institution to discard every existing system. Its role is to connect fragmented research processes, preserve institutional ownership of data and create a reliable research intelligence layer around existing infrastructure.',
     },
     section2: {
       kicker: '2',
@@ -341,7 +341,7 @@ const en = {
         { title: 'ICT & Data Teams', desc: 'Controlled integration, hosting choices, access governance, auditability, data stewardship and system administration.' },
       ],
       ownershipTitle: 'Why African institutions need an institution-owned research record',
-      ownershipParagraph: "Many institutions can retrieve fragments of their research evidence from external publisher indexes, researcher-profile services or departmental records, but they do not always control a complete account of how research was funded, approved, delivered, supervised, governed and translated into outcomes. DACORIS CRIS is intended to place that institutional record under the organisation's own governance, while remaining interoperable with global scholarly infrastructure.",
+      ownershipParagraph: "Many institutions can retrieve fragments of their research evidence from external publisher indexes, researcher-profile services or departmental records, but they do not always control a complete account of how research was funded, approved, delivered, supervised, governed and translated into outcomes. DACORIS RIMS is intended to place that institutional record under the organisation's own governance, while remaining interoperable with global scholarly infrastructure.",
     },
     architecture: {
       overline: 'System Architecture',

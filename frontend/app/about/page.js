@@ -113,90 +113,102 @@ export default function AboutPage() {
           ))}
         </Box>
 
-        <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 1.5 }}>
-          {s1?.problemTitle}
-        </Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 5 }}>
-          {s1?.problemParagraphs?.map((p, i) => (
-            <Typography key={i} sx={{ fontSize: 14.5, lineHeight: 1.85, color: 'text.secondary' }}>
-              {p}
-            </Typography>
-          ))}
-        </Box>
-
-        <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 1.5 }}>
-          {s1?.managesTitle}
-        </Typography>
-        <Box sx={{ mb: 5 }}>
-          <DataTable table={s1?.managesTable} dark={dark} theme={theme} />
-        </Box>
-
-        <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 1.5 }}>
-          {s1?.lifecycleTitle}
-        </Typography>
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr 1fr', sm: `repeat(${s1?.lifecycleStages?.length || 7}, 1fr)` },
-            mb: 2.5,
-            border: `1px solid ${theme.palette.divider}`,
-          }}
-        >
-          {s1?.lifecycleStages?.map((stage, i) => (
-            <Box
-              key={i}
-              sx={{
-                bgcolor: i % 2 === 0 ? tl[600] : sl[900],
-                color: '#fff',
-                textAlign: 'center',
-                px: 1.5,
-                py: 2,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderLeft: i === 0 ? 'none' : `1px solid ${alpha('#fff', 0.15)}`,
-              }}
-            >
-              <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', lineHeight: 1.3 }}>
-                {stage.toUpperCase()}
+        {/* Hidden: The institutional problem DACORIS CRIS solves */}
+        <Box sx={{ display: 'none' }}>
+          <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 1.5 }}>
+            {s1?.problemTitle}
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 5 }}>
+            {s1?.problemParagraphs?.map((p, i) => (
+              <Typography key={i} sx={{ fontSize: 14.5, lineHeight: 1.85, color: 'text.secondary' }}>
+                {p}
               </Typography>
-            </Box>
-          ))}
+            ))}
+          </Box>
         </Box>
-        <Typography sx={{ fontSize: 14.5, lineHeight: 1.85, color: 'text.secondary', mb: 5 }}>
-          {s1?.lifecycleParagraph}
-        </Typography>
+
+        {/* Hidden: What DACORIS CRIS manages */}
+        <Box sx={{ display: 'none' }}>
+          <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 1.5 }}>
+            {s1?.managesTitle}
+          </Typography>
+          <Box sx={{ mb: 5 }}>
+            <DataTable table={s1?.managesTable} dark={dark} theme={theme} />
+          </Box>
+        </Box>
+
+        {/* Hidden: A connected research lifecycle */}
+        <Box sx={{ display: 'none' }}>
+          <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 1.5 }}>
+            {s1?.lifecycleTitle}
+          </Typography>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr 1fr', sm: `repeat(${s1?.lifecycleStages?.length || 7}, 1fr)` },
+              mb: 2.5,
+              border: `1px solid ${theme.palette.divider}`,
+            }}
+          >
+            {s1?.lifecycleStages?.map((stage, i) => (
+              <Box
+                key={i}
+                sx={{
+                  bgcolor: i % 2 === 0 ? tl[600] : sl[900],
+                  color: '#fff',
+                  textAlign: 'center',
+                  px: 1.5,
+                  py: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderLeft: i === 0 ? 'none' : `1px solid ${alpha('#fff', 0.15)}`,
+                }}
+              >
+                <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', lineHeight: 1.3 }}>
+                  {stage.toUpperCase()}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+          <Typography sx={{ fontSize: 14.5, lineHeight: 1.85, color: 'text.secondary', mb: 5 }}>
+            {s1?.lifecycleParagraph}
+          </Typography>
+        </Box>
 
         <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 1.5 }}>
           {s1?.valueTitle}
         </Typography>
-        <Box sx={{ mb: 5 }}>
+        <Box sx={{ mb: 8 }}>
           <Bullets items={s1?.valueBullets} />
         </Box>
 
-        <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 1.5 }}>
-          {s1?.deploymentTitle}
-        </Typography>
-        <Typography sx={{ fontSize: 14.5, lineHeight: 1.85, color: 'text.secondary', mb: 3 }}>
-          {s1?.deploymentParagraph}
-        </Typography>
+        {/* Hidden: Deployment and interoperability */}
+        <Box sx={{ display: 'none' }}>
+          <Typography sx={{ fontSize: { xs: 18, md: 20 }, fontWeight: 700, color: tl[dark ? 400 : 700], mb: 1.5 }}>
+            {s1?.deploymentTitle}
+          </Typography>
+          <Typography sx={{ fontSize: 14.5, lineHeight: 1.85, color: 'text.secondary', mb: 3 }}>
+            {s1?.deploymentParagraph}
+          </Typography>
 
-        <Box
-          sx={{
-            display: 'flex',
-            bgcolor: dark ? alpha(am[900], 0.28) : alpha(am[50], 0.9),
-            border: `1px solid ${alpha(am[500], 0.3)}`,
-            mb: 8,
-          }}
-        >
-          <Box sx={{ width: 5, bgcolor: am[600], flexShrink: 0 }} />
-          <Box sx={{ p: { xs: 2.5, md: 3 } }}>
-            <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'text.primary', mb: 1 }}>
-              {s1?.principleTitle}
-            </Typography>
-            <Typography sx={{ fontSize: 14, lineHeight: 1.75, color: 'text.secondary' }}>
-              {s1?.principleBody}
-            </Typography>
+          <Box
+            sx={{
+              display: 'flex',
+              bgcolor: dark ? alpha(am[900], 0.28) : alpha(am[50], 0.9),
+              border: `1px solid ${alpha(am[500], 0.3)}`,
+              mb: 8,
+            }}
+          >
+            <Box sx={{ width: 5, bgcolor: am[600], flexShrink: 0 }} />
+            <Box sx={{ p: { xs: 2.5, md: 3 } }}>
+              <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'text.primary', mb: 1 }}>
+                {s1?.principleTitle}
+              </Typography>
+              <Typography sx={{ fontSize: 14, lineHeight: 1.75, color: 'text.secondary' }}>
+                {s1?.principleBody}
+              </Typography>
+            </Box>
           </Box>
         </Box>
 
