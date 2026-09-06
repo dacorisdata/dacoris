@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
-import { Box, Typography, Chip, Collapse } from '@mui/material';
+import { Box, Typography, Tooltip, Collapse } from '@mui/material';
 import {
   Dashboard as DashIcon, Person as PersonIcon,
   Search as SearchIcon, Description as ProposalIcon,
@@ -19,7 +19,7 @@ import {
   PendingActions as MouQueueIcon, AccountTree as WorkflowIcon,
   School as TrainingIcon, MenuBook as ProgramsIcon,
   Groups as EnrollmentsIcon, Assignment as NeedsIcon,
-  ExpandMore as ExpandMoreIcon, RateReview as ReviewersIcon,
+  ExpandMore as ExpandIcon, RateReview as ReviewersIcon,
   Assessment as ReportsAnalyticsIcon,
   Storage as StorageIcon,
   School as PgIcon,
@@ -30,10 +30,10 @@ import {
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { isUniversityInstitution } from '../lib/institutionTypes';
-import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { subtleScrollbarSx } from '../lib/scrollStyles';
-import { sidebarTheme, SIDEBAR_FONTS } from '../lib/sidebarTheme';
+import { sidebarTheme, SIDEBAR_FONTS, SIDEBAR_WIDTH } from '../lib/sidebarTheme';
 
 const STORAGE_KEY = 'dacoris-admin-sidebar-sections';
 
@@ -83,23 +83,10 @@ const NAV_SECTIONS = [
     items: [
       { icon: DashIcon,    label: 'Overview',    path: '/admin-staff/overview', roles: 'all' },
       { icon: ReportsAnalyticsIcon, label: 'Reports & Analytics', path: '/admin-staff/reports', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER','FINANCE_OFFICER','ETHICS_COMMITTEE_MEMBER','DATA_STEWARD'] },
-      { icon: PersonIcon,  label: 'My Profile',  path: '/admin-staff/profile',  roles: 'all' },
     ],
   },
   {
-    section: 'Postgraduate Management',
-    universityOnly: true,
-    roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'],
-    items: [
-      { icon: PgIcon, label: 'PG Control Tower', path: '/admin-staff/postgraduate', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
-      { icon: PgStudentsIcon, label: 'Students & Stages', path: '/admin-staff/postgraduate/students', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
-      { icon: SupervisorAssignIcon, label: 'Supervisor Assignments', path: '/admin-staff/postgraduate/supervisor-assignments', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
-      { icon: InterventionIcon, label: 'Interventions', path: '/admin-staff/postgraduate/interventions', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
-      { icon: ClearanceIcon, label: 'Graduation Clearance', path: '/admin-staff/postgraduate/clearance', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
-    ],
-  },
-  {
-    section: 'Grant Management',
+    section: 'Grants Management',
     roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP','FINANCE_OFFICER','ADMIN_STAFF','EXTERNAL_FUNDER'],
     items: [
       { icon: SearchIcon,    label: 'Opportunities',    path: '/admin-staff/grants/opportunities', roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP','FINANCE_OFFICER','ADMIN_STAFF','EXTERNAL_FUNDER'] },
@@ -108,6 +95,18 @@ const NAV_SECTIONS = [
       { icon: AwardIcon,     label: 'Awards',           path: '/admin-staff/grants/awards',        roles: ['GRANT_MANAGER','FINANCE_OFFICER','INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF'] },
       { icon: FunderIcon,    label: 'Funder CRM',       path: '/admin-staff/grants/funders',       roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP'] },
       { icon: ReportIcon,    label: 'Reports & Compliance', path: '/admin-staff/grants/reports',   roles: ['GRANT_MANAGER','INSTITUTIONAL_LEADERSHIP','FINANCE_OFFICER'] },
+    ],
+  },
+  {
+    section: 'Post Graduate Supervision',
+    universityOnly: true,
+    roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'],
+    items: [
+      { icon: PgIcon, label: 'PG Control Tower', path: '/admin-staff/postgraduate', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
+      { icon: PgStudentsIcon, label: 'Students & Stages', path: '/admin-staff/postgraduate/students', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
+      { icon: SupervisorAssignIcon, label: 'Supervisor Assignments', path: '/admin-staff/postgraduate/supervisor-assignments', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
+      { icon: InterventionIcon, label: 'Interventions', path: '/admin-staff/postgraduate/interventions', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
+      { icon: ClearanceIcon, label: 'Graduation Clearance', path: '/admin-staff/postgraduate/clearance', roles: ['INSTITUTIONAL_LEADERSHIP', 'ADMIN_STAFF', 'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES'] },
     ],
   },
   {
@@ -215,13 +214,13 @@ export default function AdminStaffSidebar() {
   const router   = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const theme = useMuiTheme();
-  const dark = theme.palette.mode === 'dark';
+  const { t } = useLanguage();
+  const dark = true;
+  const tokens = sidebarTheme(true);
+  const accent = tokens.accent;
 
   const role   = user?.primary_account_type || 'ADMIN_STAFF';
   const meta   = ROLE_META[role] || ROLE_META.ADMIN_STAFF || { label: 'Staff' };
-  const tokens = sidebarTheme(dark);
-  const accent = tokens.accent;
 
   const visibleSections = useMemo(
     () => NAV_SECTIONS
@@ -252,93 +251,109 @@ export default function AdminStaffSidebar() {
   const NavItem = ({ icon: Icon, label, path }) => {
     const isActive = isPathActive(pathname, path);
     return (
-      <Box
-        onClick={() => router.push(path)}
-        sx={{
-          display: 'flex', alignItems: 'center', gap: 1.25,
-          pl: 2.25, pr: 1.5, py: 0.9, cursor: 'pointer', borderRadius: 1.5,
-          bgcolor: isActive ? tokens.accentSoft : 'transparent',
-          color: isActive ? tokens.navActive : tokens.nav,
-          transition: 'all 0.15s ease',
-          WebkitFontSmoothing: 'antialiased',
-          '&:hover': {
-            bgcolor: isActive ? tokens.accentHover : 'action.hover',
-            color: isActive ? tokens.navActive : tokens.navHover,
-          },
-        }}
-      >
-        <Icon sx={{ fontSize: SIDEBAR_FONTS.itemIcon, flexShrink: 0, color: 'inherit' }} />
-        <Typography sx={{
-          fontSize: SIDEBAR_FONTS.item, fontWeight: isActive ? 600 : 500,
-          lineHeight: 1.35, letterSpacing: '0.01em',
-        }}>
-          {label}
-        </Typography>
-      </Box>
+      <Tooltip title={label} placement="right" disableHoverListener enterDelay={600}>
+        <Box
+          onClick={() => router.push(path)}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            px: 1.5, py: 1, mx: 0.5, cursor: 'pointer', borderRadius: '8px',
+            bgcolor: isActive ? tokens.accentSoft : 'transparent',
+            color: isActive ? tokens.navActive : tokens.nav,
+            position: 'relative',
+            transition: 'all 0.15s ease',
+            '&:hover': {
+              bgcolor: isActive ? tokens.accentHover : tokens.itemHoverBg,
+              color: isActive ? tokens.navActive : tokens.navHover,
+            },
+            '&::before': isActive ? {
+              content: '""',
+              position: 'absolute', left: -4, top: '20%', bottom: '20%',
+              width: 3, borderRadius: 4,
+              bgcolor: accent,
+            } : {},
+          }}
+        >
+          <Icon sx={{ fontSize: SIDEBAR_FONTS.itemIcon, flexShrink: 0, opacity: isActive ? 1 : 0.75 }} />
+          <Typography sx={{
+            fontSize: SIDEBAR_FONTS.item,
+            fontWeight: isActive ? 650 : 450,
+            letterSpacing: 0.1,
+            lineHeight: 1.35,
+          }}>
+            {label}
+          </Typography>
+          {isActive && (
+            <Box sx={{
+              ml: 'auto', width: 5, height: 5, borderRadius: '50%',
+              bgcolor: accent, flexShrink: 0,
+            }} />
+          )}
+        </Box>
+      </Tooltip>
     );
   };
 
   const NavSection = ({ section, items }) => {
     const isOpen = expanded?.[section] ?? true;
     const hasActiveChild = items.some(item => isPathActive(pathname, item.path));
-    const collapsible = true;
 
     return (
-      <Box sx={{ mb: 0.25 }}>
+      <Box sx={{ mb: 0.5 }}>
         <Box
-          onClick={() => collapsible && toggleSection(section)}
+          onClick={() => toggleSection(section)}
           onKeyDown={(e) => {
-            if (collapsible && (e.key === 'Enter' || e.key === ' ')) {
+            if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               toggleSection(section);
             }
           }}
-          role={collapsible ? 'button' : undefined}
-          tabIndex={collapsible ? 0 : undefined}
-          aria-expanded={collapsible ? isOpen : undefined}
+          role="button"
+          tabIndex={0}
+          aria-expanded={isOpen}
           sx={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            px: 1.25, py: 0.9, mx: 0.5, mt: 1.25, borderRadius: 1.5,
-            cursor: collapsible ? 'pointer' : 'default',
+            display: 'flex', alignItems: 'center', gap: 1,
+            px: 2, pt: 2.5, pb: 0.75,
+            cursor: 'pointer',
             userSelect: 'none',
-            bgcolor: hasActiveChild && !isOpen ? tokens.accentSoft : 'transparent',
-            transition: 'background-color 0.15s ease',
-            '&:hover': collapsible ? { bgcolor: hasActiveChild ? tokens.accentHover : 'action.hover' } : {},
-            '&:focus-visible': collapsible ? { outline: `2px solid ${tokens.accent}`, outlineOffset: 1 } : {},
+            '&:hover .section-label': { color: tokens.navHover },
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
-            <Typography sx={{
-              fontSize: SIDEBAR_FONTS.section, fontWeight: 700, letterSpacing: '0.06em',
+          <Typography
+            className="section-label"
+            sx={{
+              fontSize: SIDEBAR_FONTS.section,
+              fontWeight: 700,
+              letterSpacing: 0.8,
               textTransform: 'uppercase',
               color: hasActiveChild ? tokens.sectionActive : tokens.section,
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              WebkitFontSmoothing: 'antialiased',
-            }}>
-              {section}
-            </Typography>
-            {collapsible && !isOpen && (
-              <Typography component="span" sx={{
-                fontSize: 10, fontWeight: 700, color: tokens.badgeText,
-                bgcolor: tokens.badgeBg,
-                px: 0.75, py: 0.2, borderRadius: 1, flexShrink: 0,
-                lineHeight: 1.2,
-              }}>
-                {items.length}
-              </Typography>
-            )}
-          </Box>
-          {collapsible && (
-            <ExpandMoreIcon sx={{
-              fontSize: 18, color: hasActiveChild ? tokens.sectionActive : tokens.muted, flexShrink: 0,
-              transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
-              transition: 'transform 0.22s ease',
-            }} />
-          )}
+              transition: 'color 0.15s',
+              flex: 1,
+              lineHeight: 1.35,
+              pr: 0.5,
+            }}
+          >
+            {section}
+          </Typography>
+          <ExpandIcon
+            sx={{
+              fontSize: 16,
+              color: hasActiveChild ? tokens.sectionActive : tokens.muted,
+              transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
+            }}
+          />
         </Box>
 
-        <Collapse in={isOpen} timeout={220} easing={{ enter: 'cubic-bezier(0.4, 0, 0.2, 1)', exit: 'cubic-bezier(0.4, 0, 0.2, 1)' }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.15, pb: 0.5, pt: 0.15 }}>
+        <Collapse
+          in={isOpen}
+          timeout={280}
+          easing={{
+            enter: 'cubic-bezier(0.4, 0, 0.2, 1)',
+            exit: 'cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+          unmountOnExit={false}
+        >
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
             {items.map(item => <NavItem key={item.path} {...item} />)}
           </Box>
         </Collapse>
@@ -350,67 +365,104 @@ export default function AdminStaffSidebar() {
 
   return (
     <Box sx={{
-      width: 300, bgcolor: tokens.bg,
-      borderRight: 1, borderColor: tokens.border,
-      display: 'flex', flexDirection: 'column',
-      height: '100vh', position: 'sticky', top: 0,
+      width: SIDEBAR_WIDTH,
+      bgcolor: tokens.bg,
+      borderRight: 1,
+      borderColor: tokens.border,
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100vh',
+      position: 'sticky',
+      top: 0,
       flexShrink: 0,
     }}>
       <Box sx={{
-        px: 1.75, py: 1.75, borderBottom: 1, borderColor: tokens.border,
+        px: 2, pt: 2.5, pb: 2,
+        borderBottom: 1,
+        borderColor: tokens.border,
         background: tokens.headerBg,
       }}>
         {user?.institution_name && (
-          <Box sx={{ mb: 1.25 }}>
-            <Chip
-              label={user.institution_name}
-              size="small"
-              sx={{
-                width: '100%',
-                bgcolor: accent,
-                color: '#fff',
-                fontWeight: 700,
-                fontSize: SIDEBAR_FONTS.badge,
-                height: 28,
-                borderRadius: 1.5,
-                '& .MuiChip-label': {
-                  px: 1.25,
-                  whiteSpace: 'normal',
-                  textAlign: 'center',
-                  lineHeight: 1.35,
-                  letterSpacing: '0.01em',
-                },
-              }}
-            />
+          <Box sx={{ mb: 1.75 }}>
+            <Typography sx={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0.8,
+              textTransform: 'uppercase',
+              color: tokens.muted,
+              mb: 0.6,
+              px: 0.25,
+            }}>
+              {t('navbar.institution')}
+            </Typography>
+            <Box sx={{
+              display: 'inline-flex', alignItems: 'center',
+              px: 1.25, py: 0.4, borderRadius: 1.5,
+              bgcolor: tokens.accentBadgeBg,
+              border: `1px solid ${tokens.accentBorder}`,
+              maxWidth: '100%',
+            }}>
+              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: accent, mr: 0.75, flexShrink: 0 }} />
+              <Typography sx={{
+                fontSize: SIDEBAR_FONTS.badge, fontWeight: 700, color: accent,
+                letterSpacing: 0.3,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {user.institution_name}
+              </Typography>
+            </Box>
           </Box>
         )}
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+        <Box
+          onClick={() => router.push('/admin-staff/profile')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') router.push('/admin-staff/profile'); }}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            mx: -0.75, px: 0.75, py: 0.75, borderRadius: 2,
+            cursor: 'pointer',
+            transition: 'background 0.15s ease',
+            '&:hover': { bgcolor: tokens.itemHoverBg },
+            '&:hover .profile-hint': { opacity: 1 },
+          }}
+        >
           <Box sx={{
-            width: 36, height: 36, borderRadius: 1.75, flexShrink: 0,
-            background: `linear-gradient(145deg, ${accent} 0%, #0d9488 100%)`,
+            width: 40, height: 40, borderRadius: '10px', flexShrink: 0,
+            background: `linear-gradient(135deg, ${accent} 0%, #0891b2 100%)`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: SIDEBAR_FONTS.userName, fontWeight: 700, color: '#fff',
-            boxShadow: `0 2px 8px ${accent}30`,
+            boxShadow: `0 2px 8px ${accent}40`,
           }}>
             {initials}
           </Box>
-          <Box sx={{ overflow: 'hidden', minWidth: 0 }}>
+          <Box sx={{ overflow: 'hidden', minWidth: 0, flex: 1 }}>
             <Typography sx={{
-              color: tokens.name, fontSize: SIDEBAR_FONTS.userName, fontWeight: 700,
+              fontSize: SIDEBAR_FONTS.userName, fontWeight: 650, color: tokens.name,
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              lineHeight: 1.3, letterSpacing: '0.01em',
-              WebkitFontSmoothing: 'antialiased',
+              letterSpacing: 0.1,
             }}>
               {user?.name || 'Staff Member'}
             </Typography>
-            <Typography sx={{
-              color: tokens.role, fontSize: SIDEBAR_FONTS.userRole, fontWeight: 600, mt: 0.15,
-              lineHeight: 1.3, letterSpacing: '0.02em',
-            }}>
+            <Typography sx={{ fontSize: SIDEBAR_FONTS.userRole, color: tokens.role, fontWeight: 500, mt: 0.1 }}>
               {user?.job_title || meta.label}
             </Typography>
+            <Typography
+              className="profile-hint"
+              sx={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: tokens.muted,
+                mt: 0.35,
+                opacity: 0.85,
+                transition: 'opacity 0.15s',
+              }}
+            >
+              {t('navbar.profile')}
+            </Typography>
           </Box>
+          <PersonIcon sx={{ fontSize: 16, color: tokens.muted, flexShrink: 0, opacity: 0.7 }} />
         </Box>
       </Box>
 
@@ -418,7 +470,6 @@ export default function AdminStaffSidebar() {
         flex: 1,
         overflowY: 'auto',
         py: 0.5,
-        px: 0.5,
         ...subtleScrollbarSx(dark),
       }}>
         {visibleSections.map(({ section, items }) => (
@@ -426,15 +477,28 @@ export default function AdminStaffSidebar() {
         ))}
       </Box>
 
-      <Box sx={{ p: 1.25, borderTop: 1, borderColor: tokens.border }}>
-        <Box onClick={handleLogout} sx={{
-          display: 'flex', alignItems: 'center', gap: 1.25,
-          px: 1.5, py: 1, cursor: 'pointer', borderRadius: 1.5,
-          color: tokens.signOut, transition: 'all 0.15s',
-          '&:hover': { bgcolor: 'rgba(239,68,68,0.08)', color: 'error.main' },
-        }}>
+      <Box sx={{
+        px: 1.5, py: 1.25,
+        borderTop: 1,
+        borderColor: tokens.border,
+      }}>
+        <Box
+          onClick={handleLogout}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            px: 1.5, py: 1, cursor: 'pointer', borderRadius: '8px',
+            color: tokens.signOut,
+            transition: 'all 0.15s ease',
+            '&:hover': {
+              bgcolor: 'rgba(239,68,68,0.08)',
+              color: '#ef4444',
+            },
+          }}
+        >
           <LogoutIcon sx={{ fontSize: SIDEBAR_FONTS.itemIcon }} />
-          <Typography sx={{ fontSize: SIDEBAR_FONTS.signOut, fontWeight: 500, letterSpacing: '0.01em' }}>Logout</Typography>
+          <Typography sx={{ fontSize: SIDEBAR_FONTS.signOut, fontWeight: 500 }}>
+            {t('navbar.logout')}
+          </Typography>
         </Box>
       </Box>
     </Box>

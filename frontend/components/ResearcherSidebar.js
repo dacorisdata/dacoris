@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { Box, Typography, Tooltip } from '@mui/material';
+import { Box, Typography, Tooltip, Collapse } from '@mui/material';
 import {
   Dashboard as DashIcon,
   Person as PersonIcon,
@@ -27,11 +27,11 @@ import {
   SupervisedUserCircle as SupervisorIcon,
   ExitToApp as LogoutIcon,
   ExpandMore as ExpandIcon,
-  ExpandLess as CollapseIcon,
   ImportContacts as ImportIcon,
   ReportProblem as ChallengesIcon,
   RateReview as FeedbackIcon,
   WorkspacePremium as GraduationIcon,
+  TrackChanges as TrackerIcon,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
@@ -41,9 +41,8 @@ import {
   isSupervisorAccount,
   isPgStudentAccount,
 } from '../lib/institutionTypes';
-import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { subtleScrollbarSx } from '../lib/scrollStyles';
-import { sidebarTheme, SIDEBAR_FONTS } from '../lib/sidebarTheme';
+import { sidebarTheme, SIDEBAR_FONTS, SIDEBAR_WIDTH } from '../lib/sidebarTheme';
 
 const STORAGE_KEY = 'dacoris-researcher-sidebar-sections';
 
@@ -61,7 +60,6 @@ const NAV_SECTIONS = [
     collapsible: true,
     items: [
       { icon: DashIcon, labelKey: 'researcher.sidebar.dashboard', path: '/researcher/overview' },
-      { icon: PersonIcon, labelKey: 'researcher.sidebar.myProfile', path: '/researcher/profile' },
     ],
   },
   {
@@ -70,34 +68,26 @@ const NAV_SECTIONS = [
     items: [
       { icon: DiscoverIcon, labelKey: 'researcher.sidebar.discoverOpportunities', path: '/researcher/grants/discover' },
       { icon: ProposalIcon, labelKey: 'researcher.sidebar.myProposals', path: '/researcher/grants/proposals' },
+      { icon: TrackerIcon, labelKey: 'researcher.sidebar.grantTracker', path: '/researcher/grants/tracker' },
       { icon: AwardIcon, labelKey: 'researcher.sidebar.myAwards', path: '/researcher/grants/awards' },
     ],
   },
   {
-    sectionKey: 'research',
+    sectionKey: 'projectsManagement',
     collapsible: true,
-    subsections: [
-      {
-        titleKey: 'researcher.sidebar.subsections.projects',
-        items: [
-          { icon: ProjectIcon, labelKey: 'researcher.sidebar.myProjects', path: '/researcher/projects' },
-          { icon: EthicsIcon, labelKey: 'researcher.sidebar.ethicsApplications', path: '/researcher/ethics' },
-          { icon: DmpIcon, labelKey: 'researcher.sidebar.dataMgmtPlans', path: '/researcher/dmp' },
-        ],
-      },
-      {
-        titleKey: 'researcher.sidebar.subsections.discovery',
-        items: [
-          { icon: ImportIcon, labelKey: 'researcher.sidebar.importPublications', path: '/researcher/publications' },
-          { icon: PublicationsIcon, labelKey: 'researcher.sidebar.myLibrary', path: '/researcher/publications/library' },
-        ],
-      },
-      {
-        titleKey: 'researcher.sidebar.subsections.writing',
-        items: [
-          { icon: ManuscriptIcon, labelKey: 'researcher.sidebar.manuscripts', path: '/researcher/manuscripts' },
-        ],
-      },
+    items: [
+      { icon: ProjectIcon, labelKey: 'researcher.sidebar.myProjects', path: '/researcher/projects' },
+      { icon: EthicsIcon, labelKey: 'researcher.sidebar.ethicsApplications', path: '/researcher/ethics' },
+      { icon: DmpIcon, labelKey: 'researcher.sidebar.dataMgmtPlans', path: '/researcher/dmp' },
+    ],
+  },
+  {
+    sectionKey: 'scientificWriting',
+    collapsible: true,
+    items: [
+      { icon: ImportIcon, labelKey: 'researcher.sidebar.importPublications', path: '/researcher/publications' },
+      { icon: PublicationsIcon, labelKey: 'researcher.sidebar.myLibrary', path: '/researcher/publications/library' },
+      { icon: ManuscriptIcon, labelKey: 'researcher.sidebar.manuscripts', path: '/researcher/manuscripts' },
     ],
   },
   {
@@ -178,9 +168,8 @@ export default function ResearcherSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const { t } = useLanguage();
-  const theme = useMuiTheme();
-  const dark = theme.palette.mode === 'dark';
-  const tokens = sidebarTheme(dark);
+  const dark = true; // navy chrome regardless of app light/dark mode
+  const tokens = sidebarTheme(true);
   const { accent } = tokens;
 
   const navSections = useMemo(() => {
@@ -281,19 +270,26 @@ export default function ResearcherSidebar() {
         sx={{
           fontSize: SIDEBAR_FONTS.section,
           fontWeight: 700,
-          letterSpacing: 1.2,
+          letterSpacing: 0.8,
           textTransform: 'uppercase',
           color: hasActive ? tokens.sectionActive : tokens.section,
           transition: 'color 0.15s',
           flex: 1,
+          lineHeight: 1.35,
+          pr: 0.5,
         }}
       >
         {label}
       </Typography>
       {collapsible && (
-        isOpen
-          ? <CollapseIcon sx={{ fontSize: 16, color: hasActive ? tokens.sectionActive : tokens.muted }} />
-          : <ExpandIcon sx={{ fontSize: 16, color: hasActive ? tokens.sectionActive : tokens.muted }} />
+        <ExpandIcon
+          sx={{
+            fontSize: 16,
+            color: hasActive ? tokens.sectionActive : tokens.muted,
+            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+        />
       )}
     </Box>
   );
@@ -312,7 +308,7 @@ export default function ResearcherSidebar() {
 
   return (
     <Box sx={{
-      width: 300,
+      width: SIDEBAR_WIDTH,
       bgcolor: tokens.bg,
       borderRight: 1,
       borderColor: tokens.border,
@@ -331,24 +327,51 @@ export default function ResearcherSidebar() {
         background: tokens.headerBg,
       }}>
         {user?.institution_name && (
-          <Box sx={{
-            display: 'inline-flex', alignItems: 'center',
-            px: 1.25, py: 0.4, mb: 1.75, borderRadius: 1.5,
-            bgcolor: tokens.accentBadgeBg,
-            border: `1px solid ${tokens.accentBorder}`,
-          }}>
-            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: accent, mr: 0.75 }} />
+          <Box sx={{ mb: 1.75 }}>
             <Typography sx={{
-              fontSize: SIDEBAR_FONTS.badge, fontWeight: 700, color: accent,
-              letterSpacing: 0.3,
-              maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0.8,
+              textTransform: 'uppercase',
+              color: tokens.muted,
+              mb: 0.6,
+              px: 0.25,
             }}>
-              {user.institution_name}
+              {t('navbar.institution')}
             </Typography>
+            <Box sx={{
+              display: 'inline-flex', alignItems: 'center',
+              px: 1.25, py: 0.4, borderRadius: 1.5,
+              bgcolor: tokens.accentBadgeBg,
+              border: `1px solid ${tokens.accentBorder}`,
+              maxWidth: '100%',
+            }}>
+              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: accent, mr: 0.75, flexShrink: 0 }} />
+              <Typography sx={{
+                fontSize: SIDEBAR_FONTS.badge, fontWeight: 700, color: accent,
+                letterSpacing: 0.3,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {user.institution_name}
+              </Typography>
+            </Box>
           </Box>
         )}
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box
+          onClick={() => router.push('/researcher/profile')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') router.push('/researcher/profile'); }}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            mx: -0.75, px: 0.75, py: 0.75, borderRadius: 2,
+            cursor: 'pointer',
+            transition: 'background 0.15s ease',
+            '&:hover': { bgcolor: tokens.itemHoverBg },
+            '&:hover .profile-hint': { opacity: 1 },
+          }}
+        >
           <Box sx={{
             width: 40, height: 40, borderRadius: '10px', flexShrink: 0,
             background: `linear-gradient(135deg, ${accent} 0%, #0891b2 100%)`,
@@ -358,7 +381,7 @@ export default function ResearcherSidebar() {
           }}>
             {initials}
           </Box>
-          <Box sx={{ overflow: 'hidden', minWidth: 0 }}>
+          <Box sx={{ overflow: 'hidden', minWidth: 0, flex: 1 }}>
             <Typography sx={{
               fontSize: SIDEBAR_FONTS.userName, fontWeight: 650, color: tokens.name,
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -369,7 +392,21 @@ export default function ResearcherSidebar() {
             <Typography sx={{ fontSize: SIDEBAR_FONTS.userRole, color: tokens.role, fontWeight: 500, mt: 0.1 }}>
               {user?.job_title || t('researcher.sidebar.fallbackRole')}
             </Typography>
+            <Typography
+              className="profile-hint"
+              sx={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: tokens.muted,
+                mt: 0.35,
+                opacity: 0.85,
+                transition: 'opacity 0.15s',
+              }}
+            >
+              {t('researcher.sidebar.viewProfile')}
+            </Typography>
           </Box>
+          <PersonIcon sx={{ fontSize: 16, color: tokens.muted, flexShrink: 0, opacity: 0.7 }} />
         </Box>
       </Box>
 
@@ -392,28 +429,34 @@ export default function ResearcherSidebar() {
                 hasActive={hasActive}
               />
 
-              {isOpen && (
-                <>
-                  {subsections ? (
-                    subsections.map((sub, idx) => (
-                      <Box key={idx} sx={{ mb: 0.5 }}>
-                        <SubsectionLabel title={t(sub.titleKey)} />
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                          {sub.items.map(item => (
-                            <NavItem key={item.path} icon={item.icon} label={t(item.labelKey)} path={item.path} />
-                          ))}
-                        </Box>
+              <Collapse
+                in={isOpen}
+                timeout={280}
+                easing={{
+                  enter: 'cubic-bezier(0.4, 0, 0.2, 1)',
+                  exit: 'cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+                unmountOnExit={false}
+              >
+                {subsections ? (
+                  subsections.map((sub, idx) => (
+                    <Box key={idx} sx={{ mb: 0.5 }}>
+                      <SubsectionLabel title={t(sub.titleKey)} />
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                        {sub.items.map(item => (
+                          <NavItem key={item.path} icon={item.icon} label={t(item.labelKey)} path={item.path} />
+                        ))}
                       </Box>
-                    ))
-                  ) : (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                      {items.map(item => (
-                        <NavItem key={item.path} icon={item.icon} label={t(item.labelKey)} path={item.path} />
-                      ))}
                     </Box>
-                  )}
-                </>
-              )}
+                  ))
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                    {items.map(item => (
+                      <NavItem key={item.path} icon={item.icon} label={t(item.labelKey)} path={item.path} />
+                    ))}
+                  </Box>
+                )}
+              </Collapse>
             </Box>
           );
         })}

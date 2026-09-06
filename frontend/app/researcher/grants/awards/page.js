@@ -418,7 +418,7 @@ export default function ResearcherAwardsPage() {
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 3 }}>
             {t(`${GA}.empty.subtitle`)}
           </Typography>
-          <Button variant="contained" onClick={() => router.push('/researcher/grants/applications')}
+          <Button variant="contained" onClick={() => router.push('/researcher/grants/tracker')}
             sx={{ textTransform: 'none', bgcolor: ACCENT, '&:hover': { bgcolor: '#14958a' }, borderRadius: 2 }}>
             {t(`${GA}.empty.viewApplications`)}
           </Button>

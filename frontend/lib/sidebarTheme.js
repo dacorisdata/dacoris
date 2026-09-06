@@ -10,31 +10,36 @@ export const SIDEBAR_FONTS = {
   signOut: 14,
 };
 
-export function sidebarTheme(dark) {
-  const accent = dark ? '#00ced1' : '#00a8ab';
+/** Shared portal sidebar width — fits longer section labels */
+export const SIDEBAR_WIDTH = 340;
+/** @deprecated use SIDEBAR_WIDTH */
+export const RESEARCHER_SIDEBAR_WIDTH = SIDEBAR_WIDTH;
 
-  return {
-    accent,
-    accentSoft: dark ? 'rgba(0,206,209,0.14)' : 'rgba(0,168,171,0.12)',
-    accentHover: dark ? 'rgba(0,206,209,0.2)' : 'rgba(0,168,171,0.16)',
-    accentBorder: dark ? 'rgba(0,206,209,0.3)' : 'rgba(0,168,171,0.28)',
-    accentBadgeBg: dark ? 'rgba(0,206,209,0.15)' : 'rgba(0,168,171,0.1)',
-    bg: dark ? '#0b1426' : '#f7fafc',
-    headerBg: dark
-      ? 'linear-gradient(160deg, #0f1f35 0%, #0b1426 100%)'
-      : 'linear-gradient(160deg, rgba(0,206,209,0.06) 0%, transparent 100%)',
-    border: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
-    section: dark ? '#718096' : '#a0aec0',
-    sectionActive: accent,
-    nav: dark ? '#cbd5e1' : '#475569',
-    navActive: accent,
-    navHover: dark ? '#f1f5f9' : '#1a202c',
-    muted: dark ? '#718096' : '#a0aec0',
-    name: dark ? '#ffffff' : '#1a202c',
-    role: accent,
-    signOut: dark ? 'rgba(255,255,255,0.35)' : '#94a3b8',
-    itemHoverBg: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-    badgeText: dark ? '#cbd5e1' : '#475569',
-    badgeBg: dark ? 'rgba(113,128,150,0.18)' : 'rgba(160,174,192,0.15)',
-  };
+/** Navy/teal chrome used for portal sidebars in both app light and dark modes */
+const NAVY_SIDEBAR = {
+  accent: '#00ced1',
+  accentSoft: 'rgba(0,206,209,0.14)',
+  accentHover: 'rgba(0,206,209,0.2)',
+  accentBorder: 'rgba(0,206,209,0.3)',
+  accentBadgeBg: 'rgba(0,206,209,0.15)',
+  bg: '#0b1426',
+  headerBg: 'linear-gradient(160deg, #0f1f35 0%, #0b1426 100%)',
+  border: 'rgba(255,255,255,0.07)',
+  section: '#718096',
+  sectionActive: '#00ced1',
+  nav: '#cbd5e1',
+  navActive: '#00ced1',
+  navHover: '#f1f5f9',
+  muted: '#718096',
+  name: '#ffffff',
+  role: '#00ced1',
+  signOut: 'rgba(255,255,255,0.35)',
+  itemHoverBg: 'rgba(255,255,255,0.05)',
+  badgeText: '#cbd5e1',
+  badgeBg: 'rgba(113,128,150,0.18)',
+};
+
+/** Always returns navy/teal tokens so sidebars stay consistent across app themes */
+export function sidebarTheme(_dark) {
+  return { ...NAVY_SIDEBAR };
 }

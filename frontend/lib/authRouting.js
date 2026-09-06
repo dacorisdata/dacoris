@@ -22,6 +22,31 @@ export function getDashboardRoute(user) {
   return '/onboarding';
 }
 
+/** Profile page route for roles that have one; otherwise null. */
+export function getProfileRoute(user) {
+  if (!user) return null;
+  const type = user.primary_account_type;
+  if (
+    type === 'RESEARCHER'
+    || type === 'POSTGRADUATE_STUDENT'
+    || type === 'SUPERVISOR'
+    || type === 'EXTERNAL_SUPERVISOR'
+  ) {
+    return '/researcher/profile';
+  }
+  if ([
+    'ADMIN_STAFF', 'GRANT_MANAGER', 'FINANCE_OFFICER', 'ETHICS_COMMITTEE_MEMBER',
+    'DATA_STEWARD', 'DATA_ENGINEER', 'INSTITUTIONAL_LEADERSHIP',
+    'DVC_RESEARCH', 'DIRECTOR_RESEARCH', 'RESEARCH_ADMINISTRATOR', 'LIBRARIAN',
+    'MOU_ADMIN', 'LEGAL_OFFICER', 'PARTNERSHIP_COORDINATOR',
+    'GUEST_COLLABORATOR', 'EXTERNAL_FUNDER',
+    'PG_COORDINATOR', 'HEAD_OF_PG_STUDIES',
+  ].includes(type)) {
+    return '/admin-staff/profile';
+  }
+  return null;
+}
+
 export function isReviewerUser(user) {
   return user?.primary_account_type === 'EXTERNAL_REVIEWER';
 }

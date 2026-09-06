@@ -7,7 +7,7 @@ import {
 } from '@mui/material';
 import {
   LightMode, DarkMode, Dashboard as DashboardIcon, ExitToApp as LogoutIcon, Language as LanguageIcon, Check as CheckIcon,
-  Menu as MenuIcon, Close as CloseIcon,
+  Menu as MenuIcon, Close as CloseIcon, Person as PersonIcon,
 } from '@mui/icons-material';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -16,7 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import NotificationBell from './notifications/NotificationBell';
-import { getDashboardRoute } from '../lib/authRouting';
+import { getDashboardRoute, getProfileRoute } from '../lib/authRouting';
 import { isDemoAccount, DEMO_ROLES, getActiveDemoRole } from '../lib/demoRoles';
 
 export default function Navbar() {
@@ -72,6 +72,7 @@ export default function Navbar() {
   };
 
   const getDashboardLink = () => getDashboardRoute(user);
+  const profileLink = getProfileRoute(user);
 
   return (
     <AppBar position="static">
@@ -84,11 +85,13 @@ export default function Navbar() {
           </Link>
         </Box>
 
-        {/* Nav links (desktop) */}
-        <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 0.5 }}>
-          <Button color="inherit" component={Link} href="/">{t('navbar.home')}</Button>
-          <Button color="inherit" component={Link} href="/about">{t('navbar.about')}</Button>
-        </Box>
+        {/* Nav links (desktop) — marketing links only when logged out */}
+        {!loading && !user && (
+          <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 0.5 }}>
+            <Button color="inherit" component={Link} href="/">{t('navbar.home')}</Button>
+            <Button color="inherit" component={Link} href="/about">{t('navbar.about')}</Button>
+          </Box>
+        )}
 
         {/* Language selector (desktop) */}
         <Tooltip title={t('navbar.language')}>
@@ -144,16 +147,6 @@ export default function Navbar() {
           <>
             {/* Notification Bell */}
             <NotificationBell />
-
-            <Button
-              color="inherit"
-              startIcon={<DashboardIcon />}
-              component={Link}
-              href={getDashboardLink()}
-              sx={{ display: { xs: 'none', md: 'inline-flex' } }}
-            >
-              {t('navbar.dashboard')}
-            </Button>
 
             <IconButton onClick={handleMenuOpen} sx={{ ml: 0.5 }}>
               <Avatar
@@ -358,6 +351,23 @@ export default function Navbar() {
                     {t('navbar.dashboard')}
                   </Typography>
                 </MenuItem>
+                {profileLink && (
+                  <MenuItem
+                    onClick={() => { handleMenuClose(); router.push(profileLink); }}
+                    sx={{
+                      px: 2.5,
+                      py: 1.25,
+                      '&:hover': {
+                        bgcolor: 'action.hover',
+                      },
+                    }}
+                  >
+                    <PersonIcon sx={{ mr: 1.5, fontSize: 20, color: 'text.secondary' }} />
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {t('navbar.profile')}
+                    </Typography>
+                  </MenuItem>
+                )}
                 <MenuItem
                   onClick={handleLogout}
                   sx={{
@@ -413,20 +423,23 @@ export default function Navbar() {
         </Box>
         <Divider />
 
-        <List>
-          <ListItem disablePadding>
-            <ListItemButton component={Link} href="/" onClick={handleMobileDrawerClose}>
-              <ListItemText primary={t('navbar.home')} />
-            </ListItemButton>
-          </ListItem>
-          <ListItem disablePadding>
-            <ListItemButton component={Link} href="/about" onClick={handleMobileDrawerClose}>
-              <ListItemText primary={t('navbar.about')} />
-            </ListItemButton>
-          </ListItem>
-        </List>
-
-        <Divider />
+        {!loading && !user && (
+          <>
+            <List>
+              <ListItem disablePadding>
+                <ListItemButton component={Link} href="/" onClick={handleMobileDrawerClose}>
+                  <ListItemText primary={t('navbar.home')} />
+                </ListItemButton>
+              </ListItem>
+              <ListItem disablePadding>
+                <ListItemButton component={Link} href="/about" onClick={handleMobileDrawerClose}>
+                  <ListItemText primary={t('navbar.about')} />
+                </ListItemButton>
+              </ListItem>
+            </List>
+            <Divider />
+          </>
+        )}
 
         <Typography
           variant="caption"
