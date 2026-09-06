@@ -119,7 +119,7 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    section: 'Project Management',
+    section: 'Projects Management',
     roles: ['INSTITUTIONAL_LEADERSHIP','DATA_STEWARD','ETHICS_COMMITTEE_MEMBER','ADMIN_STAFF','GRANT_MANAGER'],
     items: [
       { icon: ProjectReviewIcon, label: 'Project Review',       path: '/admin-staff/research/projects/review', roles: ['INSTITUTIONAL_LEADERSHIP','ADMIN_STAFF','GRANT_MANAGER'] },
@@ -148,7 +148,7 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    section: 'MoU Management',
+    section: 'Partnerships and Collaborations',
     roles: ['MOU_ADMIN','LEGAL_OFFICER','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER','ADMIN_STAFF'],
     items: [
       { icon: MouIcon,           label: 'MoU Overview',         path: '/admin-staff/mou',                      roles: ['MOU_ADMIN','LEGAL_OFFICER','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER','ADMIN_STAFF'] },
