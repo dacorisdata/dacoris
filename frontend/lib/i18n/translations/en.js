@@ -1140,7 +1140,7 @@ const en = {
         main: 'Main',
         grants: 'Grant Discovery and Management',
         projectsManagement: 'Projects Management',
-        scientificWriting: 'Scientific Writing',
+        scientificWriting: 'Research Writing Management',
         data: 'Data Management',
         training: 'Capacity Building',
         postgraduate: 'Postgraduate Supervision',

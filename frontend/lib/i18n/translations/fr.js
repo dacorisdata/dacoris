@@ -1122,7 +1122,7 @@ const fr = {
         main: 'Principal',
         grants: 'Découverte et gestion des subventions',
         projectsManagement: 'Gestion des projets',
-        scientificWriting: 'Rédaction scientifique',
+        scientificWriting: 'Gestion de la rédaction de recherche',
         data: 'Gestion des Données',
         training: 'Renforcement des capacités',
         postgraduate: 'Supervision des études de troisième cycle',

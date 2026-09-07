@@ -1124,7 +1124,7 @@ const ar = {
         main: 'الرئيسية',
         grants: 'اكتشاف وإدارة المنح',
         projectsManagement: 'إدارة المشاريع',
-        scientificWriting: 'الكتابة العلمية',
+        scientificWriting: 'إدارة الكتابة البحثية',
         data: 'إدارة البيانات',
         training: 'بناء القدرات',
         postgraduate: 'الإشراف على الدراسات العليا',

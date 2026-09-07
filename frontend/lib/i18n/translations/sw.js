@@ -991,7 +991,7 @@ const sw = {
         main: 'Kuu',
         grants: 'Ugunduzi na Usimamizi wa Ruzuku',
         projectsManagement: 'Usimamizi wa Miradi',
-        scientificWriting: 'Uandishi wa Kisayansi',
+        scientificWriting: 'Usimamizi wa Uandishi wa Utafiti',
         data: 'Usimamizi wa Data',
         training: 'Ujenzi wa Uwezo',
         postgraduate: 'Usimamizi wa Uzamili',
