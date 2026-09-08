@@ -24,8 +24,8 @@ const sw = {
     switchRole: 'Badilisha Jukumu',
     demoRoles: {
       researcher: 'Mtafiti',
-      researchManager: 'Meneja wa Utafiti',
-      supervisor: 'Msimamizi',
+      directorResearch: 'Wafanyakazi wa Utawala (Mkurugenzi wa Utafiti)',
+      supervisor: 'Wafanyakazi wa Utawala (Msimamizi)',
       reviewer: 'Mkaguzi',
     },
   },

@@ -26,8 +26,8 @@ const ar = {
     switchRole: 'تبديل الدور',
     demoRoles: {
       researcher: 'باحث',
-      researchManager: 'مدير البحث',
-      supervisor: 'مشرف',
+      directorResearch: 'موظف إداري (مدير البحث)',
+      supervisor: 'موظف إداري (مشرف)',
       reviewer: 'مُقيّم',
     },
   },

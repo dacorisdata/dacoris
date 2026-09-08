@@ -24,8 +24,8 @@ const en = {
     switchRole: 'Switch Role',
     demoRoles: {
       researcher: 'Researcher',
-      researchManager: 'Research Manager',
-      supervisor: 'Supervisor',
+      directorResearch: 'Admin Staff (Director Research)',
+      supervisor: 'Admin Staff (Supervisor)',
       reviewer: 'Reviewer',
     },
   },

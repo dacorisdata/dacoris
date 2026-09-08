@@ -17,6 +17,7 @@ import sys
 sys.path.append('..')
 from services.institution_types import institution_types_as_strings
 from services.file_upload import get_file_path
+from account_types import get_default_roles
 from auth import (
     verify_password,
     get_password_hash,
@@ -42,13 +43,27 @@ ORCID_AUTHORIZE_URL = "https://sandbox.orcid.org/oauth/authorize" if ORCID_SANDB
 ORCID_TOKEN_URL = "https://sandbox.orcid.org/oauth/token" if ORCID_SANDBOX_MODE else "https://orcid.org/oauth/token"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-DEMO_ACCOUNT_EMAIL = "demo@dacoris.com"
+DEMO_ACCOUNT_EMAILS = {"demo@kibu.ac.ke", "demo@dacoris.com"}
 DEMO_ROLE_MAP = {
     "RESEARCHER": (PrimaryAccountType.RESEARCHER, "Researcher"),
-    "RESEARCH_MANAGER": (PrimaryAccountType.GRANT_MANAGER, "Research Manager"),
+    "DIRECTOR_RESEARCH": (PrimaryAccountType.DIRECTOR_RESEARCH, "Director of Research"),
     "SUPERVISOR": (PrimaryAccountType.SUPERVISOR, "Supervisor"),
     "REVIEWER": (PrimaryAccountType.EXTERNAL_REVIEWER, "Reviewer"),
+    # Legacy id from the previous demo switcher
+    "RESEARCH_MANAGER": (PrimaryAccountType.DIRECTOR_RESEARCH, "Director of Research"),
 }
+
+
+def _is_demo_account(email: Optional[str]) -> bool:
+    return (email or "").lower() in DEMO_ACCOUNT_EMAILS
+
+
+async def _replace_demo_user_roles(db: AsyncSession, user_id: str, primary_type: PrimaryAccountType) -> None:
+    await db.execute(user_roles.delete().where(user_roles.c.user_id == user_id))
+    for role in get_default_roles(primary_type):
+        await db.execute(
+            user_roles.insert().values(user_id=user_id, role=role, assigned_by=None)
+        )
 
 
 def _build_user_response(user_with_institution: User, roles: Optional[List[str]] = None) -> dict:
@@ -365,8 +380,8 @@ async def switch_demo_role(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Switch active role for the demo account only."""
-    if current_user.email.lower() != DEMO_ACCOUNT_EMAIL:
+    """Switch active role for allowlisted demo accounts only."""
+    if not _is_demo_account(current_user.email):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Role switching is only available for the demo account",
@@ -374,14 +389,16 @@ async def switch_demo_role(
 
     role_key = payload.role.upper()
     if role_key not in DEMO_ROLE_MAP:
+        allowed = [k for k in DEMO_ROLE_MAP.keys() if k != "RESEARCH_MANAGER"]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid role. Allowed: {', '.join(DEMO_ROLE_MAP.keys())}",
+            detail=f"Invalid role. Allowed: {', '.join(allowed)}",
         )
 
     primary_type, job_title = DEMO_ROLE_MAP[role_key]
     current_user.primary_account_type = primary_type
     current_user.job_title = job_title
+    await _replace_demo_user_roles(db, current_user.id, primary_type)
     await db.commit()
 
     result = await db.execute(

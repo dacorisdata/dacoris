@@ -24,8 +24,8 @@ const fr = {
     switchRole: 'Changer de rôle',
     demoRoles: {
       researcher: 'Chercheur',
-      researchManager: 'Gestionnaire de recherche',
-      supervisor: 'Superviseur',
+      directorResearch: 'Personnel administratif (Directeur de la recherche)',
+      supervisor: 'Personnel administratif (Superviseur)',
       reviewer: 'Évaluateur',
     },
   },

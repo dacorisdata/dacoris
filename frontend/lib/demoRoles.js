@@ -1,7 +1,12 @@
-/** Demo account role switching — demo@dacoris.com only */
+/** Demo account role switching — allowlisted emails only */
 
-export const DEMO_ACCOUNT_EMAIL = 'demo@dacoris.com';
+export const DEMO_ACCOUNT_EMAIL = 'demo@kibu.ac.ke';
+export const DEMO_ACCOUNT_EMAILS = ['demo@kibu.ac.ke', 'demo@dacoris.com'];
 export const DEMO_ORCID_ID = '0009-0001-0000-0001';
+
+const LEGACY_ROLE_IDS = {
+  RESEARCH_MANAGER: 'DIRECTOR_RESEARCH',
+};
 
 export const DEMO_ROLES = [
   {
@@ -12,10 +17,10 @@ export const DEMO_ROLES = [
     dashboardRoute: '/researcher/overview',
   },
   {
-    id: 'RESEARCH_MANAGER',
-    labelKey: 'navbar.demoRoles.researchManager',
-    primaryAccountType: 'GRANT_MANAGER',
-    jobTitle: 'Research Manager',
+    id: 'DIRECTOR_RESEARCH',
+    labelKey: 'navbar.demoRoles.directorResearch',
+    primaryAccountType: 'DIRECTOR_RESEARCH',
+    jobTitle: 'Director of Research',
     dashboardRoute: '/admin-staff/overview',
   },
   {
@@ -35,11 +40,12 @@ export const DEMO_ROLES = [
 ];
 
 export function isDemoAccount(user) {
-  return user?.email?.toLowerCase() === DEMO_ACCOUNT_EMAIL;
+  return DEMO_ACCOUNT_EMAILS.includes(user?.email?.toLowerCase());
 }
 
 export function getDemoRoleById(roleId) {
-  return DEMO_ROLES.find((r) => r.id === roleId) || null;
+  const id = LEGACY_ROLE_IDS[roleId] || roleId;
+  return DEMO_ROLES.find((r) => r.id === id) || null;
 }
 
 export function getDemoRoleByAccountType(primaryAccountType) {

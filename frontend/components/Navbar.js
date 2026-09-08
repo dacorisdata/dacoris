@@ -62,7 +62,7 @@ export default function Navbar() {
       await switchDemoRole(roleId);
       handleMenuClose();
       if (role?.dashboardRoute) {
-        router.push(role.dashboardRoute);
+        window.location.href = role.dashboardRoute;
       }
     } catch (err) {
       console.error('Failed to switch demo role:', err);

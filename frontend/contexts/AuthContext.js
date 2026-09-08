@@ -146,9 +146,10 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      const response = await authAPI.switchDemoRole(storedRoleId);
+      const response = await authAPI.switchDemoRole(storedRole.id);
       const updated = response.data;
       persistUser(updated);
+      localStorage.setItem(DEMO_ROLE_STORAGE_KEY, storedRole.id);
       return updated;
     } catch (error) {
       console.error('Failed to restore demo role:', error);
@@ -239,10 +240,10 @@ export function AuthProvider({ children }) {
     const role = getDemoRoleById(roleId);
     if (!role) throw new Error('Invalid demo role');
 
-    const response = await authAPI.switchDemoRole(roleId);
+    const response = await authAPI.switchDemoRole(role.id);
     const userData = response.data;
     persistUser(userData);
-    localStorage.setItem(DEMO_ROLE_STORAGE_KEY, roleId);
+    localStorage.setItem(DEMO_ROLE_STORAGE_KEY, role.id);
     return userData;
   };
 
