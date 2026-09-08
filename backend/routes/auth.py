@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, EmailStr
 from datetime import timedelta, datetime
 import httpx
+import mimetypes
 import os
 
 from database import get_db
@@ -15,6 +16,7 @@ from typing import Optional, List
 import sys
 sys.path.append('..')
 from services.institution_types import institution_types_as_strings
+from services.file_upload import get_file_path
 from auth import (
     verify_password,
     get_password_hash,
@@ -29,6 +31,8 @@ from auth import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
+
+INSTITUTION_LOGO_SUBFOLDER = "institution_logos"
 
 ORCID_CLIENT_ID = os.getenv("ORCID_CLIENT_ID")
 ORCID_CLIENT_SECRET = os.getenv("ORCID_CLIENT_SECRET")
@@ -72,6 +76,10 @@ def _build_user_response(user_with_institution: User, roles: Optional[List[str]]
         "primary_institution_id": user_with_institution.primary_institution_id,
         "institution_name": user_with_institution.institution.name if user_with_institution.institution else None,
         "institution_types": institution_types,
+        "institution_has_logo": bool(
+            user_with_institution.institution
+            and user_with_institution.institution.logo_filename
+        ),
         "staff_id": user_with_institution.staff_id,
     }
 
@@ -108,6 +116,7 @@ class UserResponse(BaseModel):
     primary_institution_id: str | None = None
     institution_name: str | None = None
     institution_types: List[str] = []
+    institution_has_logo: bool = False
     staff_id: str | None = None
 
     class Config:
@@ -310,6 +319,44 @@ async def get_current_user_info(
     user_with_institution = result.scalar_one()
     roles = await _fetch_user_roles(db, user_with_institution.id)
     return _build_user_response(user_with_institution, roles)
+
+
+@router.get("/me/institution-logo")
+async def get_my_institution_logo(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve the current user's institution logo for branding in portals."""
+    if not current_user.primary_institution_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No institution associated with this account",
+        )
+
+    result = await db.execute(
+        select(Institution).where(Institution.id == current_user.primary_institution_id)
+    )
+    institution = result.scalar_one_or_none()
+    if not institution or not institution.logo_filename:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No logo uploaded",
+        )
+
+    path = get_file_path(institution.logo_filename, INSTITUTION_LOGO_SUBFOLDER)
+    if not os.path.exists(path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Logo file not found on disk",
+        )
+
+    media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return FileResponse(
+        path=path,
+        media_type=media_type,
+        filename=institution.logo_filename,
+        content_disposition_type="inline",
+    )
 
 
 @router.post("/demo/switch-role", response_model=UserResponse)

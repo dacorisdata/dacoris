@@ -1,15 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import mimetypes
+import os
+import re
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional
 from datetime import datetime
 
 from database import get_db
 from models import User, Institution, AccountType, UserStatus, ResearchRole, PrimaryAccountType, user_roles
-from account_types import get_default_roles
+from account_types import get_default_roles, requires_orcid
 from services.research_roles import parse_research_role, research_role_db_label
-from auth import require_institution_admin
+from auth import require_institution_admin, get_password_hash
 from services.institution_types import institution_types_as_strings, sync_institution_types
 from services.departments import (
     department_to_dict,
@@ -22,8 +27,100 @@ from services.institution_domains import (
     get_institution_email_domains,
     ensure_user_in_institution,
     user_email_domain_filter,
+    email_belongs_to_institution,
 )
+from services.file_upload import get_file_path, save_upload
 from sqlalchemy.orm import selectinload
+
+LOGO_UPLOAD_SUBFOLDER = "institution_logos"
+ALLOWED_LOGO_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+ALLOWED_LOGO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+MAX_LOGO_SIZE_BYTES = 2 * 1024 * 1024
+ORCID_ID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
+
+
+def _normalize_orcid_id(orcid_id: Optional[str]) -> Optional[str]:
+    if orcid_id is None:
+        return None
+    value = orcid_id.strip()
+    if not value:
+        return None
+    value = re.sub(r"^https?://orcid\.org/", "", value, flags=re.IGNORECASE).strip().strip("/")
+    if not ORCID_ID_PATTERN.match(value):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ORCID iD must look like 0000-0000-0000-0000",
+        )
+    return value
+
+
+async def _ensure_orcid_available(db: AsyncSession, orcid_id: Optional[str], exclude_user_id: Optional[str] = None) -> None:
+    if not orcid_id:
+        return
+    result = await db.execute(select(User).where(User.orcid_id == orcid_id))
+    existing = result.scalar_one_or_none()
+    if existing and existing.id != exclude_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this ORCID iD already exists",
+        )
+
+
+async def _assign_user_roles(
+    db: AsyncSession,
+    user: User,
+    roles: Optional[List[str]],
+    primary_account_type: Optional[str],
+    assigned_by: str,
+) -> List[str]:
+    roles_to_assign = list(roles or [])
+    if primary_account_type and not roles_to_assign:
+        try:
+            account_type = PrimaryAccountType(primary_account_type)
+            roles_to_assign = [r.value for r in get_default_roles(account_type)]
+        except ValueError:
+            pass
+
+    normalized_roles: List[str] = []
+    for role_str in roles_to_assign:
+        if not role_str:
+            continue
+        try:
+            PrimaryAccountType(role_str)
+            continue
+        except ValueError:
+            pass
+        try:
+            role = parse_research_role(role_str)
+            normalized_roles.append(research_role_db_label(role))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid role: {role_str}",
+            )
+    roles_to_assign = list(dict.fromkeys(normalized_roles))
+
+    await db.execute(user_roles.delete().where(user_roles.c.user_id == user.id))
+    for role_value in roles_to_assign:
+        await db.execute(
+            user_roles.insert().values(
+                user_id=user.id,
+                role=role_value,
+                assigned_by=assigned_by,
+            )
+        )
+
+    if primary_account_type:
+        try:
+            user.primary_account_type = PrimaryAccountType(primary_account_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid primary_account_type: {primary_account_type}",
+            )
+
+    return roles_to_assign
+
 
 router = APIRouter(prefix="/api/institution-admin", tags=["institution-admin"])
 
@@ -33,6 +130,22 @@ class UserApproval(BaseModel):
 class RoleAssignment(BaseModel):
     roles: List[str]
     primary_account_type: Optional[str] = None
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    name: str
+    password: str = Field(min_length=8)
+    primary_account_type: str
+    roles: Optional[List[str]] = None
+    orcid_id: Optional[str] = None
+    department: Optional[str] = None
+    job_title: Optional[str] = None
+
+class PasswordResetRequest(BaseModel):
+    new_password: str = Field(min_length=8)
+
+class OrcidUpdateRequest(BaseModel):
+    orcid_id: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
@@ -47,6 +160,8 @@ class UserResponse(BaseModel):
     department: Optional[str] = None
     job_title: Optional[str] = None
     roles: Optional[List[str]] = None
+    is_global_admin: Optional[bool] = False
+    is_institution_admin: Optional[bool] = False
     
     class Config:
         from_attributes = True
@@ -139,9 +254,96 @@ async def list_institution_users(
             "primary_account_type": u.primary_account_type.value if u.primary_account_type else None,
             "department": u.department, "job_title": u.job_title,
             "roles": role_list,
+            "is_global_admin": bool(u.is_global_admin),
+            "is_institution_admin": bool(u.is_institution_admin),
         }
         enriched.append(user_dict)
     return enriched
+
+@router.post("/users", response_model=UserResponse)
+async def create_institution_user(
+    payload: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    """Create a user account for the institution admin's institution."""
+    institution = await get_admin_institution(db, current_user)
+    email = payload.email.lower().strip()
+
+    if not email_belongs_to_institution(email, institution):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email domain must match this institution's domains",
+        )
+
+    try:
+        primary_type = PrimaryAccountType(payload.primary_account_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid primary_account_type: {payload.primary_account_type}",
+        )
+
+    orcid_id = _normalize_orcid_id(payload.orcid_id)
+
+    result = await db.execute(
+        select(User).where(
+            User.email == email,
+            User.primary_institution_id == institution.id,
+        )
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this email already exists for this institution",
+        )
+
+    await _ensure_orcid_available(db, orcid_id)
+
+    new_user = User(
+        email=email,
+        name=payload.name.strip(),
+        password_hash=get_password_hash(payload.password),
+        account_type=AccountType.ORCID if orcid_id else AccountType.INSTITUTION_ADMIN,
+        status=UserStatus.ACTIVE,
+        email_verified=True,
+        orcid_id=orcid_id,
+        primary_institution_id=institution.id,
+        primary_account_type=primary_type,
+        department=payload.department.strip() if payload.department else None,
+        job_title=payload.job_title.strip() if payload.job_title else None,
+        is_institution_admin=False,
+        is_global_admin=False,
+    )
+    db.add(new_user)
+    await db.flush()
+
+    role_list = await _assign_user_roles(
+        db,
+        new_user,
+        payload.roles,
+        payload.primary_account_type,
+        current_user.id,
+    )
+    await db.commit()
+    await db.refresh(new_user)
+
+    return {
+        "id": new_user.id,
+        "email": new_user.email,
+        "name": new_user.name,
+        "account_type": new_user.account_type.value,
+        "status": new_user.status.value,
+        "orcid_id": new_user.orcid_id,
+        "created_at": new_user.created_at,
+        "last_login": new_user.last_login,
+        "primary_account_type": new_user.primary_account_type.value if new_user.primary_account_type else None,
+        "department": new_user.department,
+        "job_title": new_user.job_title,
+        "roles": role_list,
+        "is_global_admin": False,
+        "is_institution_admin": False,
+    }
 
 @router.get("/users/pending", response_model=List[UserResponse])
 async def list_pending_users(
@@ -435,6 +637,68 @@ async def activate_user(
     
     return {"message": "User activated successfully", "status": "active"}
 
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    payload: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    """Set a new password for a user in this institution."""
+    institution = await get_admin_institution(db, current_user)
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    ensure_user_in_institution(user, institution)
+
+    if user.is_global_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot reset password for global admin accounts",
+        )
+
+    user.password_hash = get_password_hash(payload.new_password)
+    await db.commit()
+    return {"message": "Password updated successfully"}
+
+
+@router.put("/users/{user_id}/orcid")
+async def update_user_orcid(
+    user_id: str,
+    payload: OrcidUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    """Add or update ORCID iD for a researcher (or ORCID-required account)."""
+    institution = await get_admin_institution(db, current_user)
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    ensure_user_in_institution(user, institution)
+
+    primary = user.primary_account_type
+    if primary != PrimaryAccountType.RESEARCHER and not (primary and requires_orcid(primary)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ORCID can only be set for researcher (or ORCID-required) accounts",
+        )
+
+    orcid_id = _normalize_orcid_id(payload.orcid_id)
+    await _ensure_orcid_available(db, orcid_id, exclude_user_id=user.id)
+
+    user.orcid_id = orcid_id
+    if orcid_id and user.account_type == AccountType.INSTITUTION_ADMIN and not user.is_institution_admin:
+        user.account_type = AccountType.ORCID
+
+    await db.commit()
+    return {"message": "ORCID updated successfully", "orcid_id": orcid_id}
+
+
 @router.get("/roles")
 async def list_roles(
     db: AsyncSession = Depends(get_db),
@@ -532,7 +796,8 @@ async def get_institution_settings(
         "auto_approve": institution.auto_approve,
         "orcid_client_id": institution.orcid_client_id,
         "orcid_redirect_uri": institution.orcid_redirect_uri,
-        "is_active": institution.is_active
+        "is_active": institution.is_active,
+        "has_logo": bool(institution.logo_filename),
     }
 
 @router.put("/settings")
@@ -584,6 +849,111 @@ async def update_institution_settings(
     await db.commit()
     
     return {"message": "Settings updated successfully"}
+
+
+def _validate_logo_file(file: UploadFile) -> None:
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    content_type = (file.content_type or "").lower()
+    if content_type and content_type not in ALLOWED_LOGO_TYPES and ext not in ALLOWED_LOGO_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Logo must be a JPEG, PNG, GIF, or WebP image",
+        )
+    if not content_type and ext not in ALLOWED_LOGO_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Logo must be a JPEG, PNG, GIF, or WebP image",
+        )
+
+
+def _remove_logo_file(stored_filename: Optional[str]) -> None:
+    if not stored_filename:
+        return
+    path = get_file_path(stored_filename, LOGO_UPLOAD_SUBFOLDER)
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+@router.post("/settings/logo")
+async def upload_institution_logo(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    """Upload or replace the institution logo"""
+    institution = await get_admin_institution(db, current_user)
+    _validate_logo_file(file)
+
+    old_filename = institution.logo_filename
+    file_info = await save_upload(file, subfolder=LOGO_UPLOAD_SUBFOLDER)
+    if file_info["file_size_bytes"] > MAX_LOGO_SIZE_BYTES:
+        _remove_logo_file(file_info["stored_filename"])
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Logo must be 2MB or smaller",
+        )
+
+    institution.logo_filename = file_info["stored_filename"]
+    await db.commit()
+
+    if old_filename and old_filename != institution.logo_filename:
+        _remove_logo_file(old_filename)
+
+    return {"message": "Logo updated successfully", "has_logo": True}
+
+
+@router.get("/settings/logo")
+async def get_institution_logo(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    """Serve the institution logo for preview"""
+    institution = await get_admin_institution(db, current_user)
+    if not institution.logo_filename:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No logo uploaded",
+        )
+
+    path = get_file_path(institution.logo_filename, LOGO_UPLOAD_SUBFOLDER)
+    if not os.path.exists(path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Logo file not found on disk",
+        )
+
+    media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return FileResponse(
+        path=path,
+        media_type=media_type,
+        filename=institution.logo_filename,
+        content_disposition_type="inline",
+    )
+
+
+@router.delete("/settings/logo")
+async def delete_institution_logo(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_institution_admin),
+):
+    """Remove the institution logo"""
+    institution = await get_admin_institution(db, current_user)
+    if not institution.logo_filename:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No logo uploaded",
+        )
+
+    old_filename = institution.logo_filename
+    institution.logo_filename = None
+    await db.commit()
+    _remove_logo_file(old_filename)
+
+    return {"message": "Logo removed successfully", "has_logo": False}
+
 
 @router.get("/analytics", response_model=InstitutionStats)
 async def get_institution_analytics(

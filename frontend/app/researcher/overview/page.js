@@ -35,6 +35,7 @@ import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useLanguage } from '../../../contexts/LanguageContext';
 import { isSupervisorAccount } from '../../../lib/institutionTypes';
+import InstitutionBrand from '../../../components/InstitutionBrand';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '/api';
 const ACCENT = '#1ca7a1';
@@ -525,6 +526,14 @@ export default function ResearcherOverview() {
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3.5, gap: 2, flexWrap: 'wrap' }}>
         <Box>
+          <InstitutionBrand
+            variant="page"
+            accent={ACCENT}
+            accentBg="rgba(28, 167, 161, 0.1)"
+            accentBorder="rgba(28, 167, 161, 0.28)"
+            nameOverride={institutionName}
+            sx={{ mb: 1.25 }}
+          />
           <Typography sx={{ color: ACCENT, fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', mb: 1 }}>
             {t('researcher.overview.headerBadge', { date: todayLabel, institution: institutionName })}
           </Typography>

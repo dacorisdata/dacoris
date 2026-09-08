@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import api, { authAPI } from '../lib/api';
 import { isDemoAccount, getDemoRoleById, getDemoRoleByAccountType } from '../lib/demoRoles';
+import { clearInstitutionLogoCache } from '../hooks/useInstitutionLogo';
 
 const AuthContext = createContext(null);
 const DEMO_ROLE_STORAGE_KEY = 'demoActiveRole';
@@ -222,6 +223,7 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     clearRefreshTimer();
+    clearInstitutionLogoCache();
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('tokenExpiry');

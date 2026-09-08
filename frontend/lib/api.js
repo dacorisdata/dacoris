@@ -132,6 +132,9 @@ export const authAPI = {
   
   getCurrentUser: () => api.get('/auth/me'),
 
+  getInstitutionLogo: () =>
+    api.get('/auth/me/institution-logo', { responseType: 'blob' }),
+
   refreshToken: (refreshToken) =>
     api.post('/auth/refresh', { refresh_token: refreshToken }),
 
@@ -187,10 +190,15 @@ export const institutionAdminAPI = {
   listUsers: (skip = 0, limit = 100) => 
     api.get('/institution-admin/users', { params: { skip, limit } }),
   listPendingUsers: () => api.get('/institution-admin/users/pending'),
-  approveUser: (userId) => 
-    api.post(`/institution-admin/users/${userId}/approve`),
-  rejectUser: (userId) => 
+  approveUser: (userId, data = { status: 'active' }) =>
+    api.post(`/institution-admin/users/${userId}/approve`, data),
+  rejectUser: (userId) =>
     api.post(`/institution-admin/users/${userId}/reject`),
+  createUser: (data) => api.post('/institution-admin/users', data),
+  resetUserPassword: (userId, newPassword) =>
+    api.post(`/institution-admin/users/${userId}/reset-password`, { new_password: newPassword }),
+  updateUserOrcid: (userId, orcidId) =>
+    api.put(`/institution-admin/users/${userId}/orcid`, { orcid_id: orcidId || null }),
   deleteUser: (userId) => 
     api.delete(`/institution-admin/users/${userId}`),
   suspendUser: (userId) => 
@@ -204,6 +212,16 @@ export const institutionAdminAPI = {
   createRole: (data) => api.post('/institution-admin/roles', data),
   getInstitutionSettings: () => api.get('/institution-admin/settings'),
   updateInstitutionSettings: (data) => api.put('/institution-admin/settings', data),
+  uploadInstitutionLogo: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post('/institution-admin/settings/logo', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  getInstitutionLogo: () =>
+    api.get('/institution-admin/settings/logo', { responseType: 'blob' }),
+  deleteInstitutionLogo: () => api.delete('/institution-admin/settings/logo'),
   getDepartments: () => api.get('/institution-admin/departments'),
   createDepartment: (data) => api.post('/institution-admin/departments', data),
   updateDepartment: (id, data) => api.put(`/institution-admin/departments/${id}`, data),

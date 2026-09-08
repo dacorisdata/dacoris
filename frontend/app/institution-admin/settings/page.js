@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Box,
@@ -15,20 +15,29 @@ import {
   Chip,
   useTheme,
 } from '@mui/material';
-import { Save as SaveIcon } from '@mui/icons-material';
+import {
+  Save as SaveIcon,
+  CloudUpload as CloudUploadIcon,
+  DeleteOutline as DeleteOutlineIcon,
+} from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import { institutionAdminAPI } from '../../../lib/api';
 import { INSTITUTION_TYPES } from '../../../lib/institutionTypes';
+import { clearInstitutionLogoCache } from '../../../hooks/useInstitutionLogo';
 
 export default function InstitutionAdminSettingsPage() {
   const router = useRouter();
   const { fetchUser } = useAuth();
   const theme = useTheme();
-  
+  const fileInputRef = useRef(null);
+  const logoPreviewUrlRef = useRef(null);
+
   const [institution, setInstitution] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState(null);
+  const [logoUploading, setLogoUploading] = useState(false);
   const [settingsForm, setSettingsForm] = useState({
     name: '',
     domain: '',
@@ -39,6 +48,11 @@ export default function InstitutionAdminSettingsPage() {
 
   useEffect(() => {
     checkAuth();
+    return () => {
+      if (logoPreviewUrlRef.current) {
+        URL.revokeObjectURL(logoPreviewUrlRef.current);
+      }
+    };
   }, []);
 
   const checkAuth = async () => {
@@ -58,6 +72,27 @@ export default function InstitutionAdminSettingsPage() {
     loadData();
   };
 
+  const clearLogoPreview = () => {
+    if (logoPreviewUrlRef.current) {
+      URL.revokeObjectURL(logoPreviewUrlRef.current);
+      logoPreviewUrlRef.current = null;
+    }
+    setLogoPreviewUrl(null);
+  };
+
+  const loadLogoPreview = async (hasLogo) => {
+    clearLogoPreview();
+    if (!hasLogo) return;
+    try {
+      const response = await institutionAdminAPI.getInstitutionLogo();
+      const url = URL.createObjectURL(response.data);
+      logoPreviewUrlRef.current = url;
+      setLogoPreviewUrl(url);
+    } catch {
+      clearLogoPreview();
+    }
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -70,6 +105,7 @@ export default function InstitutionAdminSettingsPage() {
         institution_types: response.data.institution_types || [],
         auto_approve: response.data.auto_approve || false,
       });
+      await loadLogoPreview(Boolean(response.data.has_logo));
       setLoading(false);
     } catch (err) {
       setError('Failed to load institution settings');
@@ -84,6 +120,53 @@ export default function InstitutionAdminSettingsPage() {
       loadData();
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to update settings');
+    }
+  };
+
+  const handleLogoSelect = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file (JPEG, PNG, GIF, or WebP)');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Logo must be 2MB or smaller');
+      return;
+    }
+
+    setLogoUploading(true);
+    setError('');
+    try {
+      await institutionAdminAPI.uploadInstitutionLogo(file);
+      clearInstitutionLogoCache();
+      await fetchUser();
+      setSuccess('Logo updated successfully');
+      setInstitution((prev) => (prev ? { ...prev, has_logo: true } : prev));
+      await loadLogoPreview(true);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to upload logo');
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    setLogoUploading(true);
+    setError('');
+    try {
+      await institutionAdminAPI.deleteInstitutionLogo();
+      clearInstitutionLogoCache();
+      await fetchUser();
+      setSuccess('Logo removed successfully');
+      setInstitution((prev) => (prev ? { ...prev, has_logo: false } : prev));
+      await loadLogoPreview(false);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to remove logo');
+    } finally {
+      setLogoUploading(false);
     }
   };
 
@@ -135,6 +218,83 @@ export default function InstitutionAdminSettingsPage() {
             onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
             sx={{ mb: 3 }}
           />
+
+          <Box sx={{ mb: 3 }}>
+            <Typography sx={{ color: theme.palette.text.primary, fontSize: 14, fontWeight: 600, mb: 1 }}>
+              Institution Logo
+            </Typography>
+            <Typography sx={{ color: theme.palette.text.secondary, fontSize: 12, mb: 2 }}>
+              Upload a square or wide logo (JPEG, PNG, GIF, or WebP, max 2MB). This will be used for institution branding.
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <Box
+                sx={{
+                  width: 96,
+                  height: 96,
+                  borderRadius: 2,
+                  border: `1px solid ${theme.palette.divider}`,
+                  bgcolor: theme.palette.mode === 'dark' ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.02)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
+                  flexShrink: 0,
+                }}
+              >
+                {logoPreviewUrl ? (
+                  <Box
+                    component="img"
+                    src={logoPreviewUrl}
+                    alt={`${settingsForm.name || 'Institution'} logo`}
+                    sx={{ width: '100%', height: '100%', objectFit: 'contain', p: 1 }}
+                  />
+                ) : (
+                  <Typography sx={{ color: theme.palette.text.secondary, fontSize: 12, textAlign: 'center', px: 1 }}>
+                    No logo
+                  </Typography>
+                )}
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  hidden
+                  onChange={handleLogoSelect}
+                />
+                <Button
+                  variant="outlined"
+                  startIcon={logoUploading ? <CircularProgress size={16} /> : <CloudUploadIcon />}
+                  disabled={logoUploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    borderColor: '#1ca7a1',
+                    color: '#1ca7a1',
+                    '&:hover': { borderColor: '#0e7490', bgcolor: 'rgba(28, 167, 161, 0.06)' },
+                  }}
+                >
+                  {institution?.has_logo ? 'Replace Logo' : 'Upload Logo'}
+                </Button>
+                {institution?.has_logo && (
+                  <Button
+                    startIcon={<DeleteOutlineIcon />}
+                    disabled={logoUploading}
+                    onClick={handleRemoveLogo}
+                    sx={{
+                      textTransform: 'none',
+                      fontWeight: 600,
+                      color: theme.palette.error.main,
+                      '&:hover': { bgcolor: 'rgba(211, 47, 47, 0.06)' },
+                    }}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </Box>
+            </Box>
+          </Box>
 
           <TextField
             fullWidth

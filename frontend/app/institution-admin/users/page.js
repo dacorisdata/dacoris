@@ -7,13 +7,15 @@ import {
   TextField, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Chip, Alert, CircularProgress, Avatar, FormControl, InputLabel, Select,
   MenuItem, useTheme, Checkbox, FormControlLabel, FormGroup, Divider, Tooltip,
-  IconButton, Paper, ListSubheader,
+  IconButton, Paper, ListSubheader, InputAdornment,
 } from '@mui/material';
 import {
   Search as SearchIcon, ManageAccounts as RoleIcon,
   CheckBox as CheckAllIcon, CheckBoxOutlineBlank as UncheckIcon,
   AdminPanelSettings as AdminIcon, Delete as DeleteIcon,
   Block as SuspendIcon, CheckCircle as ActivateIcon,
+  PersonAdd as PersonAddIcon, LockReset as LockResetIcon,
+  Badge as OrcidIcon, Visibility, VisibilityOff,
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import { institutionAdminAPI } from '../../../lib/api';
@@ -28,7 +30,27 @@ import {
   mergeRoles,
 } from '../../../lib/institutionAdminRoles';
 
-// ── Constants ──────────────────────────────────────────────────────────────────
+const EMPTY_CREATE_FORM = {
+  email: '',
+  name: '',
+  password: '',
+  confirmPassword: '',
+  primary_account_type: '',
+  orcid_id: '',
+  department: '',
+  job_title: '',
+};
+
+function isResearcherType(type) {
+  return type === 'RESEARCHER';
+}
+
+function formatApiError(err, fallback) {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map((d) => d.msg || d).join(', ');
+  return fallback;
+}
 
 export default function InstitutionAdminUsersPage() {
   const router  = useRouter();
@@ -44,13 +66,33 @@ export default function InstitutionAdminUsersPage() {
   const [statusFilter, setStatusFilter] = useState('all');
 
   // Role management dialog
-  const [roleTarget, setRoleTarget]         = useState(null);   // user being edited
+  const [roleTarget, setRoleTarget]         = useState(null);
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [selectedRoles, setSelectedRoles]   = useState([]);
   const [primaryType, setPrimaryType]       = useState('');
   const [savingRoles, setSavingRoles]       = useState(false);
   const [loadingRoles, setLoadingRoles]     = useState(false);
   const [institutionTypes, setInstitutionTypes] = useState([]);
+
+  // Create user dialog
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
+  const [creating, setCreating] = useState(false);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+
+  // Password reset dialog
+  const [passwordTarget, setPasswordTarget] = useState(null);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
+
+  // ORCID dialog
+  const [orcidTarget, setOrcidTarget] = useState(null);
+  const [orcidDialogOpen, setOrcidDialogOpen] = useState(false);
+  const [orcidValue, setOrcidValue] = useState('');
+  const [savingOrcid, setSavingOrcid] = useState(false);
 
   useEffect(() => { checkAuth(); }, []);
 
@@ -74,45 +116,52 @@ export default function InstitutionAdminUsersPage() {
     setLoading(false);
   };
 
+  const flashSuccess = (msg) => {
+    setSuccess(msg);
+    setTimeout(() => setSuccess(''), 4000);
+  };
+
   const handleApproveUser = async (userId) => {
     try {
       await institutionAdminAPI.approveUser(userId, { status: 'active' });
-      setSuccess('User approved'); loadData();
-    } catch { setError('Failed to approve user'); }
+      flashSuccess('User approved');
+      loadData();
+    } catch (e) { setError(formatApiError(e, 'Failed to approve user')); }
   };
 
   const handleRejectUser = async (userId) => {
     try {
       await institutionAdminAPI.rejectUser(userId);
-      setSuccess('User rejected'); loadData();
-    } catch { setError('Failed to reject user'); }
+      flashSuccess('User rejected');
+      loadData();
+    } catch (e) { setError(formatApiError(e, 'Failed to reject user')); }
   };
 
   const handleDeleteUser = async (userId, userName) => {
     if (!confirm(`Are you sure you want to delete ${userName}? This action cannot be undone.`)) return;
     try {
       await institutionAdminAPI.deleteUser(userId);
-      setSuccess('User deleted successfully'); 
+      flashSuccess('User deleted successfully');
       loadData();
-    } catch (e) { 
-      setError(e.response?.data?.detail || 'Failed to delete user'); 
+    } catch (e) {
+      setError(formatApiError(e, 'Failed to delete user'));
     }
   };
 
   const handleSuspendUser = async (userId) => {
     try {
       await institutionAdminAPI.suspendUser(userId);
-      setSuccess('User suspended'); 
+      flashSuccess('User deactivated');
       loadData();
-    } catch { setError('Failed to suspend user'); }
+    } catch (e) { setError(formatApiError(e, 'Failed to deactivate user')); }
   };
 
   const handleActivateUser = async (userId) => {
     try {
       await institutionAdminAPI.activateUser(userId);
-      setSuccess('User activated'); 
+      flashSuccess('User activated');
       loadData();
-    } catch { setError('Failed to activate user'); }
+    } catch (e) { setError(formatApiError(e, 'Failed to activate user')); }
   };
 
   const openRoleDialog = async (user) => {
@@ -168,20 +217,134 @@ export default function InstitutionAdminUsersPage() {
     setSavingRoles(true); setError('');
     try {
       await institutionAdminAPI.assignRoles(roleTarget.id, rolesToSave, primaryType);
-      setSuccess(`Roles updated for ${roleTarget.name || roleTarget.email}`);
-      setTimeout(() => setSuccess(''), 4000);
+      flashSuccess(`Roles updated for ${roleTarget.name || roleTarget.email}`);
       setRoleDialogOpen(false);
       await loadData();
     } catch (e) {
-      const detail = e.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map((d) => d.msg || d).join(', ') : 'Failed to save roles');
+      setError(formatApiError(e, 'Failed to save roles'));
     } finally { setSavingRoles(false); }
+  };
+
+  const openCreateDialog = () => {
+    setCreateForm(EMPTY_CREATE_FORM);
+    setShowCreatePassword(false);
+    setCreateOpen(true);
+    setError('');
+  };
+
+  const handleCreatePrimaryTypeChange = (nextType) => {
+    setCreateForm((prev) => ({
+      ...prev,
+      primary_account_type: nextType,
+      orcid_id: isResearcherType(nextType) ? prev.orcid_id : '',
+    }));
+  };
+
+  const handleCreateUser = async () => {
+    setError('');
+    if (!createForm.name.trim() || !createForm.email.trim() || !createForm.password) {
+      setError('Name, email, and password are required');
+      return;
+    }
+    if (!createForm.primary_account_type) {
+      setError('Please select a primary account type');
+      return;
+    }
+    if (createForm.password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+    if (createForm.password !== createForm.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const defaults = getDefaultRolesForPrimaryType(createForm.primary_account_type);
+      const payload = {
+        email: createForm.email.trim(),
+        name: createForm.name.trim(),
+        password: createForm.password,
+        primary_account_type: createForm.primary_account_type,
+        roles: defaults,
+        department: createForm.department.trim() || null,
+        job_title: createForm.job_title.trim() || null,
+      };
+      if (isResearcherType(createForm.primary_account_type) && createForm.orcid_id.trim()) {
+        payload.orcid_id = createForm.orcid_id.trim();
+      }
+      await institutionAdminAPI.createUser(payload);
+      flashSuccess('User created successfully');
+      setCreateOpen(false);
+      await loadData();
+    } catch (e) {
+      setError(formatApiError(e, 'Failed to create user'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openPasswordDialog = (user) => {
+    setPasswordTarget(user);
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowResetPassword(false);
+    setPasswordDialogOpen(true);
+    setError('');
+  };
+
+  const handleResetPassword = async () => {
+    if (!passwordTarget) return;
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    setResettingPassword(true);
+    setError('');
+    try {
+      await institutionAdminAPI.resetUserPassword(passwordTarget.id, newPassword);
+      flashSuccess(`Password updated for ${passwordTarget.name || passwordTarget.email}`);
+      setPasswordDialogOpen(false);
+    } catch (e) {
+      setError(formatApiError(e, 'Failed to reset password'));
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
+  const openOrcidDialog = (user) => {
+    setOrcidTarget(user);
+    setOrcidValue(user.orcid_id || '');
+    setOrcidDialogOpen(true);
+    setError('');
+  };
+
+  const handleSaveOrcid = async () => {
+    if (!orcidTarget) return;
+    setSavingOrcid(true);
+    setError('');
+    try {
+      await institutionAdminAPI.updateUserOrcid(orcidTarget.id, orcidValue.trim() || null);
+      flashSuccess(`ORCID updated for ${orcidTarget.name || orcidTarget.email}`);
+      setOrcidDialogOpen(false);
+      await loadData();
+    } catch (e) {
+      setError(formatApiError(e, 'Failed to update ORCID'));
+    } finally {
+      setSavingOrcid(false);
+    }
   };
 
   const filteredUsers = users.filter(u => {
     const matchSearch  = !searchQuery ||
       u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.email?.toLowerCase().includes(searchQuery.toLowerCase());
+      u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.orcid_id?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchStatus = statusFilter === 'all' || u.status?.toLowerCase() === statusFilter.toLowerCase();
     return matchSearch && matchStatus;
   });
@@ -206,11 +369,21 @@ export default function InstitutionAdminUsersPage() {
   return (
     <Box sx={{ p: 4 }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, gap: 2, flexWrap: 'wrap' }}>
         <Box>
           <Typography sx={{ color: 'text.primary', fontSize: 24, fontWeight: 700, mb: 0.5 }}>Users</Typography>
-          <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>Manage users, account types, and role assignments</Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 14 }}>
+            Create accounts, manage roles, activate or deactivate users, reset passwords, and set ORCID iDs
+          </Typography>
         </Box>
+        <Button
+          variant="contained"
+          startIcon={<PersonAddIcon />}
+          onClick={openCreateDialog}
+          sx={{ bgcolor: '#1ca7a1', textTransform: 'none', fontWeight: 600, borderRadius: 2, px: 2.5, '&:hover': { bgcolor: '#0e7490' } }}
+        >
+          Create User
+        </Button>
       </Box>
 
       {error   && <Alert severity="error"   sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
@@ -218,7 +391,7 @@ export default function InstitutionAdminUsersPage() {
 
       {/* Filters */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <TextField placeholder="Search by name or email…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+        <TextField placeholder="Search by name, email, or ORCID…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
           size="small" InputProps={{ startAdornment: <SearchIcon sx={{ color: 'text.disabled', mr: 1, fontSize: 18 }} /> }}
           sx={{ flex: '1 1 300px', '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
         <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -227,7 +400,7 @@ export default function InstitutionAdminUsersPage() {
             <MenuItem value="all">All</MenuItem>
             <MenuItem value="active">Active</MenuItem>
             <MenuItem value="pending">Pending</MenuItem>
-            <MenuItem value="suspended">Suspended</MenuItem>
+            <MenuItem value="suspended">Deactivated</MenuItem>
           </Select>
         </FormControl>
       </Box>
@@ -241,6 +414,7 @@ export default function InstitutionAdminUsersPage() {
                 <TableCell>User</TableCell>
                 <TableCell>Account Type</TableCell>
                 <TableCell>Roles</TableCell>
+                <TableCell>ORCID</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Joined</TableCell>
                 <TableCell>Actions</TableCell>
@@ -281,7 +455,18 @@ export default function InstitutionAdminUsersPage() {
                     </Box>
                   </TableCell>
                   <TableCell sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>
-                    <Chip label={u.status} size="small" {...statusChip(u.status)} />
+                    {u.orcid_id ? (
+                      <Typography sx={{ color: 'text.secondary', fontSize: 12, fontFamily: 'monospace' }}>{u.orcid_id}</Typography>
+                    ) : (
+                      <Typography sx={{ color: 'text.disabled', fontSize: 12 }}>—</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>
+                    <Chip
+                      label={(u.status === 'suspended' || u.status === 'SUSPENDED') ? 'deactivated' : u.status}
+                      size="small"
+                      {...statusChip(u.status)}
+                    />
                   </TableCell>
                   <TableCell sx={{ color: 'text.secondary', fontSize: 13, borderBottom: `1px solid ${theme.palette.divider}` }}>
                     {u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB') : '—'}
@@ -306,8 +491,22 @@ export default function InstitutionAdminUsersPage() {
                           <RoleIcon sx={{ fontSize: 18 }} />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title="Reset Password">
+                        <IconButton size="small" onClick={() => openPasswordDialog(u)}
+                          sx={{ color: '#6366f1', '&:hover': { bgcolor: 'rgba(99,102,241,0.1)' } }}>
+                          <LockResetIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                      {isResearcherType(u.primary_account_type) && (
+                        <Tooltip title={u.orcid_id ? 'Edit ORCID' : 'Add ORCID'}>
+                          <IconButton size="small" onClick={() => openOrcidDialog(u)}
+                            sx={{ color: '#a6ce39', '&:hover': { bgcolor: 'rgba(166,206,57,0.12)' } }}>
+                            <OrcidIcon sx={{ fontSize: 18 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       {(u.status === 'ACTIVE' || u.status === 'active') && (
-                        <Tooltip title="Suspend User">
+                        <Tooltip title="Deactivate User">
                           <IconButton size="small" onClick={() => handleSuspendUser(u.id)}
                             sx={{ color: '#f59e0b', '&:hover': { bgcolor: 'rgba(245,158,11,0.1)' } }}>
                             <SuspendIcon sx={{ fontSize: 18 }} />
@@ -344,6 +543,201 @@ export default function InstitutionAdminUsersPage() {
         )}
       </Box>
 
+      {/* ── Create User Dialog ─────────────────────────────────────────── */}
+      <Dialog open={createOpen} onClose={() => !creating && setCreateOpen(false)} maxWidth="sm" fullWidth disableScrollLock
+        PaperProps={{ sx: { bgcolor: 'background.paper', borderRadius: 3, border: `1px solid ${theme.palette.divider}` } }}>
+        <DialogTitle sx={{ borderBottom: `1px solid ${theme.palette.divider}`, pb: 2 }}>
+          <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Create User Account</Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 13, mt: 0.5 }}>
+            The user is created as active and can sign in immediately with the password you set.
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          <TextField
+            label="Full Name"
+            value={createForm.name}
+            onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+            fullWidth
+            required
+            sx={{ mt: 1 }}
+          />
+          <TextField
+            label="Email"
+            type="email"
+            value={createForm.email}
+            onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+            fullWidth
+            required
+            helperText="Must use an institution email domain"
+          />
+          <FormControl fullWidth size="small" required>
+            <InputLabel>Primary Account Type</InputLabel>
+            <Select
+              label="Primary Account Type"
+              value={createForm.primary_account_type}
+              onChange={(e) => handleCreatePrimaryTypeChange(e.target.value)}
+              sx={{ borderRadius: 2 }}
+            >
+              {getPrimaryTypesForInstitution(institutionTypes).map((group) => [
+                <ListSubheader key={`create-header-${group.label}`} sx={{ fontWeight: 700, color: 'text.secondary' }}>
+                  {group.label}
+                </ListSubheader>,
+                ...group.types.map((t) => (
+                  <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
+                )),
+              ])}
+            </Select>
+          </FormControl>
+          {isResearcherType(createForm.primary_account_type) && (
+            <TextField
+              label="ORCID iD (optional)"
+              value={createForm.orcid_id}
+              onChange={(e) => setCreateForm({ ...createForm, orcid_id: e.target.value })}
+              fullWidth
+              placeholder="0000-0000-0000-0000"
+              helperText="You can also add this later from the users table"
+            />
+          )}
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField
+              label="Department"
+              value={createForm.department}
+              onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })}
+              sx={{ flex: '1 1 180px' }}
+            />
+            <TextField
+              label="Job Title"
+              value={createForm.job_title}
+              onChange={(e) => setCreateForm({ ...createForm, job_title: e.target.value })}
+              sx={{ flex: '1 1 180px' }}
+            />
+          </Box>
+          <TextField
+            label="Password"
+            type={showCreatePassword ? 'text' : 'password'}
+            value={createForm.password}
+            onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+            fullWidth
+            required
+            helperText="At least 8 characters"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setShowCreatePassword((v) => !v)}>
+                    {showCreatePassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+          <TextField
+            label="Confirm Password"
+            type={showCreatePassword ? 'text' : 'password'}
+            value={createForm.confirmPassword}
+            onChange={(e) => setCreateForm({ ...createForm, confirmPassword: e.target.value })}
+            fullWidth
+            required
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2, borderTop: `1px solid ${theme.palette.divider}`, gap: 1 }}>
+          <Button onClick={() => setCreateOpen(false)} disabled={creating}
+            sx={{ color: 'text.secondary', textTransform: 'none', fontWeight: 600, borderRadius: 2 }}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={handleCreateUser} disabled={creating}
+            startIcon={creating ? <CircularProgress size={16} color="inherit" /> : <PersonAddIcon />}
+            sx={{ bgcolor: '#1ca7a1', textTransform: 'none', fontWeight: 600, borderRadius: 2, px: 3, '&:hover': { bgcolor: '#0e7490' } }}>
+            Create User
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Reset Password Dialog ──────────────────────────────────────── */}
+      <Dialog open={passwordDialogOpen} onClose={() => !resettingPassword && setPasswordDialogOpen(false)} maxWidth="xs" fullWidth disableScrollLock
+        PaperProps={{ sx: { bgcolor: 'background.paper', borderRadius: 3, border: `1px solid ${theme.palette.divider}` } }}>
+        <DialogTitle sx={{ borderBottom: `1px solid ${theme.palette.divider}`, pb: 2 }}>
+          <Typography sx={{ fontSize: 17, fontWeight: 700 }}>Reset Password</Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 13, mt: 0.5 }}>
+            {passwordTarget?.name || passwordTarget?.email}
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          <TextField
+            label="New Password"
+            type={showResetPassword ? 'text' : 'password'}
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            fullWidth
+            required
+            sx={{ mt: 1 }}
+            helperText="At least 8 characters"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setShowResetPassword((v) => !v)}>
+                    {showResetPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+          <TextField
+            label="Confirm Password"
+            type={showResetPassword ? 'text' : 'password'}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            fullWidth
+            required
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2, borderTop: `1px solid ${theme.palette.divider}`, gap: 1 }}>
+          <Button onClick={() => setPasswordDialogOpen(false)} disabled={resettingPassword}
+            sx={{ color: 'text.secondary', textTransform: 'none', fontWeight: 600, borderRadius: 2 }}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={handleResetPassword} disabled={resettingPassword}
+            startIcon={resettingPassword ? <CircularProgress size={16} color="inherit" /> : <LockResetIcon />}
+            sx={{ bgcolor: '#6366f1', textTransform: 'none', fontWeight: 600, borderRadius: 2, px: 3, '&:hover': { bgcolor: '#4f46e5' } }}>
+            Update Password
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── ORCID Dialog ───────────────────────────────────────────────── */}
+      <Dialog open={orcidDialogOpen} onClose={() => !savingOrcid && setOrcidDialogOpen(false)} maxWidth="xs" fullWidth disableScrollLock
+        PaperProps={{ sx: { bgcolor: 'background.paper', borderRadius: 3, border: `1px solid ${theme.palette.divider}` } }}>
+        <DialogTitle sx={{ borderBottom: `1px solid ${theme.palette.divider}`, pb: 2 }}>
+          <Typography sx={{ fontSize: 17, fontWeight: 700 }}>
+            {orcidTarget?.orcid_id ? 'Edit ORCID iD' : 'Add ORCID iD'}
+          </Typography>
+          <Typography sx={{ color: 'text.secondary', fontSize: 13, mt: 0.5 }}>
+            {orcidTarget?.name || orcidTarget?.email}
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <TextField
+            label="ORCID iD"
+            value={orcidValue}
+            onChange={(e) => setOrcidValue(e.target.value)}
+            fullWidth
+            placeholder="0000-0000-0000-0000"
+            helperText="Format: 0000-0000-0000-0000. Leave blank to clear."
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2, borderTop: `1px solid ${theme.palette.divider}`, gap: 1 }}>
+          <Button onClick={() => setOrcidDialogOpen(false)} disabled={savingOrcid}
+            sx={{ color: 'text.secondary', textTransform: 'none', fontWeight: 600, borderRadius: 2 }}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={handleSaveOrcid} disabled={savingOrcid}
+            startIcon={savingOrcid ? <CircularProgress size={16} color="inherit" /> : <OrcidIcon />}
+            sx={{ bgcolor: '#a6ce39', color: '#1a1a1a', textTransform: 'none', fontWeight: 700, borderRadius: 2, px: 3, '&:hover': { bgcolor: '#95ba32' } }}>
+            Save ORCID
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* ── Role Management Dialog ─────────────────────────────────────── */}
       <Dialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} maxWidth="md" fullWidth disableScrollLock
         PaperProps={{ sx: { bgcolor: 'background.paper', borderRadius: 3, border: `1px solid ${theme.palette.divider}` } }}>
@@ -366,7 +760,6 @@ export default function InstitutionAdminUsersPage() {
             </DialogTitle>
 
             <DialogContent sx={{ pt: 3 }}>
-              {/* Primary Account Type */}
               <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mb: 1 }}>
                 Primary Account Type
               </Typography>
@@ -391,7 +784,6 @@ export default function InstitutionAdminUsersPage() {
 
               <Divider sx={{ mb: 2.5 }} />
 
-              {/* Quick Select Buttons */}
               <Box sx={{ display: 'flex', gap: 1, mb: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
                 <Typography sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', mr: 1 }}>
                   Quick Select:
@@ -416,7 +808,6 @@ export default function InstitutionAdminUsersPage() {
                   sx={{ ml: 'auto', bgcolor: 'rgba(28,167,161,0.1)', color: '#1ca7a1', fontWeight: 700, fontSize: 11 }} />
               </Box>
 
-              {/* Role Groups */}
               {loadingRoles ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
                   <CircularProgress size={28} />

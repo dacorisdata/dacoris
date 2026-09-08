@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { subtleScrollbarSx } from '../lib/scrollStyles';
 import { sidebarTheme, SIDEBAR_FONTS } from '../lib/sidebarTheme';
+import InstitutionBrand from './InstitutionBrand';
 
 const NAV_ITEMS = [
   { icon: DashboardIcon, label: 'Overview', path: '/institution-admin/overview' },
@@ -82,18 +83,13 @@ export default function InstitutionAdminSidebar() {
         background: tokens.headerBg,
       }}>
         {user?.institution_name && (
-          <Box sx={{
-            display: 'inline-flex', alignItems: 'center', width: '100%',
-            px: 1.25, py: 0.5, mb: 1.5, borderRadius: 1.5,
-            bgcolor: tokens.accentBadgeBg,
-            border: `1px solid ${tokens.accentBorder}`,
-          }}>
-            <Typography sx={{
-              fontSize: SIDEBAR_FONTS.badge, fontWeight: 700, color: accent,
-              width: '100%', textAlign: 'center',
-            }}>
-              {user.institution_name}
-            </Typography>
+          <Box sx={{ mb: 1.5 }}>
+            <InstitutionBrand
+              variant="sidebar"
+              accent={accent}
+              accentBg={tokens.accentBadgeBg}
+              accentBorder={tokens.accentBorder}
+            />
           </Box>
         )}
 

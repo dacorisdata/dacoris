@@ -34,6 +34,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { isUniversityInstitution } from '../lib/institutionTypes';
 import { subtleScrollbarSx } from '../lib/scrollStyles';
 import { sidebarTheme, SIDEBAR_FONTS, SIDEBAR_WIDTH } from '../lib/sidebarTheme';
+import InstitutionBrand from './InstitutionBrand';
 
 const STORAGE_KEY = 'dacoris-admin-sidebar-sections';
 
@@ -395,22 +396,12 @@ export default function AdminStaffSidebar() {
             }}>
               {t('navbar.institution')}
             </Typography>
-            <Box sx={{
-              display: 'inline-flex', alignItems: 'center',
-              px: 1.25, py: 0.4, borderRadius: 1.5,
-              bgcolor: tokens.accentBadgeBg,
-              border: `1px solid ${tokens.accentBorder}`,
-              maxWidth: '100%',
-            }}>
-              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: accent, mr: 0.75, flexShrink: 0 }} />
-              <Typography sx={{
-                fontSize: SIDEBAR_FONTS.badge, fontWeight: 700, color: accent,
-                letterSpacing: 0.3,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {user.institution_name}
-              </Typography>
-            </Box>
+            <InstitutionBrand
+              variant="sidebar"
+              accent={accent}
+              accentBg={tokens.accentBadgeBg}
+              accentBorder={tokens.accentBorder}
+            />
           </Box>
         )}
 

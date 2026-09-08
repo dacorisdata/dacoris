@@ -13,10 +13,11 @@ import {
   RateReview as ReviewIcon, Person as PersonIcon, ArrowForward as ArrowIcon,
   Schedule as PendingIcon, EmojiEvents as AwardsIcon,
   Gavel as ComplianceIcon, Groups as TeamsIcon, Refresh as RefreshIcon,
-  Warning as WarningIcon, Business as InstitutionIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import api from '../../../lib/api';
+import InstitutionBrand from '../../../components/InstitutionBrand';
 
 const ACCENT = '#0d9488';
 
@@ -338,6 +339,14 @@ export default function AdminStaffOverview() {
         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap',
       }}>
         <Box>
+          <InstitutionBrand
+            variant="page"
+            accent={ACCENT}
+            accentBg={`${ACCENT}12`}
+            accentBorder={`${ACCENT}28`}
+            nameOverride={institutionName}
+            sx={{ mb: 1.25 }}
+          />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.75, flexWrap: 'wrap' }}>
             <Typography sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
               {greeting}, {firstName}
@@ -346,14 +355,9 @@ export default function AdminStaffOverview() {
               {config.label}
             </Box>
           </Box>
-          <Typography sx={{ fontSize: 13.5, color: 'text.secondary', mb: institutionName ? 1.25 : 0 }}>
+          <Typography sx={{ fontSize: 13.5, color: 'text.secondary' }}>
             {config.description}
           </Typography>
-          {institutionName && (
-            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.25, py: 0.4, borderRadius: '7px', bgcolor: `${ACCENT}12`, color: ACCENT, fontSize: 12, fontWeight: 600 }}>
-              <InstitutionIcon sx={{ fontSize: 14 }} />{institutionName}
-            </Box>
-          )}
         </Box>
         <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
           <Button size="small" variant="outlined" startIcon={<RefreshIcon sx={{ fontSize: 15 }} />}

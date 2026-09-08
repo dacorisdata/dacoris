@@ -18,10 +18,11 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import { institutionAdminAPI } from '../../../lib/api';
+import InstitutionBrand from '../../../components/InstitutionBrand';
 
 export default function InstitutionAdminOverview() {
   const router = useRouter();
-  const { fetchUser } = useAuth();
+  const { fetchUser, user } = useAuth();
   const theme = useTheme();
   
   const [stats, setStats] = useState(null);
@@ -80,6 +81,13 @@ export default function InstitutionAdminOverview() {
     <Box sx={{ p: 4 }}>
       {/* Header */}
       <Box sx={{ mb: 4 }}>
+        <InstitutionBrand
+          variant="page"
+          accent="#1ca7a1"
+          accentBg="rgba(28, 167, 161, 0.1)"
+          accentBorder="rgba(28, 167, 161, 0.28)"
+          nameOverride={user?.institution_name}
+        />
         <Typography sx={{ color: theme.palette.text.primary, fontSize: 28, fontWeight: 700, mb: 0.5 }}>
           Institution Dashboard
         </Typography>

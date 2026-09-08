@@ -113,6 +113,7 @@ class Institution(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     primary_admin_id = Column(String, ForeignKey('users.id'), nullable=True)
     settings = Column(Text, nullable=True)
+    logo_filename = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

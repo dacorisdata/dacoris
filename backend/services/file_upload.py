@@ -23,6 +23,7 @@ ALLOWED_TYPES = {
     "image/jpeg", 
     "image/png",
     "image/gif",
+    "image/webp",
     "application/zip",
     "application/x-zip-compressed",
     # Common variations
@@ -35,7 +36,7 @@ async def save_upload(file: UploadFile, subfolder: str = "documents") -> dict:
         # Check file extension as fallback
         ext = os.path.splitext(file.filename)[1].lower()
         allowed_extensions = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', 
-                             '.csv', '.txt', '.jpg', '.jpeg', '.png', '.gif', '.zip'}
+                             '.csv', '.txt', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.zip'}
         if ext not in allowed_extensions:
             raise HTTPException(400, f"File type '{file.content_type}' with extension '{ext}' not allowed. Allowed: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, CSV, TXT, images, ZIP")
 
