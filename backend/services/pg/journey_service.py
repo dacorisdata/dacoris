@@ -25,7 +25,7 @@ async def merge_student_payload(
     repo = repo or get_excel_repository()
     inst_name, domain = _institution_filters(institution)
 
-    student = repo.get_student(student_id, inst_name, domain)
+    student = repo.get_student(student_id, inst_name, domain) or repo.get_student(student_id)
     if not student:
         return None
 

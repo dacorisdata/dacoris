@@ -142,6 +142,7 @@ async def resolve_student_id_for_user(
     *,
     commit: bool = False,
 ) -> Optional[str]:
+    repo = repo or get_excel_repository()
     result = await db.execute(
         select(PgStudentProfile).where(
             PgStudentProfile.institution_id == institution.id,
@@ -149,25 +150,39 @@ async def resolve_student_id_for_user(
         )
     )
     profile = result.scalar_one_or_none()
-    if profile:
-        return profile.student_id
-
-    repo = repo or get_excel_repository()
     students = repo.get_students(institution.name, institution.domain)
-    student = _find_student_match(user, students, institution)
-    if not student:
+    matched = _find_student_match(user, students, institution)
+
+    if profile:
+        current = repo.get_student(profile.student_id, institution.name, institution.domain)
+        if not current:
+            current = repo.get_student(profile.student_id)
+        if current:
+            return profile.student_id
+        if not matched:
+            return None
+        profile.student_id = matched.student_id
+        if matched.orcid_placeholder:
+            profile.orcid = matched.orcid_placeholder
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
+        return matched.student_id
+
+    if not matched:
         return None
 
     db.add(
         PgStudentProfile(
             institution_id=institution.id,
-            student_id=student.student_id,
+            student_id=matched.student_id,
             user_id=user.id,
-            orcid=student.orcid_placeholder or user.orcid_id,
+            orcid=matched.orcid_placeholder or user.orcid_id,
         )
     )
     if commit:
         await db.commit()
     else:
         await db.flush()
-    return student.student_id
+    return matched.student_id

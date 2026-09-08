@@ -78,13 +78,54 @@ jobs:
       - name: Pull latest code
         run: |
           ssh dacoris@41.89.92.140 '
+            set -euo pipefail
             cd /opt/dacoris/rims
-            
-            echo "📥 Pulling latest code from GitHub..."
-            git pull origin main
-            
+
+            echo "📥 Syncing /opt/dacoris/rims to ${{ github.sha }}..."
+            KEEP_DIR=$(mktemp -d)
+            for f in .env .env.production docker-compose.prod.yml; do
+              if [ -f "$f" ]; then
+                cp -a "$f" "$KEEP_DIR/"
+              fi
+            done
+
+            git fetch origin main
+            git reset --hard "${{ github.sha }}"
+            git clean -fd --exclude=.env --exclude=.env.production --exclude=backend/uploads --exclude=backend/data --exclude=nginx/ssl
+
+            for f in .env .env.production docker-compose.prod.yml; do
+              if [ -f "$KEEP_DIR/$f" ]; then
+                cp -a "$KEEP_DIR/$f" "$f"
+              fi
+            done
+            rm -rf "$KEEP_DIR"
+
+            HEAD=$(git rev-parse HEAD)
+            EXPECTED="${{ github.sha }}"
+            echo "Server HEAD: $HEAD"
+            echo "Expected:    $EXPECTED"
+            if [ "$HEAD" != "$EXPECTED" ]; then
+              echo "ERROR: production checkout did not match the GitHub Actions commit"
+              git log -3 --oneline
+              exit 1
+            fi
+
             echo "📝 Recent commits:"
             git log -3 --oneline
+            git status --short
+
+            if ! grep -q "demo@kibu.ac.ke" frontend/lib/demoRoles.js; then
+              echo "ERROR: frontend/lib/demoRoles.js does not contain demo@kibu.ac.ke after checkout"
+              exit 1
+            fi
+
+            XLSX=backend/data/DACORIS_IS_v2.xlsx
+            SIZE=$(stat -c%s "$XLSX")
+            echo "Excel size on host: $SIZE"
+            if [ "$SIZE" -lt 120000 ]; then
+              echo "ERROR: $XLSX was not updated (size $SIZE). Expected the Kibabii workbook (>=120000 bytes)."
+              exit 1
+            fi
           '
       
       - name: Verify environment file
@@ -104,18 +145,17 @@ jobs:
       - name: Deploy with Docker Compose
         run: |
           ssh dacoris@41.89.92.140 '
+            set -euo pipefail
             cd /opt/dacoris/rims
-            
-            echo "🐳 Deploying services with Docker Compose..."
-            
-            # Stop and remove existing containers (preserves database)
-            docker compose -f docker-compose.prod.yml --env-file .env.production down
-            
-            # Pull/rebuild images and start all services
-            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
-            
+
+            echo "🐳 Rebuilding images with no cache (frontend + backend + nginx)..."
+            docker compose -f docker-compose.prod.yml --env-file .env.production build --no-cache
+            echo "🐳 Recreating containers..."
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --force-recreate --remove-orphans
+
             echo "⏳ Waiting for services to start..."
             sleep 20
+            docker compose -f docker-compose.prod.yml --env-file .env.production ps
           '
       
       - name: Run database migrations
@@ -160,6 +200,24 @@ jobs:
           echo "📋 Checking logs..."
           ssh dacoris@41.89.92.140 'cd /opt/dacoris/rims && docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=50'
           exit 1
+
+      - name: Verify frontend bundle
+        run: |
+          ssh dacoris@41.89.92.140 '
+            set -euo pipefail
+            cd /opt/dacoris/rims
+            echo "Checking rebuilt frontend for demo@kibu.ac.ke..."
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T frontend sh -c "grep -R demo@kibu.ac.ke /app /app/.next 2>/dev/null | head -c 400"
+          '
+
+      - name: Verify IS spreadsheet loaded
+        run: |
+          ssh dacoris@41.89.92.140 bash -s <<'ENDSSH'
+            set -euo pipefail
+            cd /opt/dacoris/rims
+            echo "Checking DACORIS_IS_v2.xlsx inside the backend container..."
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T backend python -c 'from services.external_systems.excel_is_reader import get_excel_repository; r=get_excel_repository(); n=len(r._students); k=sum(1 for s in r._students if "kibabii" in (s.institution or "").lower()); print("path", r.excel_path); print("students", n); print("kibabii", k); assert n >= 80, n; assert k >= 20, k'
+          ENDSSH
       
       - name: Show logs on failure
         if: failure()
