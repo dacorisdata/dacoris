@@ -89,8 +89,20 @@ jobs:
               fi
             done
 
+            # Local compose edits (ports, etc.) block reset --hard with
+            # "Entry 'docker-compose.prod.yml' not uptodate. Cannot merge."
+            git update-index --refresh || true
+            git update-index --no-skip-worktree -- docker-compose.prod.yml 2>/dev/null || true
+            git update-index --no-assume-unchanged -- docker-compose.prod.yml 2>/dev/null || true
+            git checkout -f -- docker-compose.prod.yml || rm -f docker-compose.prod.yml
+
             git fetch origin main
-            git reset --hard "${{ github.sha }}"
+            if ! git reset --hard "${{ github.sha }}"; then
+              echo "reset --hard still blocked; discarding dirty tracked files and retrying"
+              git checkout -f -- . || true
+              rm -f docker-compose.prod.yml
+              git reset --hard "${{ github.sha }}"
+            fi
             git clean -fd --exclude=.env --exclude=.env.production --exclude=backend/uploads --exclude=backend/data --exclude=nginx/ssl
 
             for f in .env .env.production docker-compose.prod.yml; do
