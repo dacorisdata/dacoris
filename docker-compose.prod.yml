@@ -28,6 +28,7 @@ services:
       - .env.production
     volumes:
       - ./backend/uploads:/app/uploads
+      - ./backend/data:/app/data
     depends_on:
       db:
         condition: service_healthy

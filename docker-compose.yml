@@ -45,6 +45,7 @@ services:
       - INGEST_API_KEY=fe54ba2885ab0beab88a5479c6edbfa40d7f3317b88ff0f716d6d735da80da1e
     volumes:
       - ./backend/uploads:/app/uploads
+      - ./backend/data:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
