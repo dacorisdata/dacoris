@@ -10,8 +10,10 @@ import {
 import {
   Add as AddIcon, Search as SearchIcon, Handshake as MouIcon,
   OpenInNew as OpenIcon, FilterList as FilterIcon, Clear as ClearIcon,
+  UploadFile as UploadIcon,
 } from '@mui/icons-material';
 import api from '../../../../lib/api';
+import UploadExistingAgreementDialog from '../../../../components/mou/UploadExistingAgreementDialog';
 
 const ACCENT = '#16a699';
 
@@ -81,6 +83,7 @@ export default function MouListPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   useEffect(() => { fetchMous(); }, [statusFilter, typeFilter]);
 
@@ -121,12 +124,20 @@ export default function MouListPage() {
             {filtered.length} agreement{filtered.length !== 1 ? 's' : ''}
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />}
-          onClick={() => router.push('/admin-staff/mou/create')}
-          sx={{ bgcolor: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
-            '&:hover': { bgcolor: '#138f82' } }}>
-          New MoU
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button variant="outlined" startIcon={<UploadIcon />}
+            onClick={() => setUploadOpen(true)}
+            sx={{ borderColor: ACCENT, color: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
+              '&:hover': { borderColor: '#138f82', bgcolor: `${ACCENT}08` } }}>
+            Upload Existing
+          </Button>
+          <Button variant="contained" startIcon={<AddIcon />}
+            onClick={() => router.push('/admin-staff/mou/create')}
+            sx={{ bgcolor: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
+              '&:hover': { bgcolor: '#138f82' } }}>
+            New MoU
+          </Button>
+        </Box>
       </Box>
 
       {/* Filters */}
@@ -236,6 +247,12 @@ export default function MouListPage() {
           </Table>
         </TableContainer>
       )}
+
+      <UploadExistingAgreementDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onSuccess={(mou) => { setUploadOpen(false); router.push(`/admin-staff/mou/${mou.id}`); }}
+      />
     </Box>
   );
 }

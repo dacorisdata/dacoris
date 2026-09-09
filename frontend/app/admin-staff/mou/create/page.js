@@ -12,6 +12,9 @@ import {
   Save as SaveIcon, Handshake as MouIcon,
 } from '@mui/icons-material';
 import api from '../../../../lib/api';
+import {
+  AgreementFileDrop, importExistingMou, uploadMouDocument, IMPORT_STATUSES,
+} from '../../../../components/mou/UploadExistingAgreementDialog';
 
 const ACCENT = '#16a699';
 const STEPS = ['Basic Info', 'Scope & Obligations', 'Terms & Settings', 'Review'];
@@ -55,6 +58,7 @@ export default function CreateMouPage() {
     mou_type: 'GENERAL_COLLABORATION',
     thematic_area: '',
     lead_department: '',
+    partner_name: '',
     scope_objectives: '',
     obligations_institution: '',
     obligations_partner: '',
@@ -62,6 +66,7 @@ export default function CreateMouPage() {
     confidentiality_level: 'INTERNAL',
     effective_date: '',
     expiry_date: '',
+    signed_date: '',
     duration_years: '',
     auto_renew: false,
     renewal_notice_days: 90,
@@ -69,7 +74,11 @@ export default function CreateMouPage() {
     ip_clauses: false,
     data_sharing: false,
     risk_rating: 'LOW',
+    status: 'ACTIVE',
+    notes: '',
   });
+  const [file, setFile] = useState(null);
+  const [existingSigned, setExistingSigned] = useState(false);
 
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
@@ -102,22 +111,43 @@ export default function CreateMouPage() {
 
   const handleNext = () => {
     if (step === 0 && !form.title.trim()) { setError('Title is required.'); return; }
+    if (step === 0 && existingSigned && !file) { setError('Please attach the signed agreement document.'); return; }
     setError('');
     setStep(s => s + 1);
   };
 
   const handleSubmit = async () => {
     if (!form.title || !form.mou_type) { setError('Title and type are required.'); return; }
+    if (existingSigned && !file) { setError('Please attach the signed agreement document.'); return; }
     setSaving(true);
     setError('');
     try {
+      if (existingSigned) {
+        const res = await importExistingMou({ ...form, file });
+        router.push(`/admin-staff/mou/${res.data.id}`);
+        return;
+      }
       const payload = { ...form };
+      delete payload.partner_name;
+      delete payload.status;
+      delete payload.notes;
+      delete payload.signed_date;
       if (!payload.effective_date) delete payload.effective_date;
       if (!payload.expiry_date) delete payload.expiry_date;
       if (!payload.duration_years) delete payload.duration_years;
       else payload.duration_years = parseFloat(payload.duration_years);
       if (!payload.risk_rating) delete payload.risk_rating;
       const res = await api.post('/mou/', payload);
+      if (file) {
+        try {
+          await uploadMouDocument(res.data.id, file, { changeSummary: 'Attached at creation' });
+        } catch (uploadErr) {
+          setError(uploadErr.response?.data?.detail || 'MoU created, but the document failed to upload. You can attach it from the agreement page.');
+          setSaving(false);
+          router.push(`/admin-staff/mou/${res.data.id}`);
+          return;
+        }
+      }
       router.push(`/admin-staff/mou/${res.data.id}`);
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to create MoU. Please try again.');
@@ -160,6 +190,30 @@ export default function CreateMouPage() {
       {/* Step 0: Basic Info */}
       {step === 0 && (
         <Card title="Basic Information" subtitle="Enter the core identification details for this MoU.">
+          <Box sx={{
+            mb: 2.5, p: 2, borderRadius: 2,
+            bgcolor: existingSigned ? `${ACCENT}0d` : 'transparent',
+            border: `1px solid ${existingSigned ? ACCENT : theme.palette.divider}`,
+          }}>
+            <FormControlLabel
+              control={
+                <Switch checked={existingSigned} onChange={e => setExistingSigned(e.target.checked)}
+                  sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ACCENT },
+                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ACCENT } }} />
+              }
+              label={
+                <Box>
+                  <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>This is an existing signed agreement</Typography>
+                  <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                    Upload the signed document and register it as already in force — skips the draft approval workflow.
+                  </Typography>
+                </Box>
+              }
+              sx={{ alignItems: 'flex-start', ml: 0, mb: 1.5 }}
+            />
+            <AgreementFileDrop file={file} onFile={setFile} />
+          </Box>
+
           <TextField fullWidth size="small" label="Title *" value={form.title}
             onChange={e => set('title', e.target.value)}
             sx={{ mb: 2.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
@@ -175,7 +229,26 @@ export default function CreateMouPage() {
             sx={{ mb: 2.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
           <TextField fullWidth size="small" label="Lead Department"
             value={form.lead_department} onChange={e => set('lead_department', e.target.value)}
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+            sx={{ mb: existingSigned ? 2.5 : 0, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+          {existingSigned && (
+            <>
+              <TextField fullWidth size="small" label="Partner organisation"
+                value={form.partner_name} onChange={e => set('partner_name', e.target.value)}
+                placeholder="e.g. University of Nairobi"
+                sx={{ mb: 2.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <TextField size="small" label="Signed Date" type="date" value={form.signed_date}
+                  onChange={e => set('signed_date', e.target.value)} InputLabelProps={{ shrink: true }}
+                  sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                <FormControl size="small" sx={{ flex: 1, minWidth: 180 }}>
+                  <InputLabel>Current Status</InputLabel>
+                  <Select value={form.status} label="Current Status" onChange={e => set('status', e.target.value)} sx={{ borderRadius: 2 }}>
+                    {IMPORT_STATUSES.map(s => <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Box>
+            </>
+          )}
         </Card>
       )}
 
@@ -265,13 +338,17 @@ export default function CreateMouPage() {
 
       {/* Step 3: Review */}
       {step === 3 && (
-        <Card title="Review Your MoU" subtitle="Please confirm the details before creating the draft.">
+        <Card title="Review Your MoU" subtitle={existingSigned
+          ? 'Confirm the details. This will register the signed agreement and skip the draft workflow.'
+          : 'Please confirm the details before creating the draft.'}>
           <ReviewRow label="Title" value={form.title} />
           <ReviewRow label="Type" value={MOU_TYPES.find(t => t.value === form.mou_type)?.label} />
           <ReviewRow label="Thematic Area" value={form.thematic_area} />
           <ReviewRow label="Lead Department" value={form.lead_department} />
+          {existingSigned && <ReviewRow label="Partner" value={form.partner_name} />}
           <ReviewRow label="Effective Date" value={form.effective_date} />
           <ReviewRow label="Expiry Date" value={form.expiry_date} />
+          {existingSigned && <ReviewRow label="Signed Date" value={form.signed_date} />}
           <ReviewRow label="Duration" value={form.duration_years ? `${form.duration_years} years` : null} />
           <ReviewRow label="Governing Law" value={form.governing_law} />
           <ReviewRow label="Risk Rating" value={form.risk_rating} />
@@ -280,6 +357,10 @@ export default function CreateMouPage() {
           <ReviewRow label="Financial Commitment" value={form.financial_commitment ? 'Yes' : 'No'} />
           <ReviewRow label="IP Clauses" value={form.ip_clauses ? 'Yes' : 'No'} />
           <ReviewRow label="Data Sharing" value={form.data_sharing ? 'Yes' : 'No'} />
+          <ReviewRow label="Document" value={file ? file.name : null} />
+          <ReviewRow label="Register as" value={existingSigned
+            ? (IMPORT_STATUSES.find(s => s.value === form.status)?.label || form.status)
+            : 'New draft'} />
         </Card>
       )}
 
@@ -300,7 +381,7 @@ export default function CreateMouPage() {
             onClick={handleSubmit} disabled={saving}
             sx={{ bgcolor: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
               '&:hover': { bgcolor: '#138f82' } }}>
-            {saving ? 'Creating…' : 'Create MoU Draft'}
+            {saving ? (existingSigned ? 'Registering…' : 'Creating…') : (existingSigned ? 'Register Existing Agreement' : 'Create MoU Draft')}
           </Button>
         )}
       </Box>

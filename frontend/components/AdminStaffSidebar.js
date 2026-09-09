@@ -10,7 +10,6 @@ import {
   Summarize as ReportIcon, AccountBalance as BudgetIcon,
   Payments as DisbIcon, Receipt as ExpenseIcon,
   Science as ProjectIcon, PeopleAlt as DirectoryIcon,
-  Hub as PipelineDataIcon, Analytics as AnalyticsIcon,
   ExitToApp as LogoutIcon, Star as StarIcon,
   Grading as ProjectReviewIcon,
   Handshake as MouIcon, Groups as MouPartnersIcon,
@@ -158,14 +157,6 @@ const NAV_SECTIONS = [
       { icon: MouPartnersIcon,   label: 'Partner Registry',     path: '/admin-staff/mou/partners',             roles: ['MOU_ADMIN','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER','ADMIN_STAFF'] },
       { icon: MouQueueIcon,      label: 'Approval Queue',       path: '/admin-staff/mou/approvals',            roles: ['MOU_ADMIN','LEGAL_OFFICER','INSTITUTIONAL_LEADERSHIP'] },
       { icon: MouAnalyticsIcon,  label: 'Analytics & Reports',  path: '/admin-staff/mou/analytics',            roles: ['MOU_ADMIN','PARTNERSHIP_COORDINATOR','INSTITUTIONAL_LEADERSHIP','GRANT_MANAGER'] },
-    ],
-  },
-  {
-    section: 'Data Module B',
-    roles: ['DATA_ENGINEER','INSTITUTIONAL_LEADERSHIP'],
-    items: [
-      { icon: PipelineDataIcon, label: 'ETL Pipelines',         path: '/admin-staff/data/pipelines',  roles: ['DATA_ENGINEER'] },
-      { icon: AnalyticsIcon,    label: 'Analytics Workspace',   path: '/admin-staff/analytics',       roles: ['DATA_ENGINEER','INSTITUTIONAL_LEADERSHIP'] },
     ],
   },
   {

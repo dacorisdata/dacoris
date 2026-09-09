@@ -33,4 +33,8 @@ async def init_db():
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS staff_id VARCHAR(50)
         """))
+        await conn.execute(text("""
+            ALTER TABLE mou_versions
+            ADD COLUMN IF NOT EXISTS original_filename VARCHAR(300)
+        """))
     print("Database tables created successfully")

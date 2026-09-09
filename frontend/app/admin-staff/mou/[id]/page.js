@@ -19,9 +19,13 @@ import {
   LockClock as SigningIcon, TaskAlt as ActiveIcon,
   NoteAdd as DraftIcon, RateReview as ReviewIcon,
   VerifiedUser as LegalIcon, HowToVote as ExecIcon,
-  ArrowForward as NextIcon,
+  ArrowForward as NextIcon, Description as DocIcon,
+  Download as DownloadIcon, UploadFile as UploadIcon,
 } from '@mui/icons-material';
 import api from '../../../../lib/api';
+import {
+  AgreementFileDrop, uploadMouDocument, downloadMouDocument,
+} from '../../../../components/mou/UploadExistingAgreementDialog';
 
 const ACCENT = '#16a699';
 
@@ -94,6 +98,11 @@ export default function MouDetailPage() {
   const [partners, setPartners] = useState([]);
   const [partForm, setPartForm] = useState({ partner_id: '', role: 'CO_SIGNATORY' });
 
+  const [docFile, setDocFile] = useState(null);
+  const [docSummary, setDocSummary] = useState('');
+  const [docType, setDocType] = useState('ORIGINAL');
+  const [docUploading, setDocUploading] = useState(false);
+
   useEffect(() => { fetchMou(); }, [id]);
 
   const fetchMou = async () => {
@@ -158,6 +167,30 @@ export default function MouDetailPage() {
       await fetchMou();
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to add partner.');
+    }
+  };
+
+  const uploadDocument = async () => {
+    if (!docFile) { setError('Please choose a document to upload.'); return; }
+    setDocUploading(true);
+    setError('');
+    try {
+      await uploadMouDocument(id, docFile, { versionType: docType, changeSummary: docSummary });
+      setDocFile(null);
+      setDocSummary('');
+      setDocType('ORIGINAL');
+      await fetchMou();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to upload document.');
+    }
+    setDocUploading(false);
+  };
+
+  const downloadDocument = async (version) => {
+    try {
+      await downloadMouDocument(id, version.id, version.original_filename);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to download document.');
     }
   };
 
@@ -344,7 +377,7 @@ export default function MouDetailPage() {
           '& .MuiTab-root': { textTransform: 'none', fontSize: 13, minWidth: 0, px: 1.5 },
           '& .Mui-selected': { color: ACCENT, fontWeight: 700 },
           '& .MuiTabs-indicator': { bgcolor: ACCENT } }}>
-        {['Overview', 'Partners', 'Approval History', 'Activities', 'Budget', 'Compliance'].map((t) => (
+        {['Overview', 'Partners', 'Approval History', 'Activities', 'Budget', 'Compliance', 'Documents'].map((t) => (
           <Tab key={t} label={t} />
         ))}
       </Tabs>
@@ -652,6 +685,75 @@ export default function MouDetailPage() {
                   </Card>
                 );
               })}
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {/* Tab 6: Documents */}
+      {tab === 6 && (
+        <Box>
+          <Card sx={{ mb: 2.5 }}>
+            <Typography sx={{ fontSize: 13, fontWeight: 700, color: ACCENT, mb: 1.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Upload document
+            </Typography>
+            <AgreementFileDrop file={docFile} onFile={setDocFile} disabled={docUploading} />
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2, alignItems: 'flex-start' }}>
+              <FormControl size="small" sx={{ minWidth: 180 }}>
+                <InputLabel>Version Type</InputLabel>
+                <Select value={docType} label="Version Type" onChange={e => setDocType(e.target.value)} sx={{ borderRadius: 2 }}>
+                  {['ORIGINAL', 'AMENDMENT', 'RENEWAL', 'ADDENDUM'].map(t => (
+                    <MenuItem key={t} value={t}>{t.replace(/_/g, ' ')}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField size="small" label="Notes (optional)" value={docSummary}
+                onChange={e => setDocSummary(e.target.value)}
+                sx={{ flex: 1, minWidth: 180, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+              <Button variant="contained" startIcon={docUploading ? <CircularProgress size={16} color="inherit" /> : <UploadIcon />}
+                onClick={uploadDocument} disabled={docUploading || !docFile}
+                sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2,
+                  '&:hover': { bgcolor: '#138f82' } }}>
+                {docUploading ? 'Uploading…' : 'Upload'}
+              </Button>
+            </Box>
+          </Card>
+
+          {!mou.versions?.length ? (
+            <Box sx={{ textAlign: 'center', py: 6 }}>
+              <DocIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+              <Typography color="text.secondary">No documents attached yet.</Typography>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              {[...mou.versions].sort((a, b) => (b.version_number || 0) - (a.version_number || 0)).map(v => (
+                <Card key={v.id}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                      <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: `${ACCENT}15`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <DocIcon sx={{ fontSize: 18, color: ACCENT }} />
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: 'text.primary' }}>
+                          {v.original_filename || `Version ${v.version_number}`}
+                        </Typography>
+                        <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>
+                          v{v.version_number} · {(v.version_type || 'ORIGINAL').replace(/_/g, ' ')}
+                          {v.uploaded_at ? ` · ${new Date(v.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                        </Typography>
+                        {v.change_summary && (
+                          <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.3 }}>{v.change_summary}</Typography>
+                        )}
+                      </Box>
+                    </Box>
+                    <Button size="small" startIcon={<DownloadIcon />} onClick={() => downloadDocument(v)}
+                      sx={{ textTransform: 'none', color: ACCENT, fontWeight: 600 }}>
+                      Download
+                    </Button>
+                  </Box>
+                </Card>
+              ))}
             </Box>
           )}
         </Box>

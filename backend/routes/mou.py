@@ -1,11 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, date
+import hashlib
 import json
+import os
+
+from services.file_upload import save_upload, get_file_path
 
 from database import get_db
 from models import (
@@ -29,6 +34,50 @@ MOU_ROLES = {"MOU_ADMIN", "LEGAL_OFFICER", "PARTNERSHIP_COORDINATOR",
              "INSTITUTIONAL_LEADERSHIP", "FINANCE_OFFICER", "ADMIN_STAFF",
              "GRANT_MANAGER", "RESEARCHER"}
 
+IMPORT_STATUSES = {
+    MouStatus.ACTIVE,
+    MouStatus.EXPIRED,
+    MouStatus.CLOSED,
+    MouStatus.PENDING_RENEWAL,
+    MouStatus.PENDING_SIGNING,
+}
+MOU_UPLOAD_SUBFOLDER = "mous"
+
+
+def _form_bool(value: Optional[str], default: bool = False) -> bool:
+    if value is None or value == "":
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _form_date(value: Optional[str], field: str) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(400, f"Invalid {field}: {value}")
+
+
+def _form_float(value: Optional[str], field: str) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        raise HTTPException(400, f"Invalid {field}: {value}")
+
+
+def _parse_enum(enum_cls, value: Optional[str], field: str, required: bool = False):
+    if value is None or str(value).strip() == "":
+        if required:
+            raise HTTPException(400, f"{field} is required")
+        return None
+    try:
+        return enum_cls(value)
+    except ValueError:
+        raise HTTPException(400, f"Invalid {field}: {value}")
+
 
 def _check_access(current_user: User):
     if current_user.is_global_admin or current_user.is_institution_admin:
@@ -39,7 +88,11 @@ def _check_access(current_user: User):
 
 
 def _auto_mou_number(institution_id: str, year: int, seq: int) -> str:
-    return f"MOU-{year}-{institution_id:03d}-{seq:04d}"
+    try:
+        return f"MOU-{year}-{int(institution_id):03d}-{seq:04d}"
+    except (TypeError, ValueError):
+        slug = str(institution_id).replace("-", "")[:6].upper()
+        return f"MOU-{year}-{slug}-{seq:04d}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -217,6 +270,147 @@ async def create_mou(
     await db.commit()
     await db.refresh(mou)
     return _mou_dict(mou)
+
+
+@router.post("/import", status_code=201)
+async def import_existing_mou(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    mou_type: str = Form("GENERAL_COLLABORATION"),
+    status: Optional[str] = Form(None),
+    thematic_area: Optional[str] = Form(None),
+    lead_department: Optional[str] = Form(None),
+    partner_name: Optional[str] = Form(None),
+    scope_objectives: Optional[str] = Form(None),
+    obligations_institution: Optional[str] = Form(None),
+    obligations_partner: Optional[str] = Form(None),
+    governing_law: Optional[str] = Form(None),
+    confidentiality_level: Optional[str] = Form("INTERNAL"),
+    effective_date: Optional[str] = Form(None),
+    expiry_date: Optional[str] = Form(None),
+    signed_date: Optional[str] = Form(None),
+    duration_years: Optional[str] = Form(None),
+    auto_renew: Optional[str] = Form(None),
+    renewal_notice_days: Optional[str] = Form(None),
+    financial_commitment: Optional[str] = Form(None),
+    ip_clauses: Optional[str] = Form(None),
+    data_sharing: Optional[str] = Form(None),
+    risk_rating: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Register an already-signed partnership / collaboration agreement and attach the document."""
+    _check_access(current_user)
+    if not current_user.primary_institution_id:
+        raise HTTPException(400, "User has no institution assigned")
+    if not (title or "").strip():
+        raise HTTPException(400, "Title is required")
+
+    mou_type_enum = _parse_enum(MouType, mou_type, "mou_type", required=True)
+    eff = _form_date(effective_date, "effective_date")
+    exp = _form_date(expiry_date, "expiry_date")
+    signed = _form_date(signed_date, "signed_date") or eff
+
+    if status:
+        status_enum = _parse_enum(MouStatus, status, "status", required=True)
+        if status_enum not in IMPORT_STATUSES:
+            raise HTTPException(400, "Imported agreements must be Active, Expired, Closed, Pending Renewal, or Pending Signing")
+    elif exp and exp < date.today():
+        status_enum = MouStatus.EXPIRED
+    else:
+        status_enum = MouStatus.ACTIVE
+
+    count_res = await db.execute(
+        select(func.count()).select_from(Mou).where(Mou.institution_id == current_user.primary_institution_id)
+    )
+    seq = (count_res.scalar() or 0) + 1
+    year = datetime.utcnow().year
+    mou_number = _auto_mou_number(current_user.primary_institution_id, year, seq)
+
+    conf = _parse_enum(MouConfidentiality, confidentiality_level, "confidentiality_level") or MouConfidentiality.INTERNAL
+    risk = _parse_enum(MouRiskRating, risk_rating, "risk_rating")
+    notice = 90
+    if renewal_notice_days not in (None, ""):
+        try:
+            notice = int(renewal_notice_days)
+        except ValueError:
+            raise HTTPException(400, "Invalid renewal_notice_days")
+
+    mou = Mou(
+        institution_id=current_user.primary_institution_id,
+        mou_number=mou_number,
+        created_by_id=current_user.id,
+        title=title.strip(),
+        mou_type=mou_type_enum,
+        status=status_enum,
+        thematic_area=thematic_area or None,
+        lead_department=lead_department or None,
+        scope_objectives=scope_objectives or None,
+        obligations_institution=obligations_institution or None,
+        obligations_partner=obligations_partner or None,
+        governing_law=governing_law or None,
+        confidentiality_level=conf,
+        effective_date=eff,
+        expiry_date=exp,
+        signed_date=signed,
+        duration_years=_form_float(duration_years, "duration_years"),
+        auto_renew=_form_bool(auto_renew),
+        renewal_notice_days=notice,
+        financial_commitment=_form_bool(financial_commitment),
+        ip_clauses=_form_bool(ip_clauses),
+        data_sharing=_form_bool(data_sharing),
+        risk_rating=risk,
+    )
+    db.add(mou)
+    await db.flush()
+
+    version = await _attach_mou_document(
+        mou, file, current_user, db,
+        version_type=MouVersionType.ORIGINAL,
+        change_summary=(notes or "").strip() or "Imported existing signed agreement",
+    )
+
+    partner_label = (partner_name or "").strip()
+    if partner_label:
+        existing = await db.execute(
+            select(MouPartner).where(
+                and_(
+                    MouPartner.institution_id == current_user.primary_institution_id,
+                    func.lower(MouPartner.organisation_name) == partner_label.lower(),
+                )
+            )
+        )
+        partner = existing.scalar_one_or_none()
+        if not partner:
+            partner = MouPartner(
+                institution_id=current_user.primary_institution_id,
+                organisation_name=partner_label,
+            )
+            db.add(partner)
+            await db.flush()
+        db.add(MouParticipant(
+            mou_id=mou.id,
+            partner_id=partner.id,
+            role=MouParticipantRole.CO_SIGNATORY,
+            signed_date=signed,
+        ))
+
+    db.add(MouApprovalStage(
+        mou_id=mou.id,
+        stage_type=MouApprovalStageType.SIGNING,
+        stage_order=1,
+        status=MouApprovalStageStatus.APPROVED,
+        comments="Registered from an existing signed agreement",
+        decided_at=datetime.utcnow(),
+        decided_by_id=current_user.id,
+    ))
+
+    await db.commit()
+    await db.refresh(mou)
+    result = _mou_dict(mou)
+    result["versions"] = [_version_dict(version)]
+    return result
 
 
 @router.get("/")
@@ -834,6 +1028,67 @@ async def update_compliance(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# DOCUMENTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.get("/{mou_id}/documents")
+async def list_mou_documents(
+    mou_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    mou = await _get_mou_or_404(mou_id, current_user, db)
+    versions = sorted(mou.versions or [], key=lambda v: v.version_number)
+    return [_version_dict(v) for v in versions]
+
+
+@router.post("/{mou_id}/documents", status_code=201)
+async def upload_mou_document(
+    mou_id: str,
+    file: UploadFile = File(...),
+    version_type: str = Form("ORIGINAL"),
+    change_summary: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    mou = await _get_mou_or_404(mou_id, current_user, db)
+    vtype = _parse_enum(MouVersionType, version_type, "version_type") or MouVersionType.ORIGINAL
+    version = await _attach_mou_document(
+        mou, file, current_user, db,
+        version_type=vtype,
+        change_summary=change_summary,
+    )
+    await db.commit()
+    await db.refresh(version)
+    return _version_dict(version)
+
+
+@router.get("/{mou_id}/documents/{version_id}/download")
+async def download_mou_document(
+    mou_id: str,
+    version_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    mou = await _get_mou_or_404(mou_id, current_user, db)
+    version = next((v for v in (mou.versions or []) if v.id == version_id), None)
+    if not version:
+        r = await db.execute(
+            select(MouVersion).where(and_(MouVersion.id == version_id, MouVersion.mou_id == mou.id))
+        )
+        version = r.scalar_one_or_none()
+    if not version or not version.document_path:
+        raise HTTPException(404, "Document not found")
+
+    path = get_file_path(os.path.basename(version.document_path), subfolder=MOU_UPLOAD_SUBFOLDER)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "File not found on server")
+
+    filename = version.original_filename or os.path.basename(version.document_path)
+    return FileResponse(path, filename=filename, media_type="application/octet-stream")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -996,9 +1251,44 @@ def _version_dict(v: MouVersion) -> dict:
         "version_number": v.version_number,
         "version_type": v.version_type,
         "document_path": v.document_path,
+        "original_filename": getattr(v, "original_filename", None),
         "change_summary": v.change_summary,
         "uploaded_at": v.uploaded_at.isoformat() if v.uploaded_at else None,
+        "uploaded_by_id": v.uploaded_by_id,
     }
+
+
+async def _attach_mou_document(
+    mou: Mou,
+    file: UploadFile,
+    current_user: User,
+    db: AsyncSession,
+    version_type: MouVersionType = MouVersionType.ORIGINAL,
+    change_summary: Optional[str] = None,
+) -> MouVersion:
+    raw = await file.read()
+    checksum = hashlib.sha256(raw).hexdigest()
+    await file.seek(0)
+    info = await save_upload(file, subfolder=MOU_UPLOAD_SUBFOLDER)
+
+    r = await db.execute(
+        select(func.max(MouVersion.version_number)).where(MouVersion.mou_id == mou.id)
+    )
+    next_num = (r.scalar() or 0) + 1
+
+    version = MouVersion(
+        mou_id=mou.id,
+        version_number=next_num,
+        document_path=info["stored_filename"],
+        document_checksum=checksum,
+        original_filename=info.get("original_filename") or file.filename,
+        version_type=version_type,
+        change_summary=change_summary,
+        uploaded_by_id=current_user.id,
+    )
+    db.add(version)
+    await db.flush()
+    return version
 
 
 def _budget_dict(b: MouBudget) -> dict:

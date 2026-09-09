@@ -2057,6 +2057,7 @@ class MouVersion(Base):
     version_number = Column(Integer, nullable=False, default=1)
     document_path = Column(String(500), nullable=True)
     document_checksum = Column(String(64), nullable=True)
+    original_filename = Column(String(300), nullable=True)
     version_type = Column(Enum(MouVersionType), default=MouVersionType.ORIGINAL)
     change_summary = Column(Text, nullable=True)
     uploaded_by_id = Column(String, ForeignKey("users.id"), nullable=True)

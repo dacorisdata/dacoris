@@ -12,9 +12,11 @@ import {
   People as PartnersIcon, Assignment as ActivityIcon,
   BarChart as AnalyticsIcon, ArrowForward as ArrowIcon,
   Gavel as LegalIcon, Autorenew as RenewalIcon,
+  UploadFile as UploadIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../contexts/AuthContext';
 import api from '../../../lib/api';
+import UploadExistingAgreementDialog from '../../../components/mou/UploadExistingAgreementDialog';
 
 const ACCENT = '#16a699';
 
@@ -42,6 +44,7 @@ export default function MouDashboard() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const [recentMous, setRecentMous] = useState([]);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   useEffect(() => { init(); }, []);
 
@@ -117,12 +120,20 @@ export default function MouDashboard() {
             Manage the full lifecycle of your institution's Memoranda of Understanding and partnerships.
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />}
-          onClick={() => router.push('/admin-staff/mou/create')}
-          sx={{ bgcolor: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
-            '&:hover': { bgcolor: '#138f82' } }}>
-          New MoU
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button variant="outlined" startIcon={<UploadIcon />}
+            onClick={() => setUploadOpen(true)}
+            sx={{ borderColor: ACCENT, color: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
+              '&:hover': { borderColor: '#138f82', bgcolor: `${ACCENT}08` } }}>
+            Upload Existing
+          </Button>
+          <Button variant="contained" startIcon={<AddIcon />}
+            onClick={() => router.push('/admin-staff/mou/create')}
+            sx={{ bgcolor: ACCENT, borderRadius: 2, textTransform: 'none', fontWeight: 600,
+              '&:hover': { bgcolor: '#138f82' } }}>
+            New MoU
+          </Button>
+        </Box>
       </Box>
 
       {/* Stat Cards */}
@@ -149,11 +160,18 @@ export default function MouDashboard() {
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <MouIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
               <Typography color="text.secondary" fontSize={13}>No MoUs yet. Create your first MoU.</Typography>
-              <Button variant="outlined" size="small" startIcon={<AddIcon />}
-                onClick={() => router.push('/admin-staff/mou/create')}
-                sx={{ mt: 2, borderColor: ACCENT, color: ACCENT, textTransform: 'none', borderRadius: 2 }}>
-                Create MoU
-              </Button>
+              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap', mt: 2 }}>
+                <Button variant="outlined" size="small" startIcon={<UploadIcon />}
+                  onClick={() => setUploadOpen(true)}
+                  sx={{ borderColor: ACCENT, color: ACCENT, textTransform: 'none', borderRadius: 2 }}>
+                  Upload Existing
+                </Button>
+                <Button variant="outlined" size="small" startIcon={<AddIcon />}
+                  onClick={() => router.push('/admin-staff/mou/create')}
+                  sx={{ borderColor: ACCENT, color: ACCENT, textTransform: 'none', borderRadius: 2 }}>
+                  Create MoU
+                </Button>
+              </Box>
             </Box>
           ) : (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -215,13 +233,14 @@ export default function MouDashboard() {
             <Typography sx={{ color: ACCENT, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>Quick</Typography>
             <Typography sx={{ fontSize: 16, fontWeight: 600, color: 'text.primary', mb: 2 }}>Actions</Typography>
             {[
-              { label: 'New MoU',          icon: AddIcon,       path: '/admin-staff/mou/create' },
-              { label: 'MoU Repository',   icon: MouIcon,       path: '/admin-staff/mou/list' },
-              { label: 'Partners',         icon: PartnersIcon,  path: '/admin-staff/mou/partners' },
-              { label: 'Approval Console', icon: LegalIcon,     path: '/admin-staff/mou/approvals' },
-              { label: 'Analytics',        icon: AnalyticsIcon, path: '/admin-staff/mou/analytics' },
-            ].map(({ label, icon: Icon, path }) => (
-              <Box key={label} onClick={() => router.push(path)}
+              { label: 'New MoU',            icon: AddIcon,       path: '/admin-staff/mou/create' },
+              { label: 'Upload Existing',    icon: UploadIcon,    action: () => setUploadOpen(true) },
+              { label: 'MoU Repository',     icon: MouIcon,       path: '/admin-staff/mou/list' },
+              { label: 'Partners',           icon: PartnersIcon,  path: '/admin-staff/mou/partners' },
+              { label: 'Approval Console',   icon: LegalIcon,     path: '/admin-staff/mou/approvals' },
+              { label: 'Analytics',          icon: AnalyticsIcon, path: '/admin-staff/mou/analytics' },
+            ].map(({ label, icon: Icon, path, action }) => (
+              <Box key={label} onClick={() => action ? action() : router.push(path)}
                 sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.2, borderRadius: 2,
                   cursor: 'pointer', mb: 0.5,
                   '&:hover': { bgcolor: `${ACCENT}08` } }}>
@@ -235,6 +254,12 @@ export default function MouDashboard() {
           </Card>
         </Box>
       </Box>
+
+      <UploadExistingAgreementDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onSuccess={(mou) => { setUploadOpen(false); router.push(`/admin-staff/mou/${mou.id}`); }}
+      />
     </Box>
   );
 }

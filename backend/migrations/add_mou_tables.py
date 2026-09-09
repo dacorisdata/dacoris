@@ -103,6 +103,7 @@ def run_migration():
                 version_number INTEGER NOT NULL DEFAULT 1,
                 document_path VARCHAR(500),
                 document_checksum VARCHAR(64),
+                original_filename VARCHAR(300),
                 version_type mouversiontype DEFAULT 'ORIGINAL',
                 change_summary TEXT,
                 uploaded_by_id INTEGER REFERENCES users(id),
