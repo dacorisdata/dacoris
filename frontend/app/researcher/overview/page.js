@@ -496,7 +496,7 @@ export default function ResearcherOverview() {
     );
   }
 
-  const firstName = user?.name?.split(' ')[0] || t('researcher.overview.fallbackName');
+  const displayName = (user?.name || '').trim() || t('researcher.overview.fallbackName');
   const hour = new Date().getHours();
   const greeting = hour < 12
     ? t('researcher.overview.greetingMorning')
@@ -538,7 +538,7 @@ export default function ResearcherOverview() {
             {t('researcher.overview.headerBadge', { date: todayLabel, institution: institutionName })}
           </Typography>
           <Typography sx={{ color: '#0f172a', fontSize: { xs: 28, md: 32 }, fontWeight: 800, letterSpacing: -0.5, lineHeight: 1.15, mb: 0.75, ...(dark && { color: 'text.primary' }) }}>
-            {greeting}, {firstName}
+            {greeting}, {displayName}
           </Typography>
           <Typography sx={{ color: 'text.secondary', fontSize: 14.5, maxWidth: 520 }}>
             {t('researcher.overview.subtitle')}
