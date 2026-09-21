@@ -21,7 +21,7 @@ const tl = COLORS.teal;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CONTACT_EMAIL = 'info@dacoris.com';
-const CONTACT_PHONE = '+254 732 436 199';
+const CONTACT_PHONE = '020 2240240';
 
 const VALID_ENQUIRY_TYPES = ['general', 'demo', 'privacy', 'security', 'partnership'];
 
