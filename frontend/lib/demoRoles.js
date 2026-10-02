@@ -1,7 +1,12 @@
 /** Demo account role switching — allowlisted emails only */
 
 export const DEMO_ACCOUNT_EMAIL = 'demo@kibu.ac.ke';
-export const DEMO_ACCOUNT_EMAILS = ['demo@kibu.ac.ke', 'demo@dacoris.com', 'researcher@embuni.ac.ke'];
+export const DEMO_ACCOUNT_EMAILS = [
+  'demo@kibu.ac.ke',
+  'demo@dacoris.com',
+  'researcher@embuni.ac.ke',
+  'researcher@unilag.edu.ng',
+];
 export const DEMO_ORCID_ID = '0009-0001-0000-0001';
 
 const LEGACY_ROLE_IDS = {

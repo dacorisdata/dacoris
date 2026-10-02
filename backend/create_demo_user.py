@@ -30,6 +30,15 @@ DEMO_ACCOUNTS = [
         "institution_type": InstitutionType.UNIVERSITY,
     },
     {
+        "email": "researcher@unilag.edu.ng",
+        "password": "Demo@dacoris1",
+        "name": "Matthew Olusoji Ilori",
+        "orcid_id": "0009-0001-0000-0004",
+        "institution_name": "University of Lagos",
+        "institution_domain": "unilag.edu.ng",
+        "institution_type": InstitutionType.UNIVERSITY,
+    },
+    {
         "email": "researcher@embuni.ac.ke",
         "password": "Demo@dacoris1",
         "name": "Embu Demo User",

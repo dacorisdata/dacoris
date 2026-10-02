@@ -126,8 +126,8 @@ jobs:
             git log -3 --oneline
             git status --short
 
-            if ! grep -q "researcher@embuni.ac.ke" frontend/lib/demoRoles.js; then
-              echo "ERROR: frontend/lib/demoRoles.js does not contain researcher@embuni.ac.ke after checkout"
+            if ! grep -q "researcher@unilag.edu.ng" frontend/lib/demoRoles.js; then
+              echo "ERROR: frontend/lib/demoRoles.js does not contain researcher@unilag.edu.ng after checkout"
               exit 1
             fi
 
@@ -136,8 +136,8 @@ jobs:
             XLSX=backend/data/DACORIS_IS_v2.xlsx
             SIZE=$(stat -c%s "$XLSX")
             echo "Excel size on host: $SIZE"
-            if [ "$SIZE" -lt 125000 ]; then
-              echo "ERROR: $XLSX was not updated (size $SIZE). Expected the Embu/Kibabii workbook (>=125000 bytes)."
+            if [ "$SIZE" -lt 135000 ]; then
+              echo "ERROR: $XLSX was not updated (size $SIZE). Expected the Lagos/Kibabii workbook (>=135000 bytes)."
               exit 1
             fi
 
@@ -235,8 +235,8 @@ jobs:
           ssh dacoris@41.89.92.140 '
             set -euo pipefail
             cd /opt/dacoris/rims
-            echo "Checking rebuilt frontend for researcher@embuni.ac.ke..."
-            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T frontend sh -c "grep -R researcher@embuni.ac.ke /app /app/.next 2>/dev/null | head -c 400"
+            echo "Checking rebuilt frontend for researcher@unilag.edu.ng..."
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T frontend sh -c "grep -R researcher@unilag.edu.ng /app /app/.next 2>/dev/null | head -c 400"
           '
 
       - name: Verify IS spreadsheet loaded
@@ -245,7 +245,7 @@ jobs:
             set -euo pipefail
             cd /opt/dacoris/rims
             echo "Checking DACORIS_IS_v2.xlsx inside the backend container..."
-            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T backend python -c 'from services.external_systems.excel_is_reader import get_excel_repository; r=get_excel_repository(); n=len(r._students); k=sum(1 for s in r._students if "kibabii" in (s.institution or "").lower()); e=sum(1 for s in r._students if "embu" in (s.institution or "").lower()); print("path", r.excel_path); print("students", n); print("kibabii", k); print("embu", e); assert n >= 90, n; assert k >= 20, k; assert e >= 10, e'
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T backend python -c 'from services.external_systems.excel_is_reader import get_excel_repository; r=get_excel_repository(); n=len(r._students); k=sum(1 for s in r._students if "kibabii" in (s.institution or "").lower()); u=sum(1 for s in r._students if "lagos" in (s.institution or "").lower()); print("path", r.excel_path); print("students", n); print("kibabii", k); print("lagos", u); assert n >= 100, n; assert k >= 20, k; assert u >= 20, u'
           ENDSSH
       
       - name: Show logs on failure

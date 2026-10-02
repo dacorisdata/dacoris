@@ -43,7 +43,12 @@ ORCID_AUTHORIZE_URL = "https://sandbox.orcid.org/oauth/authorize" if ORCID_SANDB
 ORCID_TOKEN_URL = "https://sandbox.orcid.org/oauth/token" if ORCID_SANDBOX_MODE else "https://orcid.org/oauth/token"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-DEMO_ACCOUNT_EMAILS = {"demo@kibu.ac.ke", "demo@dacoris.com", "researcher@embuni.ac.ke"}
+DEMO_ACCOUNT_EMAILS = {
+    "demo@kibu.ac.ke",
+    "demo@dacoris.com",
+    "researcher@embuni.ac.ke",
+    "researcher@unilag.edu.ng",
+}
 DEMO_ROLE_MAP = {
     "RESEARCHER": (PrimaryAccountType.RESEARCHER, "Researcher"),
     "DIRECTOR_RESEARCH": (PrimaryAccountType.DIRECTOR_RESEARCH, "Director of Research"),
